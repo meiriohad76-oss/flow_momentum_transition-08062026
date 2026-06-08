@@ -1,0 +1,278 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark" data-density="regular">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>UTA — Implementation Spec — Data &amp; Logic</title>
+<link rel="stylesheet" href="spec.css" />
+</head>
+<body>
+
+<nav class="spec-nav">
+  <a class="brand" href="index.html">
+    <span class="mk"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12h4l3 8 4-16 3 8h4"/></svg></span>
+    <span><b>Unusual Trading Activity</b><span>Design &amp; UX implementation spec</span></span>
+  </a>
+  <a class="np" href="index.html">Overview</a>
+  <a class="np" href="design-system.html">Design System</a>
+  <a class="np" href="screens.html">Screens</a>
+  <a class="np active" href="data-logic.html">Data &amp; Logic</a>
+  <a class="np" href="tickets.html">Build Tickets</a>
+  <span class="grow"></span>
+  <span class="tag">Part 03</span>
+</nav>
+
+<div class="wrap">
+
+  <header class="hero">
+    <div class="eyebrow">Part 03 · Data &amp; Logic</div>
+    <h1>The model behind the pixels</h1>
+    <p>The UI is a faithful renderer of one data structure and a handful of deterministic rules. This part defines the ticker schema, the A/B/C indicator framework, the rule-based tier gates, the 9-state lane contract, the two-pass scan pipeline, and how state persists. Get this right and the screens fall out of it.</p>
+    <div class="meta">
+      <span class="m"><b>3</b> indicators (A/B/C)</span>
+      <span class="m"><b>4</b> tiers + suppression</span>
+      <span class="m"><b>9</b> lane states</span>
+      <span class="m">Source <b>data.js · evidence.jsx · detail-extras.jsx</b></span>
+    </div>
+  </header>
+
+  <section class="sec" id="model">
+    <h2>The mental model</h2>
+    <div class="h2sub">Flow → indicators → tier</div>
+    <p class="lead">For each ticker, each cycle: ingest prints across lanes → compute three independent indicators → derive a signed direction from order flow → apply explicit tier gates → attach corroboration → render. No step is a black box; every number on screen traces to a field.</p>
+    <div class="panel">
+      <div class="diagram">
+        <div class="flowrow">
+          <div class="flownode"><div class="fl">Lanes (sources)</div><div class="fv">trade slices · daily bars · block feed · pre-market · macro · alerts · options</div></div>
+          <div class="flowarrow">→</div>
+          <div class="flownode"><div class="fl">Indicators</div><div class="fv">A percentile · B z-score · C raw ratio</div></div>
+        </div>
+        <div class="flowrow">
+          <div class="flownode"><div class="fl">Direction</div><div class="fv">signed flow (Lee-Ready) → buyer / seller / mixed</div></div>
+          <div class="flowarrow">→</div>
+          <div class="flownode"><div class="fl">Tier gates</div><div class="fv">explicit thresholds → A / B / C / D</div></div>
+          <div class="flowarrow">→</div>
+          <div class="flownode"><div class="fl">Corroboration</div><div class="fv">6 flags · elevation rule</div></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="sec" id="indicators">
+    <h2>The A/B/C framework</h2>
+    <div class="h2sub">Three lenses, never averaged</div>
+    <p class="lead">The product's defining decision: it shows three orthogonal readings of "how unusual" and never collapses them into one score. Each answers a different question.</p>
+    <div class="grid3">
+      <div class="tierrule"><div class="tr-top"><span class="ind-chip A" style="padding:4px 9px"><span class="lab" style="color:#c79a4a">A</span></span><span class="nm">Percentile</span></div><p style="margin:0;font-size:13px">"How does this name rank <b>against its universe right now?</b>" 0–1 percentile on volume / focus / pressure. <b>Requires a peer group</b> — absent in single-ticker mode (shows N/A).</p></div>
+      <div class="tierrule"><div class="tr-top"><span class="ind-chip B" style="padding:4px 9px"><span class="lab" style="color:var(--accent)">B</span></span><span class="nm">Z-score</span></div><p style="margin:0;font-size:13px">"How unusual is this <b>vs the name's own history?</b>" σ above its 20-session median on volume / notional / focus / pressure / pre-market. The primary tier gate.</p></div>
+      <div class="tierrule"><div class="tr-top"><span class="ind-chip C" style="padding:4px 9px"><span class="lab" style="color:var(--ink-3)">C</span></span><span class="nm">Raw metric</span></div><p style="margin:0;font-size:13px">"What is the <b>plain magnitude?</b>" Unitless ratios: notional ×, volume ×, trade-count ×, focus share, largest-print multiple, net pressure %.</p></div>
+    </div>
+    <h3 class="sub">C — raw metric fields</h3>
+    <div class="scroll">
+      <table class="stable">
+        <thead><tr><th>Field</th><th>Meaning</th><th>Example</th></tr></thead>
+        <tbody>
+          <tr><td class="mono">vr / nr / cr</td><td>Volume / notional / trade-count ratio vs recent median</td><td class="mono">9.8× · 9.8× · 4.2×</td></tr>
+          <tr><td class="mono">fshare</td><td>Focus (off-exchange / large) share of analyzed notional</td><td class="mono">0.50</td></tr>
+          <tr><td class="mono">fcount / lpm</td><td>Focus print count · largest-print multiple of median</td><td class="mono">4 · 6.2×</td></tr>
+          <tr><td class="mono">nnp / nvp</td><td>Net notional / net volume pressure (signed −1…+1)</td><td class="mono">+0.72 / +0.68</td></tr>
+          <tr><td class="mono">fnotional · total · largest</td><td>Focus notional · total analyzed · largest single print ($)</td><td class="mono">$440M · $880M · $168M</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="sec" id="direction">
+    <h2>Direction &amp; signing</h2>
+    <div class="h2sub">From order flow, never price</div>
+    <p class="lead">Direction is the sign of net pressure derived by classifying each print as buyer- or seller-initiated (Lee-Ready: quote rule, then tick test; midpoint &amp; unclassifiable prints are excluded from signing). A <strong>signing-confidence</strong> score reflects how much of the flow was confidently signed.</p>
+    <div class="scroll">
+      <table class="stable">
+        <thead><tr><th>Direction</th><th>Tag</th><th>Rule</th></tr></thead>
+        <tbody>
+          <tr><td><b>Buyer-side</b></td><td><span class="dir-tag bull"><span class="arrow">↑</span>bull</span></td><td>net signed pressure ≥ <b>+0.60</b></td></tr>
+          <tr><td><b>Seller-side</b></td><td><span class="dir-tag bear"><span class="arrow">↓</span>bear</span></td><td>net signed pressure ≤ <b>−0.60</b></td></tr>
+          <tr><td><b>Mixed</b></td><td><span class="dir-tag mixed"><span class="arrow">↔</span>mixed</span></td><td>both sides present, neither dominant</td></tr>
+          <tr><td><b>Undetermined</b></td><td><span class="dir-tag undet"><span class="arrow">–</span>undet</span></td><td>|pressure| below threshold — elevated but non-directional</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="note warn"><span class="ni">!</span><div>Below 50% signing confidence, the UI explicitly flags direction as "indicative only". Never present a low-confidence direction as conviction.</div></div>
+  </section>
+
+  <section class="sec" id="tiers">
+    <h2>Tier classification</h2>
+    <div class="h2sub">Explicit gates — the heart of the system</div>
+    <p class="lead">Tier is assigned by rules, evaluated top-down (try A, then B, then C, else D). In single-ticker mode the A (percentile) criteria are skipped — only B + C apply. These exact rules drive the "Explain this tier" modal.</p>
+
+    <div class="tierrule" style="margin-bottom:12px">
+      <div class="tr-top"><span class="tier-badge t-a lg" style="display:inline-grid;place-items:center;width:40px;height:40px;border-radius:11px;font-family:var(--font-mono);font-weight:700;font-size:20px;background:var(--accent);color:#fff;box-shadow:0 0 0 1px var(--accent-line)">A</span><span class="nm">Actionable</span><span class="meaning">clears every gate with independent corroboration</span></div>
+      <ul class="tk-ac" style="list-style:none;margin:0;padding:0">
+        <li style="position:relative;padding:4px 0 4px 24px;font-size:13px;color:var(--ink-2)"><span style="position:absolute;left:2px;color:var(--buy)">✓</span> B ≥ <b>2.5σ</b> on ≥ <b>2</b> components (volume / focus / notional)</li>
+        <li style="position:relative;padding:4px 0 4px 24px;font-size:13px;color:var(--ink-2)"><span style="position:absolute;left:2px;color:var(--buy)">✓</span> A ≥ <b>85th</b> percentile on ≥ <b>2</b> components <em>(portfolio / scan only)</em></li>
+        <li style="position:relative;padding:4px 0 4px 24px;font-size:13px;color:var(--ink-2)"><span style="position:absolute;left:2px;color:var(--buy)">✓</span> Direction consistent across components (net &amp; block pressure same side)</li>
+        <li style="position:relative;padding:4px 0 4px 24px;font-size:13px;color:var(--ink-2)"><span style="position:absolute;left:2px;color:var(--buy)">✓</span> ≥ <b>1 independent (Strong)</b> corroboration (price / provider / options)</li>
+        <li style="position:relative;padding:4px 0 4px 24px;font-size:13px;color:var(--ink-2)"><span style="position:absolute;left:2px;color:var(--buy)">✓</span> Lane state = <b>ready</b> (all required lanes fresh)</li>
+      </ul>
+    </div>
+
+    <div class="tierrule" style="margin-bottom:12px">
+      <div class="tr-top"><span style="display:inline-grid;place-items:center;width:40px;height:40px;border-radius:11px;font-family:var(--font-mono);font-weight:700;font-size:20px;background:var(--accent-soft);color:var(--accent);box-shadow:inset 0 0 0 1px var(--accent-line)">B</span><span class="nm">Review</span><span class="meaning">meets threshold, wants confirmation</span></div>
+      <ul class="tk-ac" style="list-style:none;margin:0;padding:0">
+        <li style="position:relative;padding:4px 0 4px 24px;font-size:13px;color:var(--ink-2)"><span style="position:absolute;left:2px;color:var(--buy)">✓</span> B ≥ <b>1.5σ</b> on ≥ <b>1</b> component</li>
+        <li style="position:relative;padding:4px 0 4px 24px;font-size:13px;color:var(--ink-2)"><span style="position:absolute;left:2px;color:var(--buy)">✓</span> A ≥ <b>70th</b> percentile on ≥ <b>1</b> component <em>(portfolio / scan only)</em></li>
+        <li style="position:relative;padding:4px 0 4px 24px;font-size:13px;color:var(--ink-2)"><span style="position:absolute;left:2px;color:var(--buy)">✓</span> Direction present (a confirmed side)</li>
+        <li style="position:relative;padding:4px 0 4px 24px;font-size:13px;color:var(--ink-2)"><span style="position:absolute;left:2px;color:var(--buy)">✓</span> Lane state = <b>ready or partial</b></li>
+      </ul>
+    </div>
+
+    <div class="grid2">
+      <div class="tierrule">
+        <div class="tr-top"><span style="display:inline-grid;place-items:center;width:40px;height:40px;border-radius:11px;font-family:var(--font-mono);font-weight:700;font-size:20px;background:transparent;color:var(--ink-2);box-shadow:inset 0 0 0 1px var(--border-strong)">C</span><span class="nm">Context</span></div>
+        <p style="margin:0;font-size:13px">Activity detected (elevated volume / B), but the Tier-B threshold is not met — or the tier is <b>capped at C</b> because lane coverage is below 90%, or direction is unconfirmed.</p>
+      </div>
+      <div class="tierrule">
+        <div class="tr-top"><span style="display:inline-grid;place-items:center;width:40px;height:40px;border-radius:11px;font-family:var(--font-mono);font-weight:700;font-size:20px;background:transparent;color:var(--ink-faint);box-shadow:inset 0 0 0 1px var(--border);border:1px dashed var(--border-strong)">D</span><span class="nm">Suppressed</span></div>
+        <p style="margin:0;font-size:13px"><b>No tier emitted.</b> A required lane is loading, or the sample is below ~50 prints after exclusions, or indicators can't be computed. The system refuses to guess.</p>
+      </div>
+    </div>
+
+    <h3 class="sub">Elevation rule</h3>
+    <div class="note rule"><span class="ni">◆</span><div>A confirmed, direction-aligned <b>provider alert</b> is the only thing that elevates. A Tier-A name with a matching provider alert is "eligible for elevation"; a Tier-B name "could elevate to A once B ≥ 2.5σ and lane = ready". <b>Contextual flags (news, macro) never elevate</b> — they inform only.</div></div>
+  </section>
+
+  <section class="sec" id="corroboration">
+    <h2>Corroboration model</h2>
+    <div class="h2sub">Six flags, three independence levels</div>
+    <div class="scroll">
+      <table class="stable">
+        <thead><tr><th>Flag</th><th>Independence</th><th>Can elevate?</th><th>Source</th></tr></thead>
+        <tbody>
+          <tr><td>Price action aligned</td><td><b>Strong</b></td><td>Yes (counts as independent)</td><td>price vs signed pressure</td></tr>
+          <tr><td>Provider alert confirmed</td><td><b>Strong</b></td><td>Yes — the elevation trigger</td><td>confirmed alerts lane</td></tr>
+          <tr><td>Options flow aligned</td><td><b>Strong</b></td><td>Yes</td><td>OPRA options lane (optional)</td></tr>
+          <tr><td>Pre-market + regular elevated</td><td>Moderate</td><td>No</td><td>both windows B ≥ 1.5σ</td></tr>
+          <tr><td>News catalyst present</td><td>Contextual</td><td>No (informs only)</td><td>news / events lane</td></tr>
+          <tr><td>Macro regime supports</td><td>Contextual</td><td>No (informs only)</td><td>FRED macro lane</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p style="font-size:13px">Tier A requires <b>≥ 1 Strong</b> flag. The panel shows the count of independent confirmations and restates the rule so the user always knows why a name did (or didn't) reach A.</p>
+  </section>
+
+  <section class="sec" id="lanes">
+    <h2>The lane state contract</h2>
+    <div class="h2sub">Nine states — never "stale"</div>
+    <p class="lead">Every data source is a "lane" reporting exactly one of nine states. The contract is deliberate: a lane is never vaguely "stale" — it is precisely loading, needs-refresh, partial, unavailable, or blocked, and the tier responds accordingly. This is what lets the product be honest about incomplete data.</p>
+    <div class="scroll">
+      <table class="stable">
+        <thead><tr><th>State</th><th>Indicator</th><th>Operator copy</th><th>Effect on tier</th></tr></thead>
+        <tbody>
+          <tr><td class="mono">ready</td><td><span class="legend-dot" style="background:var(--buy)"></span>green</td><td>Ready · fresh &amp; analyzed</td><td>Normal — eligible for any tier</td></tr>
+          <tr><td class="mono">loading</td><td><span class="legend-dot" style="background:var(--accent)"></span>pulse</td><td>Data is still loading</td><td>Required lane loading → <b>suppress to D</b></td></tr>
+          <tr><td class="mono">source_available_not_analyzed</td><td><span class="legend-dot" style="background:var(--accent)"></span>pulse</td><td>Analysis pending</td><td>Hold until analyzed</td></tr>
+          <tr><td class="mono">analysis_needs_refresh</td><td><span class="legend-dot" style="background:var(--accent)"></span>pulse</td><td>Analysis needs refresh</td><td>Prompt revalidation</td></tr>
+          <tr><td class="mono">partial_usable</td><td><span class="legend-dot" style="background:var(--accent)"></span>pulse</td><td>Usable — partial coverage</td><td><b>Cap at C</b> until ≥ 90% coverage</td></tr>
+          <tr><td class="mono">source_unavailable</td><td><span class="legend-dot" style="background:var(--sell)"></span>red</td><td>Provider unavailable</td><td>No score emitted from this lane</td></tr>
+          <tr><td class="mono">blocked</td><td><span class="legend-dot" style="background:var(--sell)"></span>red</td><td>Cannot evaluate</td><td>Missing required source → suppress</td></tr>
+          <tr><td class="mono">disabled_optional</td><td><span class="legend-dot" style="background:var(--ink-faint)"></span>grey</td><td>Optional source disabled</td><td>None — optional, never penalizes</td></tr>
+          <tr><td class="mono">insufficient_history</td><td><span class="legend-dot" style="background:var(--ink-faint)"></span>grey</td><td>Insufficient history (&lt; 10 sessions)</td><td>B unavailable for that component</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="note info"><span class="ni">i</span><div><b>Coverage rule in practice:</b> a name whose Live-Trade-Slices lane is at 82% renders a "tier capped at C" banner and a Tier-C badge, with the reason surfaced in Explain-tier. A name whose required lane is mid-load renders the full Tier-D suppressed view.</div></div>
+  </section>
+
+  <section class="sec" id="pipeline">
+    <h2>The two-pass scan pipeline</h2>
+    <div class="h2sub">Screen cheap, resolve expensive</div>
+    <p class="lead">Scanning thousands of names live is infeasible, so the pipeline splits the work. The UI makes both passes visible — the user watches the funnel narrow and rows resolve.</p>
+    <div class="grid3">
+      <div class="feature"><div class="fi" style="font-family:var(--font-mono);font-weight:700">1</div><h4>Pass 1 — Screen</h4><p>Every constituent is cheaply pre-screened from <b>daily bars</b> (seconds). Coarse candidate set flagged.</p></div>
+      <div class="feature"><div class="fi" style="font-family:var(--font-mono);font-weight:700">2</div><h4>Pass 2 — Resolve</h4><p>The flagged shortlist gets <b>live trade slices</b> pulled and each row resolved to full A/B/C — highest-notional first, row by row.</p></div>
+      <div class="feature"><div class="fi"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12l4 4L19 7"/></svg></div><h4>Done — Results</h4><p>Refinement bar + 3 views. Save the scan or watch all shown.</p></div>
+    </div>
+    <h3 class="sub">Performance tiers</h3>
+    <div class="scroll">
+      <table class="stable">
+        <thead><tr><th>Tier</th><th>Universe size</th><th>Est. time</th><th>Default behavior</th></tr></thead>
+        <tbody>
+          <tr><td><b>Fast</b></td><td>≤ ~100 (indices, sectors, custom)</td><td class="mono">30–60s</td><td>Both passes</td></tr>
+          <tr><td><b>Standard</b></td><td>~400–503 (S&amp;P 500/400)</td><td class="mono">2–4 min</td><td>Both passes</td></tr>
+          <tr><td><b>Extended</b></td><td>2000+ (Russell 2000)</td><td class="mono">5–10 min</td><td><b>Pass 1 only</b> — trigger Pass 2 on the shortlist</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p style="font-size:13px">Scan criteria (the "Matched" pills): signed pressure on the chosen side ≥ 60% · B ≥ 1.5σ vs own history · notional ≥ 1.5× session median · required lanes ready.</p>
+  </section>
+
+  <section class="sec" id="schema">
+    <h2>Ticker schema</h2>
+    <div class="h2sub">The one structure that drives everything</div>
+    <p class="lead">Every screen reads from this object (the prototype's <code>UTA.bySym[symbol]</code>). In production these become typed API responses; the synthetic/derived fields (BLUF text, lanes, series) move server-side.</p>
+    <div class="scroll">
+      <table class="stable">
+        <thead><tr><th>Field</th><th>Type</th><th>Notes</th></tr></thead>
+        <tbody>
+          <tr><td class="mono">symbol · name · exch · sector · industry · bucket</td><td>string</td><td>identity + classification (bucket = mega/large/…)</td></tr>
+          <tr><td class="mono">price · chg</td><td>number</td><td>last price · signed % change (display only — not used for direction)</td></tr>
+          <tr><td class="mono">tier</td><td>'A'|'B'|'C'|'D'</td><td>rule-based verdict</td></tr>
+          <tr><td class="mono">dir · sign · band</td><td>enum · 0–1 · enum</td><td>direction · signing confidence · anomaly band (Elevated/Unusual/Extreme)</td></tr>
+          <tr><td class="mono">B</td><td>{volume,notional,focus,pressure,premarket}</td><td>z-scores (σ) per component</td></tr>
+          <tr><td class="mono">A</td><td>{volume,focus,pressure}</td><td>universe percentiles 0–1 (null in single-ticker)</td></tr>
+          <tr><td class="mono">C</td><td>{vr,nr,cr,fshare,fcount,lpm,nnp,nvp,fnotional,total,largest}</td><td>raw metrics (see C table above)</td></tr>
+          <tr><td class="mono">corr</td><td>{price,options,news,provider,prepost,macro}</td><td>boolean corroboration flags</td></tr>
+          <tr><td class="mono">alerts[]</td><td>{provider,type,dir,ts,conf,notional}</td><td>confirmed provider alerts</td></tr>
+          <tr><td class="mono">news</td><td>{type,headline,ts} | null</td><td>news catalyst</td></tr>
+          <tr><td class="mono">delta</td><td>{tier:'up'|'down'|'flat', b:number}</td><td>change vs prior cycle</td></tr>
+          <tr><td class="mono">premkt</td><td>{vr,pressure,gap,decay} | null</td><td>pre-market metrics (decay = post-open weight)</td></tr>
+          <tr><td class="mono">laneIssue · coverage · capNote</td><td>enum · 0–1 · string</td><td>degradation flags driving D / capped-C states</td></tr>
+          <tr><td class="mono">— derived —</td><td></td><td>dirLabel · bluf · lanes[] · volSeries · pressSeries · signMix · rowCount · excluded</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="sec" id="state">
+    <h2>Persistence &amp; stores</h2>
+    <div class="h2sub">Local now, user-scoped later</div>
+    <p class="lead">The prototype uses small pub/sub stores backed by localStorage. Each exposes a React hook that subscribes components to changes. In production, swap the localStorage backing for user-scoped server state — keep the hook surface.</p>
+    <div class="scroll">
+      <table class="stable">
+        <thead><tr><th>Store</th><th>Key</th><th>Holds</th><th>Hook</th></tr></thead>
+        <tbody>
+          <tr><td>Watchlist</td><td class="mono">uta_watchlist_v1</td><td>saved symbols</td><td class="mono">useWatchlist()</td></tr>
+          <tr><td>Review state</td><td class="mono">uta_review_v1</td><td>reviewed / ignored per symbol (per cycle)</td><td class="mono">useReview()</td></tr>
+          <tr><td>Alert rules</td><td class="mono">uta_rules_v1</td><td>rule definitions</td><td class="mono">useRules()</td></tr>
+          <tr><td>Saved scans</td><td class="mono">uta_saved_scans_v1</td><td>universe+direction combos (max 6)</td><td class="mono">useSavedScans()</td></tr>
+          <tr><td>Scan view</td><td class="mono">uta_scan_view</td><td>table / grouped / cards preference</td><td>—</td></tr>
+          <tr><td>Tweaks</td><td class="mono">(tweaks panel)</td><td>theme · accent · density · typeface</td><td class="mono">useTweaks()</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <h3 class="sub">Alert-rule shape</h3>
+    <pre><span class="c">// one rule — evaluated every cycle against live A/B/C</span>
+{ id, name, enabled,
+  scope: <span class="s">'all' | 'portfolio' | 'watchlist'</span>,
+  dir:   <span class="s">'any' | 'bullish' | 'bearish'</span>,
+  minTier: <span class="s">'any' | 'C' | 'B' | 'A'</span>,
+  cB: { on, v },   <span class="c">// B ≥ v σ</span>
+  cA: { on, v },   <span class="c">// A ≥ v th percentile</span>
+  cC: { on, v },   <span class="c">// C notional ≥ v×</span>
+  provider }       <span class="c">// require a confirmed provider alert</span></pre>
+    <p style="font-size:13px">A ticker matches when it passes <em>all</em> enabled conditions (tier D never matches). Matches appear in the feed tagged "rule" and as a sparkle flag on any table/card row for that symbol.</p>
+  </section>
+
+  <div class="pagenav">
+    <a href="screens.html"><div class="dir">Previous</div><div class="t">← 02 · Screens &amp; States</div></a>
+    <a class="next" href="tickets.html"><div class="dir">Next part</div><div class="t">04 · Build Tickets →</div></a>
+  </div>
+
+  <div class="foot">
+    <span>Data &amp; Logic · schema, rules, lanes, pipeline</span>
+    <span><a href="../Unusual Trading Activity Agent.html">↗ Open the live prototype</a></span>
+  </div>
+
+</div>
+</body>
+</html>

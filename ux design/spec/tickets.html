@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark" data-density="regular">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>UTA — Implementation Spec — Build Tickets</title>
+<link rel="stylesheet" href="spec.css" />
+</head>
+<body>
+
+<nav class="spec-nav">
+  <a class="brand" href="index.html">
+    <span class="mk"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12h4l3 8 4-16 3 8h4"/></svg></span>
+    <span><b>Unusual Trading Activity</b><span>Design &amp; UX implementation spec</span></span>
+  </a>
+  <a class="np" href="index.html">Overview</a>
+  <a class="np" href="design-system.html">Design System</a>
+  <a class="np" href="screens.html">Screens</a>
+  <a class="np" href="data-logic.html">Data &amp; Logic</a>
+  <a class="np active" href="tickets.html">Build Tickets</a>
+  <span class="grow"></span>
+  <span class="tag">Part 04</span>
+</nav>
+
+<div class="wrap">
+
+  <header class="hero">
+    <div class="eyebrow">Part 04 · Build Tickets</div>
+    <h1>From spec to backlog</h1>
+    <p>Ten epics broken into implementation tickets, each with acceptance criteria and dependencies, sequenced into four phases. Points are relative (1 ≈ half-day, 8 ≈ a week). Build the foundation and data layer first — every mode depends on them — then the shared detail view, then the four modes in parallel, then cross-cutting polish.</p>
+    <div class="meta">
+      <span class="m"><b>10</b> epics</span>
+      <span class="m"><b>4</b> phases</span>
+      <span class="m"><b>~48</b> tickets</span>
+    </div>
+  </header>
+
+  <section class="sec" id="phases">
+    <h2>Delivery plan</h2>
+    <div class="h2sub">Four phases</div>
+    <div class="grid4">
+      <div class="feature"><div class="fi" style="font-family:var(--font-mono);font-weight:700">P0</div><h4>Foundations</h4><p>Design system, app shell, data layer &amp; tier engine. Nothing renders correctly without these.</p></div>
+      <div class="feature"><div class="fi" style="font-family:var(--font-mono);font-weight:700">P1</div><h4>Detail view</h4><p>The shared ticker detail — BLUF, evidence, corroboration, drawers. The product's core surface.</p></div>
+      <div class="feature"><div class="fi" style="font-family:var(--font-mono);font-weight:700">P2</div><h4>Modes</h4><p>Single Ticker, Portfolio, Scan, Alerts — buildable in parallel once the detail view exists.</p></div>
+      <div class="feature"><div class="fi" style="font-family:var(--font-mono);font-weight:700">P3</div><h4>Cross-cutting</h4><p>Watchlist, persistence, responsive, accessibility, motion &amp; polish.</p></div>
+    </div>
+  </section>
+
+  <!-- PHASE 0 -->
+  <section class="sec" id="p0">
+    <h2>Phase 0 · Foundations</h2>
+
+    <div class="epic">
+      <div class="epic-head"><span class="ec">E1</span><h3>Design system &amp; tokens</h3><span class="ph">Phase 0</span></div>
+      <div class="ticket"><div class="tk-top"><span class="tk-id">DS-1</span><span class="tk-title">Token layer</span><span class="tk-pts">3 pts</span></div><p class="tk-desc">Implement the full CSS variable system: color, ink scale, surfaces, direction/regime keys, plus density-driven spacing/radii/type, for both themes.</p><ul class="tk-ac"><li>All tokens from <code>styles.css</code> present for dark + light</li><li><code>data-theme</code> and <code>data-density</code> on root switch every value</li><li>No component references a literal color or px outside the token set</li></ul></div>
+      <div class="ticket"><div class="tk-top"><span class="tk-id">DS-2</span><span class="tk-title">Component primitives</span><span class="tk-pts">5 pts</span></div><p class="tk-desc">Build buttons, tier badge (4 tiers × 3 sizes + word), direction tags, band tags, indicator chips (A/B/C + N/A), pills, key-value rows, cards, and the collapsible evidence-card shell.</p><ul class="tk-ac"><li>Matches the Design System demos pixel-for-pixel in both themes</li><li>Tier badge encodes A solid / B soft / C ring / D dashed correctly</li><li>Evidence card head: icon, title/sub, headline metric, rotating chevron, bordered body; collapse persists per instance</li></ul><div class="dep"><b>Depends:</b> DS-1</div></div>
+      <div class="ticket"><div class="tk-top"><span class="tk-id">DS-3</span><span class="tk-title">Icon system</span><span class="tk-pts">2 pts</span></div><p class="tk-desc">Single stroked icon set behind one <code>&lt;Icon name size fill /&gt;</code> component; multi-path glyphs supported.</p><ul class="tk-ac"><li>All ~45 glyphs render at 1.7 stroke on a 24px grid</li><li>Optional <code>fill</code> flag for solid states (e.g. saved bookmark)</li></ul></div>
+      <div class="ticket"><div class="tk-top"><span class="tk-id">DS-4</span><span class="tk-title">Mini-chart primitives</span><span class="tk-pts">5 pts</span></div><p class="tk-desc">Sparkline (line + area, optional zero baseline), VolBars (today vs ghost baseline, hot-ratio coloring), PressureGauge, ConfBar, MixBar.</p><ul class="tk-ac"><li>Pure inline SVG, responsive via 240px viewBox + <code>preserveAspectRatio:none</code></li><li>ConfBar turns red below 50%; gauge needle signed −1…+1; VolBars color by ratio thresholds (≥1.6 accent, ≥2.5 red)</li></ul><div class="dep"><b>Depends:</b> DS-1</div></div>
+      <div class="ticket"><div class="tk-top"><span class="tk-id">DS-5</span><span class="tk-title">Theming, density &amp; settings</span><span class="tk-pts">3 pts</span></div><p class="tk-desc">Runtime theme/accent/density/typeface switching with the transition-suppression guard; wire to a settings surface (prototype's Tweaks → production user settings).</p><ul class="tk-ac"><li>Theme toggle in top bar swaps instantly with no color animation flash</li><li>Density changes reflow all spacing without layout breakage</li><li>Three typeface pairings select cleanly (sans+mono)</li></ul><div class="dep"><b>Depends:</b> DS-1</div></div>
+    </div>
+
+    <div class="epic">
+      <div class="epic-head"><span class="ec">E2</span><h3>Data layer &amp; tier engine</h3><span class="ph">Phase 0</span></div>
+      <div class="ticket"><div class="tk-top"><span class="tk-id">DL-1</span><span class="tk-title">Ticker schema &amp; API contract</span><span class="tk-pts">5 pts</span></div><p class="tk-desc">Define the typed ticker object (see Data &amp; Logic § Schema) and the endpoints that return it for single, portfolio, and scan contexts.</p><ul class="tk-ac"><li>Schema typed end-to-end; A is nullable (single-ticker)</li><li>One endpoint per context returns the same shape; A scope differs (universe vs portfolio)</li><li>Tier-D / capped responses carry <code>laneIssue</code>, <code>coverage</code>, <code>capNote</code></li></ul></div>
+      <div class="ticket"><div class="tk-top"><span class="tk-id">DL-2</span><span class="tk-title">A/B/C indicator computation</span><span class="tk-pts">8 pts</span></div><p class="tk-desc">Compute percentile (A), historical z-score (B), and raw metrics (C) per component from lane data.</p><ul class="tk-ac"><li>B z-scores vs the name's own ≥20-session median per component</li><li>A percentile vs the active universe/portfolio</li><li>C ratios + focus share + pressure exactly per the C-field table</li><li>Insufficient history (&lt;10 sessions) disables B for that component</li></ul><div class="dep"><b>Depends:</b> DL-1</div></div>
+      <div class="ticket"><div class="tk-top"><span class="tk-id">DL-3</span><span class="tk-title">Direction &amp; signing engine</span><span class="tk-pts">5 pts</span></div><p class="tk-desc">Lee-Ready signing (quote rule → tick test; exclude midpoint/unknown), net signed pressure, signing confidence, and direction classification at the ±0.60 threshold.</p><ul class="tk-ac"><li>Buyer/Seller require |pressure| ≥ 0.60; else Mixed/Undetermined</li><li>Signing confidence computed; &lt;50% flagged "indicative only"</li><li>Direction derives only from flow — never price</li></ul><div class="dep"><b>Depends:</b> DL-1</div></div>
+      <div class="ticket"><div class="tk-top"><span class="tk-id">DL-4</span><span class="tk-title">Rule-based tier classifier</span><span class="tk-pts">8 pts</span></div><p class="tk-desc">Implement the A/B/C/D gates exactly as specified, mode-aware (skip A in single-ticker), returning per-rule pass/fail + gap + elevation eligibility for the Explain modal.</p><ul class="tk-ac"><li>A/B/C gates match the Tier-classification section precisely</li><li>Provider-alert elevation logic correct; contextual flags never elevate</li><li>Classifier output drives Explain-tier with readable rule rows</li><li>Returns "why not next tier" gap reasons</li></ul><div class="dep"><b>Depends:</b> DL-2, DL-3</div></div>
+      <div class="ticket"><div class="tk-top"><span class="tk-id">DL-5</span><span class="tk-title">Lane state contract</span><span class="tk-pts">5 pts</span></div><p class="tk-desc">Model the 9 lane states with operator copy and tier effects; enforce suppression (D) and capping (C) rules.</p><ul class="tk-ac"><li>All 9 states represented with the exact copy &amp; dot colors</li><li>Required lane loading → Tier D; partial coverage &lt;90% → cap at C</li><li>Optional/disabled lanes never penalize a tier</li><li>Coverage % surfaced; capNote banner shown when capped</li></ul><div class="dep"><b>Depends:</b> DL-1</div></div>
+      <div class="ticket"><div class="tk-top"><span class="tk-id">DL-6</span><span class="tk-title">Corroboration evaluation</span><span class="tk-pts">3 pts</span></div><p class="tk-desc">Evaluate the 6 flags across Strong/Moderate/Contextual independence and count independent confirmations for the A gate.</p><ul class="tk-ac"><li>Strong = price / provider / options; ≥1 required for A</li><li>Panel shows count + restated elevation rule</li></ul><div class="dep"><b>Depends:</b> DL-4</div></div>
+    </div>
+  </section>
+
+  <!-- PHASE 0 shell -->
+  <section class="sec" id="p0b">
+    <div class="epic">
+      <div class="epic-head"><span class="ec">E3</span><h3>App shell &amp; routing</h3><span class="ph">Phase 0</span></div>
+      <div class="ticket"><div class="tk-top"><span class="tk-id">SH-1</span><span class="tk-title">Top bar</span><span class="tk-pts">3 pts</span></div><p class="tk-desc">Brand/home, mode tabs (with Alerts count badge), ticker search w/ autocomplete, watchlist pill, theme toggle, sync indicator.</p><ul class="tk-ac"><li>Mode tabs reflect &amp; set active mode; Alerts badge = needs-attention count</li><li>Search autocompletes and routes a valid symbol to Single Ticker</li><li>Sync pill shows live time; flips to spinning "Revalidating…" during a pass</li></ul><div class="dep"><b>Depends:</b> DS-2, DS-3</div></div>
+      <div class="ticket"><div class="tk-top"><span class="tk-id">SH-2</span><span class="tk-title">Market-regime banner</span><span class="tk-pts">2 pts</span></div><p class="tk-desc">Regime badge + VIX/yield/Fed stats + interpretation line; hidden on Landing.</p><ul class="tk-ac"><li>Color-keyed by regime; interpretation copy reads correctly</li><li>Never alters a tier — feeds BLUF limitations &amp; macro flag only</li></ul></div>
+      <div class="ticket"><div class="tk-top"><span class="tk-id">SH-3</span><span class="tk-title">Routing &amp; mode state</span><span class="tk-pts">3 pts</span></div><p class="tk-desc">App-level mode + openSym state; mode switch clears open ticker; detail view carries origin mode.</p><ul class="tk-ac"><li>Each mode renders its surface; drilling sets openSym</li><li>Detail applies origin-mode rule set &amp; breadcrumb (Alerts → single rules)</li><li>fade-in on detail mount</li></ul><div class="dep"><b>Depends:</b> SH-1</div></div>
+      <div class="ticket"><div class="tk-top"><span class="tk-id">SH-4</span><span class="tk-title">Revalidation system</span><span class="tk-pts">2 pts</span></div><p class="tk-desc">Global revalidate event → progress bar + sync pill for ~1.9s → stamp fresh time. Used by every "refresh lane" affordance.</p><ul class="tk-ac"><li>Single event drives shell feedback; re-entrant safe</li><li>Sync time updates on completion</li></ul><div class="dep"><b>Depends:</b> SH-1</div></div>
+      <div class="ticket"><div class="tk-top"><span class="tk-id">SH-5</span><span class="tk-title">Landing / mode chooser</span><span class="tk-pts">3 pts</span></div><p class="tk-desc">Hero, three mode cards (with tier-rules copy), activity-feed banner with live counts, footer stats.</p><ul class="tk-ac"><li>Cards switch mode; banner routes to Alerts with real counts</li><li>No regime banner on this surface</li></ul><div class="dep"><b>Depends:</b> SH-3, DL-1</div></div>
+    </div>
+  </section>
+
+  <!-- PHASE 1 -->
+  <section class="sec" id="p1">
+    <h2>Phase 1 · Shared detail view</h2>
+    <div class="epic">
+      <div class="epic-head"><span class="ec">E4</span><h3>Ticker detail</h3><span class="ph">Phase 1</span></div>
+      <div class="ticket"><div class="tk-top"><span class="tk-id">TD-1</span><span class="tk-title">Detail shell, breadcrumb &amp; head</span><span class="tk-pts">3 pts</span></div><p class="tk-desc">Two-column layout, breadcrumb back to origin, ticker head (symbol/company/pills/price), capNote banner.</p><ul class="tk-ac"><li>Two-col layout collapses on narrow widths</li><li>Breadcrumb returns to origin list/mode</li><li>capNote banner shows when tier is capped</li></ul><div class="dep"><b>Depends:</b> SH-3, DL-4</div></div>
+      <div class="ticket"><div class="tk-top"><span class="tk-id">TD-2</span><span class="tk-title">BLUF card</span><span class="tk-pts">5 pts</span></div><p class="tk-desc">Tier badge + headline + direction/band/confidence + the 2×2 What/Why/Check/Limitations grid, server-supplied copy.</p><ul class="tk-ac"><li>Renders for every tier incl. D (suppression copy)</li><li>Limitations reflects regime &amp; off-exchange caveat</li></ul><div class="dep"><b>Depends:</b> TD-1</div></div>
+      <div class="ticket"><div class="tk-top"><span class="tk-id">TD-3</span><span class="tk-title">A/B/C indicator summary</span><span class="tk-pts">2 pts</span></div><p class="tk-desc">Three chips; A shows N/A in single-ticker, percentile elsewhere; inline ± deltas when comparing.</p><ul class="tk-ac"><li>Labels switch by mode (vs portfolio / vs S&amp;P 500)</li><li>Compare mode injects CmpDelta into each chip</li></ul><div class="dep"><b>Depends:</b> TD-1, DL-2</div></div>
+      <div class="ticket"><div class="tk-top"><span class="tk-id">TD-4</span><span class="tk-title">Cycle-history timeline</span><span class="tk-pts">5 pts</span></div><p class="tk-desc">12-cycle signed-pressure bars + tier ribbon + time axis + event chips (transitions, alerts).</p><ul class="tk-ac"><li>Bars signed above/below zero; current highlighted</li><li>Tier ribbon per cycle; events sorted by time; D ends dashed</li></ul><div class="dep"><b>Depends:</b> TD-1</div></div>
+      <div class="ticket"><div class="tk-top"><span class="tk-id">TD-5</span><span class="tk-title">Evidence cards (8 + data health)</span><span class="tk-pts">8 pts</span></div><p class="tk-desc">Volume Anomaly, Block/Off-Exchange, Directional Pressure, Pre-Market, Flow Trend, Confirmed Alerts, Options Flow, Macro, Data Health — each with charts + key-values + empty/optional states.</p><ul class="tk-ac"><li>Cards 1–3 default-open; rest collapsed</li><li>Options &amp; pre-market show disabled/empty states without breaking</li><li>Data Health lists lane rows + coverage + policy + refresh</li></ul><div class="dep"><b>Depends:</b> TD-1, DS-4, DL-5</div></div>
+      <div class="ticket"><div class="tk-top"><span class="tk-id">TD-6</span><span class="tk-title">Corroboration panel</span><span class="tk-pts">3 pts</span></div><p class="tk-desc">6 flags with yes/no/warn marks, independence labels, count, restated rule.</p><ul class="tk-ac"><li>Marks &amp; independence match DL-6 output</li><li>Macro-absent renders the warn (amber) mark</li></ul><div class="dep"><b>Depends:</b> TD-1, DL-6</div></div>
+      <div class="ticket"><div class="tk-top"><span class="tk-id">TD-7</span><span class="tk-title">Actions panel</span><span class="tk-pts">3 pts</span></div><p class="tk-desc">Refresh lane · raw prints · explain tier · compare · mark reviewed · watchlist · supporting evidence · ignore. Toggle ON states + transient "Done".</p><ul class="tk-ac"><li>Each action wired; toggles persist (reviewed/ignored/watchlist)</li><li>Compare toggles the delta banner + inline deltas</li></ul><div class="dep"><b>Depends:</b> TD-1</div></div>
+      <div class="ticket"><div class="tk-top"><span class="tk-id">TD-8</span><span class="tk-title">Explain-tier modal</span><span class="tk-pts">5 pts</span></div><p class="tk-desc">Verdict + each rule pass/fail + gap-to-next-tier + elevation note, mode-aware.</p><ul class="tk-ac"><li>Rule rows mirror the classifier exactly</li><li>Single vs portfolio rule sets labeled; gap reasons listed</li></ul><div class="dep"><b>Depends:</b> TD-7, DL-4</div></div>
+      <div class="ticket"><div class="tk-top"><span class="tk-id">TD-9</span><span class="tk-title">Raw-prints drawer</span><span class="tk-pts">5 pts</span></div><p class="tk-desc">Top prints by notional, focus highlighted, venue/signed/method/codes columns, condition-code policy footnote.</p><ul class="tk-ac"><li>Venue chips, buy/sell signing, code chips render correctly</li><li>Footnote documents shown vs excluded codes</li></ul><div class="dep"><b>Depends:</b> TD-7</div></div>
+      <div class="ticket"><div class="tk-top"><span class="tk-id">TD-10</span><span class="tk-title">Compare-to-prior-cycle</span><span class="tk-pts">5 pts</span></div><p class="tk-desc">Delta banner with per-driver prior→current, gate-crossing callouts, plain-English attribution.</p><ul class="tk-ac"><li>Attributes moves to the indicator(s) that crossed a gate</li><li>Inline chip deltas stay consistent with the banner</li></ul><div class="dep"><b>Depends:</b> TD-7, TD-3</div></div>
+      <div class="ticket"><div class="tk-top"><span class="tk-id">TD-11</span><span class="tk-title">Tier-D suppressed view</span><span class="tk-pts">3 pts</span></div><p class="tk-desc">Degraded detail: suppression BLUF, lane-health panel, 9-state legend, refresh CTA; cycle history still renders to a dashed D.</p><ul class="tk-ac"><li>No fabricated indicator values anywhere</li><li>Refresh CTA drives revalidation</li></ul><div class="dep"><b>Depends:</b> TD-2, TD-5, DL-5</div></div>
+    </div>
+  </section>
+
+  <!-- PHASE 2 -->
+  <section class="sec" id="p2">
+    <h2>Phase 2 · Modes</h2>
+    <div class="epic">
+      <div class="epic-head"><span class="ec">E5</span><h3>Single Ticker</h3><span class="ph">Phase 2</span></div>
+      <div class="ticket"><div class="tk-top"><span class="tk-id">ST-1</span><span class="tk-title">Single Ticker mode</span><span class="tk-pts">2 pts</span></div><p class="tk-desc">Wrap the detail view in B+C rules; related-ticker swaps symbol in place; search routes here.</p><ul class="tk-ac"><li>A shows N/A; B+C rules applied</li><li>Symbol swaps without losing the mode</li></ul><div class="dep"><b>Depends:</b> Phase 1, SH-1</div></div>
+    </div>
+    <div class="epic">
+      <div class="epic-head"><span class="ec">E6</span><h3>Portfolio</h3><span class="ph">Phase 2</span></div>
+      <div class="ticket"><div class="tk-top"><span class="tk-id">PF-1</span><span class="tk-title">Holdings table</span><span class="tk-pts">5 pts</span></div><p class="tk-desc">Stat cards + sortable ranked table (tier/dir/B/A/C/Δ), tier-change flag, ignored-row dim, row→detail.</p><ul class="tk-ac"><li>A computed vs portfolio; sort by any column</li><li>Changed rows flagged; D rows show dashes; click opens detail (A+B+C)</li></ul><div class="dep"><b>Depends:</b> Phase 1, DL-2</div></div>
+    </div>
+    <div class="epic">
+      <div class="epic-head"><span class="ec">E7</span><h3>Scan / Discovery</h3><span class="ph">Phase 2</span></div>
+      <div class="ticket"><div class="tk-top"><span class="tk-id">SC-1</span><span class="tk-title">Scan controls</span><span class="tk-pts">3 pts</span></div><p class="tk-desc">Grouped universe picker, direction filter, perf-tier readout, saved-scans recall.</p><ul class="tk-ac"><li>Universes grouped Index/Sector/Custom with counts</li><li>Perf tier + ETA shown; Extended defaults to Pass-1-only</li></ul><div class="dep"><b>Depends:</b> Phase 1</div></div>
+      <div class="ticket"><div class="tk-top"><span class="tk-id">SC-2</span><span class="tk-title">Two-pass pipeline UI</span><span class="tk-pts">8 pts</span></div><p class="tk-desc">Funnel (Screened→Flagged→Resolved), progress, and a resolving table (queued/resolving/resolved per row).</p><ul class="tk-ac"><li>Funnel counts animate through both passes; active stage keyed</li><li>Rows resolve highest-notional-first; not clickable until resolved</li><li>Cancel resets cleanly; re-run supported</li></ul><div class="dep"><b>Depends:</b> SC-1, DL-4</div></div>
+      <div class="ticket"><div class="tk-top"><span class="tk-id">SC-3</span><span class="tk-title">Results — 3 views + refinement</span><span class="tk-pts">8 pts</span></div><p class="tk-desc">Refinement bar (tier filter, view switch, bulk Watch/Save), "Matched" criteria, and Table / Grouped / Cards views; persisted preference.</p><ul class="tk-ac"><li>All three views render the same filtered set; preference persists</li><li>Tier filter chips; Watch-all and Save-scan with toast</li></ul><div class="dep"><b>Depends:</b> SC-2</div></div>
+      <div class="ticket"><div class="tk-top"><span class="tk-id">SC-4</span><span class="tk-title">Saved scans</span><span class="tk-pts">2 pts</span></div><p class="tk-desc">Persist up to 6 universe+direction combos; recall from controls; dedupe.</p><ul class="tk-ac"><li>Save/recall/remove; max 6; newest first</li></ul><div class="dep"><b>Depends:</b> SC-1, ST-store</div></div>
+    </div>
+    <div class="epic">
+      <div class="epic-head"><span class="ec">E8</span><h3>Alerts / Activity</h3><span class="ph">Phase 2</span></div>
+      <div class="ticket"><div class="tk-top"><span class="tk-id">AL-1</span><span class="tk-title">Activity feed</span><span class="tk-pts">5 pts</span></div><p class="tk-desc">Stat cards, filter chips with counts, typed feed rows (alert/tier/news/lane/rule), per-filter empty states, row→detail.</p><ul class="tk-ac"><li>Feed sorted newest-first; filters slice correctly</li><li>Each kind has its icon/color; rule rows tagged</li><li>Empty state per filter; rules filter offers "Create a rule"</li></ul><div class="dep"><b>Depends:</b> Phase 1, AL-2</div></div>
+      <div class="ticket"><div class="tk-top"><span class="tk-id">AL-2</span><span class="tk-title">Alert-rule engine</span><span class="tk-pts">5 pts</span></div><p class="tk-desc">Persistent rules + evaluation against live A/B/C every cycle; default rules seeded; matches feed events + row flags.</p><ul class="tk-ac"><li>Rule shape per Data &amp; Logic; D never matches</li><li>Matches generate feed events &amp; sparkle flags on rows everywhere</li></ul><div class="dep"><b>Depends:</b> DL-4</div></div>
+      <div class="ticket"><div class="tk-top"><span class="tk-id">AL-3</span><span class="tk-title">Rules drawer &amp; editor</span><span class="tk-pts">5 pts</span></div><p class="tk-desc">List cards (toggle/name/count/conditions/matches) + editor (scope/dir/min-tier/B-A-C sliders/provider) with live match preview.</p><ul class="tk-ac"><li>Create/edit/delete/toggle; live "matches N now" updates on every change</li><li>Matching symbols clickable → detail</li></ul><div class="dep"><b>Depends:</b> AL-2</div></div>
+      <div class="ticket"><div class="tk-top"><span class="tk-id">AL-4</span><span class="tk-title">Review state</span><span class="tk-pts">2 pts</span></div><p class="tk-desc">Reviewed / ignored per symbol (per cycle); chips on detail, dots on rows, dim on ignored.</p><ul class="tk-ac"><li>State persists; reflected across detail, tables, feed</li></ul><div class="dep"><b>Depends:</b> ST-store</div></div>
+    </div>
+  </section>
+
+  <!-- PHASE 3 -->
+  <section class="sec" id="p3">
+    <h2>Phase 3 · Cross-cutting</h2>
+    <div class="epic">
+      <div class="epic-head"><span class="ec">E9</span><h3>Watchlist &amp; persistence</h3><span class="ph">Phase 3</span></div>
+      <div class="ticket"><div class="tk-top"><span class="tk-id">ST-1</span><span class="tk-title">State stores &amp; hooks</span><span class="tk-pts">3 pts</span></div><p class="tk-desc">Pub/sub stores + React hooks for watchlist, review, rules, saved scans, view pref, settings — backed by user state.</p><ul class="tk-ac"><li>Uniform hook surface; components re-render on change</li><li>Backing swappable (local ⇄ server) without touching consumers</li></ul></div>
+      <div class="ticket"><div class="tk-top"><span class="tk-id">ST-2</span><span class="tk-title">Watchlist drawer</span><span class="tk-pts">3 pts</span></div><p class="tk-desc">Top-bar drawer: saved tickers (tier+direction), open/remove, empty state; star affordances across tables/cards.</p><ul class="tk-ac"><li>Add/remove from anywhere; count badge on pill</li><li>Empty state guides first save</li></ul><div class="dep"><b>Depends:</b> ST-1</div></div>
+    </div>
+    <div class="epic">
+      <div class="epic-head"><span class="ec">E10</span><h3>Responsive, a11y &amp; polish</h3><span class="ph">Phase 3</span></div>
+      <div class="ticket"><div class="tk-top"><span class="tk-id">PL-1</span><span class="tk-title">Responsive layout</span><span class="tk-pts">5 pts</span></div><p class="tk-desc">Fluid 1440→tablet; detail two-col stacks; tables scroll-x; drawers full-width on small screens; scan dist/hides per breakpoint.</p><ul class="tk-ac"><li>No horizontal overflow at ≥360px besides intended table scroll</li><li>Breakpoint behaviors match the feed.css/app.css media rules</li></ul></div>
+      <div class="ticket"><div class="tk-top"><span class="tk-id">PL-2</span><span class="tk-title">Accessibility</span><span class="tk-pts">5 pts</span></div><p class="tk-desc">Keyboard nav for rows/cards/drawers, focus states, ARIA on tabs/dialogs, color-independent meaning (icons + text, not color alone).</p><ul class="tk-ac"><li>All interactive rows/cards reachable &amp; Enter-activatable</li><li>Modals/drawers trap focus + Esc-close; tier/direction never color-only</li><li>Contrast meets AA in both themes</li></ul></div>
+      <div class="ticket"><div class="tk-top"><span class="tk-id">PL-3</span><span class="tk-title">Motion &amp; reduced-motion</span><span class="tk-pts">2 pts</span></div><p class="tk-desc">fade-in, skeleton shimmer, lane pulse, revalidation bar; all respect <code>prefers-reduced-motion</code>.</p><ul class="tk-ac"><li>Entrance/loading motion present; disabled under reduced-motion</li></ul></div>
+      <div class="ticket"><div class="tk-top"><span class="tk-id">PL-4</span><span class="tk-title">Empty / error / loading states</span><span class="tk-pts">3 pts</span></div><p class="tk-desc">Consistent treatments for empty feeds, no-match scans, optional-lane-absent cards, and skeletons during fetch.</p><ul class="tk-ac"><li>Every list/card has a designed empty &amp; loading state</li><li>No raw spinners on primary surfaces — skeletons + copy</li></ul></div>
+    </div>
+  </section>
+
+  <section class="sec" id="risks">
+    <h2>Build risks &amp; guardrails</h2>
+    <div class="h2sub">Where fidelity is easy to lose</div>
+    <ul class="clean">
+      <li><b>Don't collapse A/B/C into a score.</b> The instant a single "signal strength" number appears, the product's thesis is broken. Keep three lenses everywhere.</li>
+      <li><b>Direction is flow, not price.</b> Any code path that sets direction from <code>chg</code> is a bug. Price is corroboration only.</li>
+      <li><b>Honest suppression.</b> Tier D and capped-C must never show invented indicator values. Dashes and lane-health, not zeros.</li>
+      <li><b>Optional lanes are non-penalizing.</b> Absent options/pre-market/alert lanes can only ever <em>add</em> corroboration, never subtract a tier.</li>
+      <li><b>Explain-tier must mirror the classifier.</b> If the modal and the engine can disagree, trust is gone — derive the modal from the same evaluation.</li>
+    </ul>
+  </section>
+
+  <div class="pagenav">
+    <a href="data-logic.html"><div class="dir">Previous</div><div class="t">← 03 · Data &amp; Logic</div></a>
+    <a class="next" href="index.html"><div class="dir">Back to</div><div class="t">Overview →</div></a>
+  </div>
+
+  <div class="foot">
+    <span>Build Tickets · 10 epics · 4 phases</span>
+    <span><a href="../Unusual Trading Activity Agent.html">↗ Open the live prototype</a></span>
+  </div>
+
+</div>
+</body>
+</html>

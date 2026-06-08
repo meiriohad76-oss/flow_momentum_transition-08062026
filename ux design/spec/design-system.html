@@ -1,0 +1,297 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark" data-density="regular">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>UTA — Implementation Spec — Design System</title>
+<link rel="stylesheet" href="../components.css" />
+<link rel="stylesheet" href="spec.css" />
+</head>
+<body>
+
+<nav class="spec-nav">
+  <a class="brand" href="index.html">
+    <span class="mk"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12h4l3 8 4-16 3 8h4"/></svg></span>
+    <span><b>Unusual Trading Activity</b><span>Design &amp; UX implementation spec</span></span>
+  </a>
+  <a class="np" href="index.html">Overview</a>
+  <a class="np active" href="design-system.html">Design System</a>
+  <a class="np" href="screens.html">Screens</a>
+  <a class="np" href="data-logic.html">Data &amp; Logic</a>
+  <a class="np" href="tickets.html">Build Tickets</a>
+  <span class="grow"></span>
+  <span class="tag">Part 01</span>
+</nav>
+
+<div class="wrap">
+
+  <header class="hero">
+    <div class="eyebrow">Part 01 · Design System</div>
+    <h1>Tokens, type &amp; components</h1>
+    <p>The visual language is "modern fintech": calm, dense, restrained color, monospace for every number. Nothing is hard-coded — color, type, spacing, radius, and elevation are all CSS variables that respond to theme and density. The components below render live from the real product stylesheet.</p>
+    <div class="meta">
+      <span class="m">Type <b>Spline Sans</b> + <b>Spline Sans Mono</b></span>
+      <span class="m">Accent <b>#5a82f0</b></span>
+      <span class="m"><b>2</b> themes · <b>3</b> densities</span>
+      <span class="m">Source <b>styles.css · components.css</b></span>
+    </div>
+  </header>
+
+  <section class="sec" id="themes">
+    <h2>Themes</h2>
+    <div class="h2sub">Dark default, full light parity</div>
+    <p class="lead">Theme is set via <code>data-theme</code> on <code>&lt;html&gt;</code>. Every surface, ink level, and border has a matched value in both themes; components reference the token, never a literal. A subtle accent radial sits behind the background in both.</p>
+    <figure class="shot"><img src="images/15-light-theme.png" alt="Light theme — Portfolio" /><figcaption><b>Light theme</b> · Portfolio mode — identical structure, re-keyed tokens. Toggle lives in the top bar.</figcaption></figure>
+    <div class="note rule"><span class="ni"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3a9 9 0 100 18 9 9 0 000-18z"/><path d="M12 8v.5M12 11v5"/></svg></span><div>A <code>.theme-switching</code> class suppresses transitions for ~60ms during a theme swap so colors don't animate awkwardly. Re-apply this on any runtime theme change.</div></div>
+  </section>
+
+  <section class="sec" id="color">
+    <h2>Color</h2>
+    <div class="h2sub">Semantic, not decorative</div>
+    <p class="lead">Color carries meaning: accent = the agent / tier A, green = buyer-side, red = seller-side, amber = caution / risk-off. Neutrals do all the structural work. Values shown are the dark theme; light-theme equivalents live in <code>styles.css</code>.</p>
+
+    <h3 class="sub">Brand &amp; direction</h3>
+    <div class="swatches">
+      <div class="sw"><div class="chip" style="background:var(--accent)"></div><div class="meta"><div class="nm">Accent</div><div class="vr">--accent</div><div class="vr2">#5a82f0</div></div></div>
+      <div class="sw"><div class="chip" style="background:var(--buy)"></div><div class="meta"><div class="nm">Buyer-side</div><div class="vr">--buy</div><div class="vr2">#34a981</div></div></div>
+      <div class="sw"><div class="chip" style="background:var(--sell)"></div><div class="meta"><div class="nm">Seller-side</div><div class="vr">--sell</div><div class="vr2">#e0695f</div></div></div>
+      <div class="sw"><div class="chip" style="background:var(--risk-off)"></div><div class="meta"><div class="nm">Risk-off / caution</div><div class="vr">--risk-off</div><div class="vr2">#e0a44a</div></div></div>
+      <div class="sw"><div class="chip" style="background:var(--accent-soft)"></div><div class="meta"><div class="nm">Accent soft</div><div class="vr">--accent-soft</div><div class="vr2">tint fill</div></div></div>
+      <div class="sw"><div class="chip" style="background:var(--buy-soft)"></div><div class="meta"><div class="nm">Buy soft</div><div class="vr">--buy-soft</div><div class="vr2">tint fill</div></div></div>
+      <div class="sw"><div class="chip" style="background:var(--sell-soft)"></div><div class="meta"><div class="nm">Sell soft</div><div class="vr">--sell-soft</div><div class="vr2">tint fill</div></div></div>
+      <div class="sw"><div class="chip" style="background:var(--accent-line)"></div><div class="meta"><div class="nm">Accent line</div><div class="vr">--accent-line</div><div class="vr2">border</div></div></div>
+    </div>
+
+    <h3 class="sub">Surfaces &amp; borders (dark)</h3>
+    <div class="swatches">
+      <div class="sw"><div class="chip" style="background:var(--bg)"></div><div class="meta"><div class="nm">Background</div><div class="vr">--bg</div><div class="vr2">#0a0c11</div></div></div>
+      <div class="sw"><div class="chip" style="background:var(--panel)"></div><div class="meta"><div class="nm">Panel</div><div class="vr">--panel</div><div class="vr2">#12151d</div></div></div>
+      <div class="sw"><div class="chip" style="background:var(--panel-2)"></div><div class="meta"><div class="nm">Panel 2</div><div class="vr">--panel-2</div><div class="vr2">#161a24</div></div></div>
+      <div class="sw"><div class="chip" style="background:var(--panel-3)"></div><div class="meta"><div class="nm">Panel 3</div><div class="vr">--panel-3</div><div class="vr2">#1c212d</div></div></div>
+      <div class="sw"><div class="chip" style="background:var(--raised)"></div><div class="meta"><div class="nm">Raised</div><div class="vr">--raised</div><div class="vr2">#1a1f2b</div></div></div>
+      <div class="sw"><div class="chip" style="background:var(--border-strong)"></div><div class="meta"><div class="nm">Border strong</div><div class="vr">--border-strong</div><div class="vr2">14% white</div></div></div>
+    </div>
+
+    <h3 class="sub">Ink scale</h3>
+    <div class="swatches">
+      <div class="sw"><div class="chip" style="background:var(--ink)"></div><div class="meta"><div class="nm">Ink (primary)</div><div class="vr">--ink</div><div class="vr2">#e8ebf2</div></div></div>
+      <div class="sw"><div class="chip" style="background:var(--ink-2)"></div><div class="meta"><div class="nm">Ink 2</div><div class="vr">--ink-2</div><div class="vr2">#a4adbe</div></div></div>
+      <div class="sw"><div class="chip" style="background:var(--ink-3)"></div><div class="meta"><div class="nm">Ink 3 (muted)</div><div class="vr">--ink-3</div><div class="vr2">#6d7588</div></div></div>
+      <div class="sw"><div class="chip" style="background:var(--ink-faint)"></div><div class="meta"><div class="nm">Ink faint</div><div class="vr">--ink-faint</div><div class="vr2">#4b5263</div></div></div>
+    </div>
+
+    <h3 class="sub">Regime keys</h3>
+    <div class="swatches">
+      <div class="sw"><div class="chip" style="background:var(--risk-on)"></div><div class="meta"><div class="nm">Risk-On</div><div class="vr">--risk-on</div><div class="vr2">#34a981</div></div></div>
+      <div class="sw"><div class="chip" style="background:var(--risk-off)"></div><div class="meta"><div class="nm">Risk-Off</div><div class="vr">--risk-off</div><div class="vr2">#e0a44a</div></div></div>
+      <div class="sw"><div class="chip" style="background:var(--crisis)"></div><div class="meta"><div class="nm">Crisis</div><div class="vr">--crisis</div><div class="vr2">#e0695f</div></div></div>
+    </div>
+  </section>
+
+  <section class="sec" id="type">
+    <h2>Typography</h2>
+    <div class="h2sub">Two families, numbers always monospaced</div>
+    <p class="lead">UI text is <b>Spline Sans</b>; every number, ticker, ratio, and code is <b>Spline Sans Mono</b> with tabular figures (<code>font-variant-numeric: tabular-nums</code>) so columns align. Typeface is swappable (Hanken Grotesk / IBM Plex are alternates) but the sans/mono pairing structure is fixed.</p>
+    <div class="panel">
+      <div style="font-size:46px;font-weight:700;letter-spacing:-0.025em;line-height:1.05">Choose how you look at the market.</div>
+      <div style="font-size:28px;font-weight:700;letter-spacing:-0.02em;margin-top:18px">Section heading · 28 / 700</div>
+      <div style="font-size:19px;font-weight:650;margin-top:14px">Subsection heading · 19 / 650</div>
+      <div style="font-size:15px;color:var(--ink-2);margin-top:14px;max-width:60ch">Body copy at 15px / 1.6 in ink-2. Used for descriptions and supporting prose throughout. Restful line length, <code>text-wrap: pretty</code> on dense paragraphs.</div>
+      <div class="uplabel" style="margin-top:16px">Uppercase label · 11 / 700 · 0.08em tracking</div>
+      <div class="mono" style="font-size:26px;font-weight:600;margin-top:10px">1,842.30 &nbsp; 9.8× &nbsp; 3.8σ &nbsp; +72% &nbsp; 99th</div>
+      <div class="mono" style="font-size:13px;color:var(--ink-3);margin-top:4px">Monospace numerics · tabular · the product's number voice</div>
+    </div>
+    <div class="scroll" style="margin-top:14px">
+      <table class="stable">
+        <thead><tr><th>Role</th><th>Size</th><th>Weight</th><th>Family</th><th>Notes</th></tr></thead>
+        <tbody>
+          <tr><td>Display / hero</td><td class="mono">46px</td><td class="mono">700</td><td>Sans</td><td>−0.025em tracking, balance wrap</td></tr>
+          <tr><td>Mode title (h1)</td><td class="mono">28px</td><td class="mono">700</td><td>Sans</td><td>page headers in each mode</td></tr>
+          <tr><td>Card / panel title</td><td class="mono">13.5–16px</td><td class="mono">600–650</td><td>Sans</td><td>BLUF headline 15px</td></tr>
+          <tr><td>Body</td><td class="mono">13–15px</td><td class="mono">400</td><td>Sans</td><td>ink-2, line-height 1.5–1.6</td></tr>
+          <tr><td>Uppercase label</td><td class="mono">10–11px</td><td class="mono">700</td><td>Sans</td><td>0.06–0.08em tracking, ink-3</td></tr>
+          <tr><td>Numbers / metrics</td><td class="mono">12–26px</td><td class="mono">600</td><td>Mono</td><td>tabular-nums, always mono</td></tr>
+          <tr><td>Caption / meta</td><td class="mono">11–12px</td><td class="mono">400</td><td>Sans/Mono</td><td>ink-3 / ink-faint</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="sec" id="space">
+    <h2>Spacing, radius &amp; elevation</h2>
+    <div class="h2sub">Density-driven scale</div>
+    <p class="lead">A small set of variables drives rhythm, and they shift wholesale across the three densities. Build to the variables — never to a pixel literal — and density "just works".</p>
+    <div class="scroll">
+      <table class="stable">
+        <thead><tr><th>Token</th><th>Compact</th><th>Regular (default)</th><th>Comfy</th><th>Use</th></tr></thead>
+        <tbody>
+          <tr><td class="mono">--pad</td><td class="mono">14px</td><td class="mono">20px</td><td class="mono">26px</td><td>card / row padding</td></tr>
+          <tr><td class="mono">--gap</td><td class="mono">11px</td><td class="mono">16px</td><td class="mono">22px</td><td>grid &amp; flex gaps</td></tr>
+          <tr><td class="mono">--row-h</td><td class="mono">38px</td><td class="mono">44px</td><td class="mono">52px</td><td>table row height</td></tr>
+          <tr><td class="mono">--radius</td><td class="mono">11px</td><td class="mono">14px</td><td class="mono">16px</td><td>cards, panels, drawers</td></tr>
+          <tr><td class="mono">--radius-sm</td><td class="mono">7px</td><td class="mono">9px</td><td class="mono">10px</td><td>buttons, chips, inputs</td></tr>
+          <tr><td class="mono">--fs-base</td><td class="mono">14px</td><td class="mono">15px</td><td class="mono">16px</td><td>root font size</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <h3 class="sub">Elevation</h3>
+    <div class="grid3">
+      <div class="panel" style="box-shadow:none"><div class="uplabel">Flat</div><p style="margin:6px 0 0;font-size:12.5px">Borders only — most surfaces. <code>--border</code> on <code>--panel</code>.</p></div>
+      <div class="panel"><div class="uplabel">Shadow</div><p style="margin:6px 0 0;font-size:12.5px">Cards &amp; raised panels. <code>--shadow</code> — soft, low.</p></div>
+      <div class="panel" style="box-shadow:var(--shadow-lg)"><div class="uplabel">Shadow-lg</div><p style="margin:6px 0 0;font-size:12.5px">Drawers &amp; modals over the scrim. <code>--shadow-lg</code>.</p></div>
+    </div>
+    <p style="font-size:13px;margin-top:14px">Radii: corners are generous but not pill-soft — 14px cards, 8–9px controls, 6px micro-chips, 99px only for true pills, dots, and gauges. Scrollbars are 11px, thumb on <code>--border-strong</code>.</p>
+  </section>
+
+  <section class="sec" id="components">
+    <h2>Component library</h2>
+    <div class="h2sub">Live, from the real stylesheet</div>
+    <p class="lead">Every demo below is rendered with the production component CSS. Each notes its class, variants, and where it appears.</p>
+
+    <h3 class="sub">Buttons</h3>
+    <div class="demo">
+      <button class="btn">Default</button>
+      <button class="btn btn-accent">Accent</button>
+      <button class="btn btn-ghost">Ghost</button>
+      <button class="btn btn-sm">Small</button>
+      <button class="btn btn-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4v5h5M19 9a7 7 0 00-13-2"/></svg></button>
+    </div>
+    <p style="font-size:12.5px;color:var(--ink-3)"><code>.btn</code> · modifiers <code>.btn-accent .btn-ghost .btn-sm .btn-icon</code>. 34px tall (28 small), 1px press translate, icon at <code>.ic</code> 80% opacity.</p>
+
+    <h3 class="sub">Tier badge — the product's spine</h3>
+    <div class="demo">
+      <span class="tier-badge t-a lg">A</span>
+      <span class="tier-badge t-b lg">B</span>
+      <span class="tier-badge t-c lg">C</span>
+      <span class="tier-badge t-d lg">D</span>
+      <span class="tier-badge t-a">A</span>
+      <span class="tier-badge t-a sm">A</span>
+      <span class="tier-line"><span class="tier-badge t-a sm">A</span><span class="tier-word">Tier A · Actionable</span></span>
+    </div>
+    <div class="scroll" style="margin-top:6px">
+      <table class="stable">
+        <thead><tr><th>Tier</th><th>Class</th><th>Meaning</th><th>Treatment</th></tr></thead>
+        <tbody>
+          <tr><td><span class="kbadge A">A</span> Actionable</td><td class="mono">.t-a</td><td>Clears every gate with independent corroboration</td><td>Solid accent fill, glow shadow — only fully-lit state</td></tr>
+          <tr><td><span class="kbadge B">B</span> Review</td><td class="mono">.t-b</td><td>Meets threshold; wants confirmation before acting</td><td>Accent-soft fill, accent text, inset ring</td></tr>
+          <tr><td><span class="kbadge C">C</span> Context</td><td class="mono">.t-c</td><td>Elevated activity, below the action gate</td><td>Transparent, neutral text, strong inset ring</td></tr>
+          <tr><td><span class="kbadge D">D</span> Suppressed</td><td class="mono">.t-d</td><td>No tier emitted — incomplete / insufficient data</td><td>Transparent, faint text, dashed ring</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p style="font-size:12.5px;color:var(--ink-3)">Sizes: <code>.lg</code> 40px (BLUF/modals/group heads) · default 28px · <code>.sm</code> 22px (tables/feed/rows). <code>word</code> prop renders the labeled line.</p>
+
+    <h3 class="sub">Direction tags &amp; bands</h3>
+    <div class="demo">
+      <span class="dir-tag bull"><span class="arrow">↑</span>Buyer-side</span>
+      <span class="dir-tag bear"><span class="arrow">↓</span>Seller-side</span>
+      <span class="dir-tag mixed"><span class="arrow">↔</span>Mixed</span>
+      <span class="dir-tag undet"><span class="arrow">–</span>Undetermined</span>
+      <span class="band-tag elevated">Elevated</span>
+      <span class="band-tag unusual">Unusual</span>
+      <span class="band-tag extreme">Extreme</span>
+    </div>
+    <p style="font-size:12.5px;color:var(--ink-3)"><code>.dir-tag</code> (<code>.bull .bear .mixed .undet</code>) encodes <b>signed-flow</b> direction — never price. <code>.band-tag</code> is the anomaly intensity (Elevated → Unusual → Extreme).</p>
+
+    <h3 class="sub">Indicator chips — A / B / C</h3>
+    <div class="demo">
+      <div class="ind-chip B"><span class="lab">B · vs own history</span><span class="val">3.8σ vol</span><span class="sub">2.9σ focus · 4.1σ notional</span></div>
+      <div class="ind-chip A"><span class="lab">A · vs S&amp;P 500</span><span class="val">97th pct</span><span class="sub">focus 93rd · press 89th</span></div>
+      <div class="ind-chip C"><span class="lab">C · raw metric</span><span class="val">9.8× notional</span><span class="sub">9.8× vol · +72% pressure</span></div>
+      <div class="ind-chip A na"><span class="lab">A · vs S&amp;P 500</span><span class="val">N/A</span><span class="sub">single-ticker mode</span></div>
+    </div>
+    <p style="font-size:12.5px;color:var(--ink-3)">Each indicator owns a key color: A amber (<code>#c79a4a</code>), B accent, C neutral. The <code>.na</code> state (55% opacity) shows when A has no universe (single-ticker).</p>
+
+    <h3 class="sub">Pills, key-values &amp; deltas</h3>
+    <div class="demo col">
+      <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">
+        <span class="pill"><span class="dot" style="background:var(--accent)"></span>B 3.8σ above own median</span>
+        <span class="pill" style="color:var(--buy)">↑ +0.4σ</span>
+        <span class="pill" style="color:var(--sell)">↓ −0.3σ</span>
+        <span class="pill">— flat</span>
+      </div>
+      <div style="max-width:340px;width:100%">
+        <div class="kv"><span class="k">Volume ratio</span><span class="v">9.8× median</span></div>
+        <div class="kv"><span class="k">Focus notional</span><span class="v">$440M</span></div>
+        <div class="kv"><span class="k">Net notional pressure</span><span class="v" style="color:var(--buy)">+72%</span></div>
+      </div>
+    </div>
+
+    <h3 class="sub">Cards &amp; evidence-card head</h3>
+    <div class="demo col">
+      <div class="ev-card open" style="width:100%;max-width:520px">
+        <div class="ev-head">
+          <span class="ico"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2L4 14h6l-1 8 9-12h-6l1-8z"/></svg></span>
+          <div class="ev-titlewrap"><div class="ev-title">Volume Anomaly</div><div class="ev-sub">Open–Power Hour · Extreme band</div></div>
+          <span style="margin-right:4px"><span class="ev-metric pos">9.8×</span></span>
+          <span class="ev-chev"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg></span>
+        </div>
+        <div class="ev-body">
+          <div class="kv"><span class="k">Notional ratio</span><span class="v">9.8× median</span></div>
+          <div class="kv"><span class="k">B-score (volume)</span><span class="v">3.8σ</span></div>
+        </div>
+      </div>
+    </div>
+    <p style="font-size:12.5px;color:var(--ink-3)"><code>.card</code> / <code>.card-pad</code> for static panels; <code>.ev-card</code> is the collapsible evidence card — clickable head with icon, title/sub, headline metric, rotating chevron, bordered body.</p>
+
+    <h3 class="sub">Mini-charts</h3>
+    <div class="grid3">
+      <div class="panel"><div class="uplabel" style="margin-bottom:8px">Pressure gauge</div>
+        <div style="display:flex;justify-content:space-between;font-size:10px;color:var(--ink-3);margin-bottom:5px"><span>Sell</span><span>Neutral</span><span>Buy</span></div>
+        <div class="gauge"><div class="mid"></div><div class="needle" style="left:86%;background:var(--buy)"></div></div>
+        <p style="font-size:11.5px;color:var(--ink-3);margin:8px 0 0"><code>PressureGauge</code> — signed −1…+1 needle on a sell→buy track.</p>
+      </div>
+      <div class="panel"><div class="uplabel" style="margin-bottom:8px">Confidence bar</div>
+        <div class="conf"><span style="width:74%;background:var(--accent)"></span></div>
+        <p style="font-size:11.5px;color:var(--ink-3);margin:8px 0 0"><code>ConfBar</code> — turns red below 50% (low signing confidence).</p>
+      </div>
+      <div class="panel"><div class="uplabel" style="margin-bottom:8px">Signing mix</div>
+        <div class="mix-bar"><span style="width:66%;background:var(--accent)"></span><span style="width:18%;background:#7c9bf2"></span><span style="width:10%;background:var(--ink-faint)"></span><span style="width:6%;background:var(--border-strong)"></span></div>
+        <div class="mix-legend"><span class="li"><span class="sw" style="background:var(--accent)"></span>Quote 66%</span><span class="li"><span class="sw" style="background:#7c9bf2"></span>Tick 18%</span></div>
+      </div>
+    </div>
+    <p style="font-size:12.5px;color:var(--ink-3);margin-top:10px">Plus <code>Sparkline</code> (line + area, optional zero baseline) and <code>VolBars</code> (today vs ghost-baseline bars, colored by hot-ratio) — both pure inline SVG, 240px viewBox, <code>preserveAspectRatio:none</code> to stretch.</p>
+
+    <h3 class="sub">Corroboration row &amp; data lanes</h3>
+    <div class="grid2">
+      <div class="panel">
+        <div class="corr-row"><span class="mk yes"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12l4 4L19 7"/></svg></span><div class="ct"><div class="cl">Price action aligned</div><div class="cd">Price moved with signed pressure (+1%)</div></div><span class="indep">Strong</span></div>
+        <div class="corr-row"><span class="mk no"></span><div class="ct"><div class="cl">Options flow aligned</div><div class="cd">Not available</div></div><span class="indep">Strong</span></div>
+        <div class="corr-row"><span class="mk warn"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l9 16H3L12 3z"/></svg></span><div class="ct"><div class="cl">Macro regime supports</div><div class="cd">VIX 28.4 — Risk-Off context</div></div><span class="indep">Contextual</span></div>
+      </div>
+      <div class="panel">
+        <div class="lane"><span class="ls ls-ready"></span><span class="ln">Live Trade Slices</span><span class="lst">Ready · 2m ago</span></div>
+        <div class="lane"><span class="ls ls-loading"></span><span class="ln">Block Trade Feed</span><span class="lst">Data is still loading</span></div>
+        <div class="lane"><span class="ls ls-blocked"></span><span class="ln">Pre-Market Slices</span><span class="lst">Cannot evaluate</span></div>
+        <div class="lane"><span class="ls ls-disabled"></span><span class="ln">Confirmed Alerts</span><span class="lst">Optional source disabled</span></div>
+      </div>
+    </div>
+    <p style="font-size:12.5px;color:var(--ink-3);margin-top:10px">Corroboration marks: <code>.yes</code> (green check) / <code>.no</code> (empty) / <code>.warn</code> (amber). Lane dots: <span class="legend-dot" style="background:var(--buy)"></span>ready · <span class="legend-dot" style="background:var(--accent)"></span>loading (pulses) · <span class="legend-dot" style="background:var(--sell)"></span>blocked · <span class="legend-dot" style="background:var(--ink-faint)"></span>disabled. Full 9-state contract in <a href="data-logic.html#lanes">Data &amp; Logic</a>.</p>
+
+    <h3 class="sub">Iconography</h3>
+    <p style="font-size:13.5px">A single stroked icon set (~45 glyphs, <code>1.7</code> stroke, 24px grid, round caps/joins) defined in <code>ICONS</code> and rendered through one <code>&lt;Icon name size /&gt;</code> component. Multi-path glyphs are split on <code>M</code> commands. Use line icons only — no filled or duotone — except where a <code>fill</code> flag is explicitly passed (e.g. the saved watchlist bookmark).</p>
+    <div class="demo" style="gap:18px;color:var(--ink-2)">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3a9 9 0 100 18 9 9 0 000-18z"/><path d="M12 7a5 5 0 100 10 5 5 0 000-10z"/><path d="M12 11a1 1 0 100 2 1 1 0 000-2z"/></svg>
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3 8h18v11a2 2 0 01-2 2H5a2 2 0 01-2-2V8z"/><path d="M9 5h6a2 2 0 012 2v1H7V7a2 2 0 012-2z"/></svg>
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l9 5-9 5-9-5 9-5z"/><path d="M3 12l9 5 9-5"/></svg>
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M18 9a6 6 0 10-12 0c0 6-3 7-3 7h18s-3-1-3-7"/><path d="M10 21a2 2 0 004 0"/></svg>
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12h4l3 8 4-16 3 8h4"/></svg>
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l8 3v5c0 5-3.4 8.5-8 10-4.6-1.5-8-5-8-10V6l8-3z"/></svg>
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3c4.4 0 8 1.3 8 3s-3.6 3-8 3-8-1.3-8-3 3.6-3 8-3z"/><path d="M20 7.5v5c0 1.7-3.6 3-8 3s-8-1.3-8-3v-5"/></svg>
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l2 6 6 2-6 2-2 6-2-6-6-2 6-2 2-6z"/></svg>
+    </div>
+  </section>
+
+  <div class="pagenav">
+    <a href="index.html"><div class="dir">Previous</div><div class="t">← Overview</div></a>
+    <a class="next" href="screens.html"><div class="dir">Next part</div><div class="t">02 · Screens &amp; States →</div></a>
+  </div>
+
+  <div class="foot">
+    <span>Design System · rendered live from components.css + styles.css</span>
+    <span><a href="../Unusual Trading Activity Agent.html">↗ Open the live prototype</a></span>
+  </div>
+
+</div>
+</body>
+</html>

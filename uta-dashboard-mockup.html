@@ -1,0 +1,929 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>UTA Agent — Design Mockup v1</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/alpinejs/3.13.5/cdn.min.js" defer></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<script>
+tailwind.config = {
+  darkMode: 'class',
+  theme: {
+    extend: {
+      colors: {
+        slate: {
+          950: '#0a0f1e',
+          925: '#0d1526',
+        }
+      }
+    }
+  }
+}
+</script>
+<style>
+  body { background: #0a0f1e; font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif; }
+  .tier-a { background: linear-gradient(135deg, #065f46 0%, #047857 100%); border-color: #10b981; }
+  .tier-b { background: linear-gradient(135deg, #1e3a5f 0%, #1d4ed8 100%); border-color: #3b82f6; }
+  .tier-c { background: linear-gradient(135deg, #78350f 0%, #b45309 100%); border-color: #f59e0b; }
+  .tier-d { background: linear-gradient(135deg, #1e1e2e 0%, #374151 100%); border-color: #6b7280; }
+  .regime-neutral { background: linear-gradient(90deg, #1c1f2e 0%, #1f2937 50%, #1c1f2e 100%); border-bottom: 1px solid #374151; }
+  .regime-risk-on { background: linear-gradient(90deg, #052e16 0%, #064e3b 50%, #052e16 100%); border-bottom: 1px solid #10b981; }
+  .regime-risk-off { background: linear-gradient(90deg, #431407 0%, #78350f 50%, #431407 100%); border-bottom: 1px solid #f97316; }
+  .regime-crisis { background: linear-gradient(90deg, #450a0a 0%, #7f1d1d 50%, #450a0a 100%); border-bottom: 2px solid #ef4444; }
+  .card { background: #111827; border: 1px solid #1f2937; border-radius: 12px; }
+  .card-hover { transition: all 0.15s ease; }
+  .card-hover:hover { border-color: #374151; box-shadow: 0 0 0 1px #374151; }
+  .evidence-card { background: #0d1421; border: 1px solid #1f2937; border-radius: 8px; }
+  .b-chip { background: #0f172a; border: 1px solid #1e3a5f; border-radius: 6px; padding: 2px 8px; font-size: 12px; font-family: 'SF Mono', monospace; }
+  .a-chip { background: #0f172a; border: 1px solid #1e3a5f; border-radius: 6px; padding: 2px 8px; font-size: 12px; font-family: 'SF Mono', monospace; }
+  .c-chip { background: #0f172a; border: 1px solid #292524; border-radius: 6px; padding: 2px 8px; font-size: 12px; font-family: 'SF Mono', monospace; }
+  .scan-row-preliminary { border-left: 3px solid #6b7280; opacity: 0.7; }
+  .scan-row-confirmed-a { border-left: 3px solid #10b981; }
+  .scan-row-confirmed-b { border-left: 3px solid #3b82f6; }
+  .scan-row-confirmed-c { border-left: 3px solid #f59e0b; }
+  .progress-bar { background: linear-gradient(90deg, #3b82f6, #6366f1); border-radius: 4px; transition: width 0.5s ease; }
+  .action-btn { background: #111827; border: 1px solid #1f2937; border-radius: 6px; padding: 6px 12px; font-size: 12px; color: #9ca3af; transition: all 0.15s; cursor: pointer; }
+  .action-btn:hover { background: #1f2937; border-color: #374151; color: #e5e7eb; }
+  .tab-active { background: #1e3a5f; color: #93c5fd; border-bottom: 2px solid #3b82f6; }
+  .tab { color: #6b7280; cursor: pointer; padding: 10px 20px; font-size: 14px; font-weight: 500; transition: all 0.15s; }
+  .tab:hover { color: #d1d5db; }
+  .lane-ready { color: #10b981; }
+  .lane-loading { color: #f59e0b; }
+  .lane-unavailable { color: #ef4444; }
+  .lane-partial { color: #60a5fa; }
+  .corr-strong { color: #10b981; }
+  .corr-contextual { color: #60a5fa; }
+  .corr-absent { color: #374151; }
+  .metric-val { font-family: 'SF Mono', 'Courier New', monospace; font-size: 13px; }
+  .pct-bar { background: #1f2937; border-radius: 3px; height: 6px; overflow: hidden; }
+  .pct-fill-buy { background: #10b981; border-radius: 3px; }
+  .pct-fill-sell { background: #ef4444; border-radius: 3px; }
+  .pct-fill-mid { background: #6b7280; border-radius: 3px; }
+  .delta-up { color: #10b981; }
+  .delta-down { color: #ef4444; }
+  .delta-flat { color: #6b7280; }
+  .universe-fast::before { content: '🟢'; margin-right: 4px; }
+  .universe-standard::before { content: '🟡'; margin-right: 4px; }
+  .universe-extended::before { content: '🔴'; margin-right: 4px; }
+  .bluf-section { border-left: 2px solid #374151; padding-left: 12px; margin: 8px 0; }
+  .bluf-section h4 { font-size: 11px; font-weight: 600; letter-spacing: 0.05em; text-transform: uppercase; color: #6b7280; margin-bottom: 4px; }
+  .bluf-section p { font-size: 13px; color: #d1d5db; line-height: 1.5; }
+  .mockup-banner { background: #1a1f2e; border: 1px solid #2d3748; border-radius: 6px; padding: 6px 12px; font-size: 11px; color: #60a5fa; text-align: center; }
+  ::-webkit-scrollbar { width: 6px; } ::-webkit-scrollbar-track { background: #0a0f1e; } ::-webkit-scrollbar-thumb { background: #374151; border-radius: 3px; }
+</style>
+</head>
+<body class="text-slate-200 min-h-screen" x-data="utaApp()">
+
+<!-- MOCKUP BANNER -->
+<div class="mockup-banner sticky top-0 z-50 rounded-none border-x-0 border-t-0">
+  📐 Design Mockup · Unusual Trading Activity Agent v2 · All data is illustrative · Not for trading decisions
+</div>
+
+<!-- TOP NAV -->
+<nav class="sticky top-[32px] z-40 bg-slate-950/95 backdrop-blur border-b border-slate-800/60 px-4 py-0 flex items-center justify-between">
+  <div class="flex items-center gap-3">
+    <div class="flex items-center gap-2">
+      <div class="w-7 h-7 rounded-md bg-blue-600/20 border border-blue-500/30 flex items-center justify-center text-blue-400 text-xs font-bold">UTA</div>
+      <span class="text-sm font-semibold text-slate-200">Unusual Trading Activity</span>
+      <span class="text-xs text-slate-600 border border-slate-800 rounded px-1.5 py-0.5">v2</span>
+    </div>
+    <!-- MODE TABS -->
+    <div class="flex ml-4">
+      <button class="tab" :class="{'tab-active': mode === 'single'}" @click="mode = 'single'">Single Ticker</button>
+      <button class="tab" :class="{'tab-active': mode === 'portfolio'}" @click="mode = 'portfolio'">Portfolio</button>
+      <button class="tab" :class="{'tab-active': mode === 'scan'}" @click="mode = 'scan'">Scan / Discovery</button>
+    </div>
+  </div>
+  <div class="flex items-center gap-3">
+    <span class="text-xs text-slate-500">Last cycle: <span class="text-slate-400">14:23:07 ET</span></span>
+    <button @click="healthOpen = !healthOpen" class="action-btn flex items-center gap-1.5">
+      <span class="w-2 h-2 rounded-full bg-green-400"></span>
+      Data Health
+    </button>
+  </div>
+</nav>
+
+<!-- MARKET REGIME BANNER -->
+<div class="regime-neutral px-4 py-2 flex items-center justify-between text-xs">
+  <div class="flex items-center gap-4">
+    <span class="font-semibold text-slate-300">📊 Market Regime: <span class="text-yellow-400">Neutral</span></span>
+    <span class="text-slate-500">VIX <span class="text-slate-300 metric-val">21.4</span></span>
+    <span class="text-slate-500">10Y–2Y <span class="text-slate-300 metric-val">+0.12%</span></span>
+    <span class="text-slate-500">Fed Funds <span class="text-slate-300 metric-val">5.25%</span></span>
+  </div>
+  <div class="text-slate-500 italic">Interpret signals in context · Neither strong risk-on nor risk-off</div>
+</div>
+
+<!-- MAIN LAYOUT -->
+<div class="flex relative">
+
+  <!-- MAIN CONTENT -->
+  <div class="flex-1 p-4 max-w-6xl" :class="{'mr-80': healthOpen}">
+
+    <!-- ==================== SINGLE TICKER MODE ==================== -->
+    <div x-show="mode === 'single'" x-cloak>
+
+      <!-- Ticker Input -->
+      <div class="flex items-center gap-3 mb-5">
+        <div class="relative flex-1 max-w-sm">
+          <input type="text" value="AVGO" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-4 py-2.5 text-sm text-white focus:outline-none focus:border-blue-500 pr-10" placeholder="Enter ticker symbol...">
+          <button class="absolute right-3 top-1/2 -translate-y-1/2 text-blue-400 hover:text-blue-300 text-xs font-semibold">ANALYZE</button>
+        </div>
+        <div class="text-xs text-slate-500">Universe comparison not available in single-ticker mode</div>
+      </div>
+
+      <!-- BLUF CARD - AVGO Tier A -->
+      <div class="card p-5 mb-4" @click="singleExpanded = !singleExpanded" style="cursor:pointer">
+        <div class="flex items-start justify-between mb-3">
+          <div class="flex items-center gap-3">
+            <div class="text-2xl font-bold text-white">AVGO</div>
+            <div class="text-sm text-slate-400">Broadcom Inc. · Mega-cap · NASDAQ</div>
+          </div>
+          <div class="flex items-center gap-2">
+            <div class="px-3 py-1.5 rounded-md border font-bold text-sm tier-a text-emerald-200">Tier A — Actionable</div>
+            <div class="px-3 py-1.5 rounded-md bg-emerald-900/30 border border-emerald-700/50 text-emerald-400 text-sm font-semibold">↑ Buyer-side pressure</div>
+            <div class="text-slate-600 text-lg" x-text="singleExpanded ? '▲' : '▼'"></div>
+          </div>
+        </div>
+
+        <!-- A/B/C INDICATOR ROW -->
+        <div class="flex items-center gap-3 mb-4 pb-4 border-b border-slate-800">
+          <div class="flex items-center gap-2">
+            <span class="text-xs font-semibold text-slate-500 uppercase tracking-wider">B</span>
+            <span class="b-chip text-blue-300">3.8σ volume</span>
+            <span class="b-chip text-blue-300">2.9σ focus-share</span>
+            <span class="b-chip text-blue-300">2.6σ pressure</span>
+          </div>
+          <div class="w-px h-5 bg-slate-700"></div>
+          <div class="flex items-center gap-2">
+            <span class="text-xs font-semibold text-slate-600 uppercase tracking-wider">A</span>
+            <span class="text-xs text-slate-600 italic">N/A — single-ticker mode</span>
+          </div>
+          <div class="w-px h-5 bg-slate-700"></div>
+          <div class="flex items-center gap-2">
+            <span class="text-xs font-semibold text-slate-500 uppercase tracking-wider">C</span>
+            <span class="c-chip text-amber-300">9.8× notional</span>
+            <span class="c-chip text-amber-300">$440M</span>
+            <span class="c-chip text-amber-300">4 block prints</span>
+          </div>
+        </div>
+
+        <!-- BLUF TEXT -->
+        <div class="grid grid-cols-2 gap-3">
+          <div class="bluf-section" style="border-color: #10b981">
+            <h4>What happened</h4>
+            <p>Session volume is 9.8× the 20-session median for this time bucket (morning, 10–11:30 ET). Four focus prints totaling $440M in notional, concentrated on the buyer side (72% signed pressure). Block activity is 2.9σ above own baseline.</p>
+          </div>
+          <div class="bluf-section">
+            <h4>Why it matters</h4>
+            <p>All three corroboration flags are active: price action moved +1.2% during the analysis window, TradeVision issued a confirmed block alert at 14:22 ET, and pre-market was also elevated (B 2.1σ). Two independent signals align on the same direction.</p>
+          </div>
+          <div class="bluf-section">
+            <h4>What to check</h4>
+            <p>Review the block prints in the Block/TRF card below — are they lit-exchange large prints, TRF off-exchange, or confirmed block alerts? Check the earnings calendar (AVGO reports in 18 days). Verify direction stability in the next cycle.</p>
+          </div>
+          <div class="bluf-section" style="border-color: #374151">
+            <h4>Limitations</h4>
+            <p>Direction is inferred from trade signing (74% quote-rule confidence). VIX at 21.4 is neutral — not a strong tailwind for bullish signals. This is supporting evidence, not a trade signal on its own.</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- EXPANDED EVIDENCE CARDS -->
+      <div x-show="singleExpanded" x-transition class="space-y-3">
+
+        <!-- ROW: Evidence Cards Grid -->
+        <div class="grid grid-cols-2 gap-3">
+
+          <!-- CARD 1: Volume Anomaly -->
+          <div class="evidence-card p-4 card-hover" @click="openCard = openCard === 'vol' ? '' : 'vol'" style="cursor:pointer">
+            <div class="flex items-center justify-between mb-2">
+              <div class="text-xs font-semibold text-slate-400 uppercase tracking-wider">Volume Anomaly</div>
+              <div class="px-2 py-0.5 bg-red-900/30 border border-red-700/40 rounded text-red-400 text-xs font-bold">EXTREME</div>
+            </div>
+            <div class="grid grid-cols-3 gap-3 mb-3">
+              <div>
+                <div class="text-xs text-slate-600 mb-1">Volume ratio</div>
+                <div class="metric-val text-white text-lg">9.8×</div>
+                <div class="text-xs text-slate-500">vs 20-day median</div>
+              </div>
+              <div>
+                <div class="text-xs text-slate-600 mb-1">Notional ratio</div>
+                <div class="metric-val text-white text-lg">11.2×</div>
+                <div class="text-xs text-slate-500">$440M vs $39M avg</div>
+              </div>
+              <div>
+                <div class="text-xs text-slate-600 mb-1">B-score</div>
+                <div class="metric-val text-blue-300 text-lg">3.8σ</div>
+                <div class="text-xs text-slate-500">own history</div>
+              </div>
+            </div>
+            <div class="flex items-center gap-2 text-xs text-slate-500">
+              <span>Time bucket: <span class="text-slate-300">Morning (10:00–11:30 ET)</span></span>
+              <span>·</span>
+              <span>Baseline: <span class="text-slate-300">19 sessions</span> (1 earnings excluded)</span>
+            </div>
+            <div x-show="openCard === 'vol'" class="mt-3 pt-3 border-t border-slate-800 text-xs text-slate-500">
+              <div class="font-semibold text-slate-400 mb-1">Calculation detail</div>
+              B = (9.8 − median_baseline[1.0]) / (MAD_baseline[0.22] × 1.4826) = 3.8σ<br>
+              Baseline window: 2025-05-07 to 2026-05-28 · Earnings on 2026-03-05 excluded
+            </div>
+          </div>
+
+          <!-- CARD 2: Block / TRF Activity -->
+          <div class="evidence-card p-4 card-hover" @click="openCard = openCard === 'block' ? '' : 'block'" style="cursor:pointer">
+            <div class="flex items-center justify-between mb-2">
+              <div class="text-xs font-semibold text-slate-400 uppercase tracking-wider">Block / TRF Activity</div>
+              <div class="px-2 py-0.5 bg-blue-900/30 border border-blue-700/40 rounded text-blue-400 text-xs font-bold">4 PRINTS</div>
+            </div>
+            <div class="grid grid-cols-3 gap-3 mb-3">
+              <div>
+                <div class="text-xs text-slate-600 mb-1">Focus share</div>
+                <div class="metric-val text-white text-lg">67%</div>
+                <div class="text-xs text-slate-500">B: 2.9σ</div>
+              </div>
+              <div>
+                <div class="text-xs text-slate-600 mb-1">Largest print</div>
+                <div class="metric-val text-white text-lg">$178M</div>
+                <div class="text-xs text-slate-500">35.6× avg trade</div>
+              </div>
+              <div>
+                <div class="text-xs text-slate-600 mb-1">Block direction</div>
+                <div class="metric-val text-emerald-400 text-lg">+78%</div>
+                <div class="text-xs text-slate-500">buyer-signed</div>
+              </div>
+            </div>
+            <div class="space-y-1.5 text-xs">
+              <div class="flex items-center justify-between text-slate-400">
+                <span>$178M · TRF/off-exchange · 10:04 ET · ↑ buyer</span>
+                <span class="text-slate-600">ISO sweep</span>
+              </div>
+              <div class="flex items-center justify-between text-slate-400">
+                <span>$124M · TRF/off-exchange · 10:31 ET · ↑ buyer</span>
+                <span class="text-blue-400">Provider confirmed</span>
+              </div>
+              <div class="flex items-center justify-between text-slate-400">
+                <span>$89M · Lit-exchange · 11:12 ET · ↑ buyer</span>
+                <span></span>
+              </div>
+              <div class="flex items-center justify-between text-slate-400">
+                <span>$49M · TRF/off-exchange · 11:28 ET · ↓ seller</span>
+                <span></span>
+              </div>
+            </div>
+            <div x-show="openCard === 'block'" class="mt-3 pt-3 border-t border-slate-800 text-xs text-slate-500">
+              <span class="font-semibold text-slate-400">Mega-bucket threshold:</span> notional ≥ $5M AND ≥ 3× 20-day median trade notional ($4.99M)<br>
+              Condition code policy v1 applied · Odd-lots excluded from block detection · ISO sweep counted in volume, not classified as focus
+            </div>
+          </div>
+
+          <!-- CARD 3: Directional Pressure -->
+          <div class="evidence-card p-4 card-hover">
+            <div class="flex items-center justify-between mb-2">
+              <div class="text-xs font-semibold text-slate-400 uppercase tracking-wider">Directional Pressure</div>
+              <div class="px-2 py-0.5 bg-emerald-900/30 border border-emerald-700/40 rounded text-emerald-400 text-xs font-bold">BUYER-SIDE</div>
+            </div>
+            <div class="grid grid-cols-3 gap-3 mb-3">
+              <div>
+                <div class="text-xs text-slate-600 mb-1">Net notional</div>
+                <div class="metric-val text-emerald-400 text-lg">+72%</div>
+                <div class="text-xs text-slate-500">B: 2.6σ</div>
+              </div>
+              <div>
+                <div class="text-xs text-slate-600 mb-1">Net volume</div>
+                <div class="metric-val text-emerald-400 text-lg">+61%</div>
+                <div class="text-xs text-slate-500">B: 2.1σ</div>
+              </div>
+              <div>
+                <div class="text-xs text-slate-600 mb-1">Confidence</div>
+                <div class="metric-val text-white text-lg">74%</div>
+                <div class="text-xs text-slate-500">quote-rule</div>
+              </div>
+            </div>
+            <div class="text-xs text-slate-600 mb-1.5">Signing method mix</div>
+            <div class="space-y-1">
+              <div class="flex items-center gap-2">
+                <div class="w-20 text-xs text-slate-500">Quote rule</div>
+                <div class="flex-1 pct-bar"><div class="pct-fill-buy h-full" style="width: 74%"></div></div>
+                <div class="text-xs text-slate-400 w-8">74%</div>
+              </div>
+              <div class="flex items-center gap-2">
+                <div class="w-20 text-xs text-slate-500">Tick test</div>
+                <div class="flex-1 pct-bar"><div class="pct-fill-mid h-full" style="width: 18%"></div></div>
+                <div class="text-xs text-slate-400 w-8">18%</div>
+              </div>
+              <div class="flex items-center gap-2">
+                <div class="w-20 text-xs text-slate-500">Midpoint</div>
+                <div class="flex-1 pct-bar"><div class="pct-fill-sell h-full" style="width: 5%"></div></div>
+                <div class="text-xs text-slate-400 w-8">5%</div>
+              </div>
+              <div class="flex items-center gap-2">
+                <div class="w-20 text-xs text-slate-500">Unknown</div>
+                <div class="flex-1 pct-bar"><div class="pct-fill-mid h-full" style="width: 3%"></div></div>
+                <div class="text-xs text-slate-400 w-8">3%</div>
+              </div>
+            </div>
+          </div>
+
+          <!-- CARD 4: Pre-Market Activity -->
+          <div class="evidence-card p-4 card-hover">
+            <div class="flex items-center justify-between mb-2">
+              <div class="text-xs font-semibold text-slate-400 uppercase tracking-wider">Pre-Market Activity</div>
+              <div class="px-2 py-0.5 bg-amber-900/30 border border-amber-700/40 rounded text-amber-400 text-xs font-bold">UNUSUAL</div>
+            </div>
+            <div class="grid grid-cols-3 gap-3 mb-3">
+              <div>
+                <div class="text-xs text-slate-600 mb-1">Volume ratio</div>
+                <div class="metric-val text-white text-lg">3.4×</div>
+                <div class="text-xs text-slate-500">B: 2.1σ</div>
+              </div>
+              <div>
+                <div class="text-xs text-slate-600 mb-1">PM pressure</div>
+                <div class="metric-val text-emerald-400 text-lg">+58%</div>
+                <div class="text-xs text-slate-500">effective now</div>
+              </div>
+              <div>
+                <div class="text-xs text-slate-600 mb-1">Gap direction</div>
+                <div class="metric-val text-emerald-400 text-lg">+0.8%</div>
+                <div class="text-xs text-slate-500">gap-up at open</div>
+              </div>
+            </div>
+            <div class="text-xs text-slate-500 bg-slate-900/50 rounded p-2">
+              <span class="text-amber-400">Pre-market decay:</span> Original pressure +58% · 114 min since open · Effective: <span class="metric-val text-white">+14.7%</span> (decayed 74.7%)
+            </div>
+          </div>
+
+          <!-- CARD 5: Market Flow Trend -->
+          <div class="evidence-card p-4 card-hover">
+            <div class="flex items-center justify-between mb-2">
+              <div class="text-xs font-semibold text-slate-400 uppercase tracking-wider">Market Flow Trend</div>
+              <div class="px-2 py-0.5 bg-emerald-900/30 border border-emerald-700/40 rounded text-emerald-400 text-xs font-bold">↑ BUILDING</div>
+            </div>
+            <div class="grid grid-cols-3 gap-3">
+              <div>
+                <div class="text-xs text-slate-600 mb-1">Pressure delta</div>
+                <div class="metric-val text-emerald-400 text-lg">+0.41</div>
+                <div class="text-xs text-slate-500">vs prior 5 cycles</div>
+              </div>
+              <div>
+                <div class="text-xs text-slate-600 mb-1">Participation</div>
+                <div class="metric-val text-white text-lg">1.4×</div>
+                <div class="text-xs text-slate-500">vs avg notional</div>
+              </div>
+              <div>
+                <div class="text-xs text-slate-600 mb-1">Trend</div>
+                <div class="text-emerald-400 text-sm font-semibold">Bullish, building</div>
+                <div class="text-xs text-slate-500">4 of 5 cycles +</div>
+              </div>
+            </div>
+          </div>
+
+          <!-- CARD 6: Confirmed Alerts -->
+          <div class="evidence-card p-4 card-hover">
+            <div class="flex items-center justify-between mb-2">
+              <div class="text-xs font-semibold text-slate-400 uppercase tracking-wider">Confirmed Alerts</div>
+              <div class="px-2 py-0.5 bg-blue-900/30 border border-blue-700/40 rounded text-blue-400 text-xs font-bold">2 ALERTS</div>
+            </div>
+            <div class="space-y-2">
+              <div class="bg-slate-900/60 rounded p-2.5">
+                <div class="flex items-center justify-between mb-1">
+                  <span class="text-xs font-semibold text-white">TradeVision</span>
+                  <span class="text-xs text-emerald-400">● Confirmed</span>
+                </div>
+                <div class="text-xs text-slate-400">Block · ↑ Bullish · 14:22 ET · $124M print @ NYSE</div>
+              </div>
+              <div class="bg-slate-900/60 rounded p-2.5">
+                <div class="flex items-center justify-between mb-1">
+                  <span class="text-xs font-semibold text-white">Unusual Whales</span>
+                  <span class="text-xs text-blue-400">◐ Probable</span>
+                </div>
+                <div class="text-xs text-slate-400">Sweep · ↑ Bullish · 10:03 ET · High volume flag</div>
+              </div>
+            </div>
+            <div class="text-xs text-slate-600 mt-2">Probable alerts shown in evidence · not eligible for tier elevation</div>
+          </div>
+
+        </div>
+
+        <!-- CORROBORATION PANEL -->
+        <div class="card p-4">
+          <div class="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-3">Corroboration · 3 of 4 strong signals confirmed</div>
+          <div class="grid grid-cols-3 gap-y-2 gap-x-4">
+            <div class="flex items-center gap-2">
+              <span class="corr-strong text-base">✅</span>
+              <div>
+                <div class="text-sm text-slate-200">Price action aligned</div>
+                <div class="text-xs text-slate-500">+1.2% during analysis window</div>
+              </div>
+            </div>
+            <div class="flex items-center gap-2">
+              <span class="text-slate-700 text-base">⬜</span>
+              <div>
+                <div class="text-sm text-slate-500">Options flow</div>
+                <div class="text-xs text-slate-600">Not available (no companion agent)</div>
+              </div>
+            </div>
+            <div class="flex items-center gap-2">
+              <span class="corr-strong text-base">✅</span>
+              <div>
+                <div class="text-sm text-slate-200">Provider alert confirmed</div>
+                <div class="text-xs text-slate-500">TradeVision, 14:22 ET, matching direction</div>
+              </div>
+            </div>
+            <div class="flex items-center gap-2">
+              <span class="text-slate-700 text-base">⬜</span>
+              <div>
+                <div class="text-sm text-slate-500">News catalyst</div>
+                <div class="text-xs text-slate-600">None detected today</div>
+              </div>
+            </div>
+            <div class="flex items-center gap-2">
+              <span class="corr-strong text-base">✅</span>
+              <div>
+                <div class="text-sm text-slate-200">Pre-market + regular elevated</div>
+                <div class="text-xs text-slate-500">Both sessions B ≥ 1.5σ</div>
+              </div>
+            </div>
+            <div class="flex items-center gap-2">
+              <span class="text-yellow-500 text-base">⚠️</span>
+              <div>
+                <div class="text-sm text-slate-400">Macro regime — contextual</div>
+                <div class="text-xs text-slate-600">VIX 21.4 · Neutral · No strong support or headwind</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- USER ACTIONS PANEL -->
+        <div class="card p-4">
+          <div class="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-3">Actions</div>
+          <div class="flex flex-wrap gap-2">
+            <button class="action-btn">🔄 Refresh this lane</button>
+            <button class="action-btn">📋 Show raw prints</button>
+            <button class="action-btn">🔢 Show calculation</button>
+            <button class="action-btn">📝 Explain this tier</button>
+            <button class="action-btn">↔ Compare to prior cycle</button>
+            <button class="action-btn">✓ Mark as reviewed</button>
+            <button class="action-btn">⭐ Add to watchlist</button>
+            <button class="action-btn">📌 Use as supporting evidence</button>
+            <button class="action-btn">🚫 Ignore this cycle</button>
+            <button class="action-btn">🔍 Open candidate detail</button>
+          </div>
+        </div>
+
+        <!-- DATA HEALTH INLINE CARD -->
+        <div class="evidence-card p-4">
+          <div class="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-3">Data Health — AVGO</div>
+          <div class="grid grid-cols-4 gap-3 text-xs">
+            <div><span class="lane-ready">● Ready</span><div class="text-slate-500 mt-0.5">Live trade slices</div><div class="text-slate-600">14:23:04 ET · 100%</div></div>
+            <div><span class="lane-ready">● Ready</span><div class="text-slate-500 mt-0.5">Baseline cache</div><div class="text-slate-600">Built 23:00 · 19 sessions</div></div>
+            <div><span class="lane-ready">● Ready</span><div class="text-slate-500 mt-0.5">Pre-market slices</div><div class="text-slate-600">09:29:58 ET · 100%</div></div>
+            <div><span class="lane-partial">● Partial</span><div class="text-slate-500 mt-0.5">Confirmed alerts</div><div class="text-slate-600">TradeVision connected · Unusual Whales manual</div></div>
+          </div>
+          <div class="mt-2 text-xs text-slate-600">Condition code policy: v1 · 312 prints processed · 4 excluded (W) · 1 flagged (O)</div>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- ==================== PORTFOLIO MODE ==================== -->
+    <div x-show="mode === 'portfolio'" x-cloak>
+      <div class="flex items-center justify-between mb-4">
+        <div>
+          <h2 class="text-base font-semibold text-white">My Portfolio</h2>
+          <div class="text-xs text-slate-500 mt-0.5">5 holdings · A-scores relative to your portfolio today · Sorted by urgency (C order)</div>
+        </div>
+        <div class="flex items-center gap-2">
+          <span class="text-xs text-slate-500">Auto-refresh in <span class="text-slate-300">4:12</span></span>
+          <button class="action-btn">Edit Portfolio</button>
+          <button class="action-btn bg-blue-900/20 border-blue-700/40 text-blue-400">↺ Analyze Now</button>
+        </div>
+      </div>
+
+      <!-- TABLE HEADER -->
+      <div class="card overflow-hidden">
+        <div class="grid text-xs font-semibold text-slate-500 uppercase tracking-wider border-b border-slate-800 px-4 py-2.5" style="grid-template-columns: 100px 120px 1fr 120px 140px 120px 80px">
+          <div>Ticker</div>
+          <div>Tier</div>
+          <div>B — vs own history</div>
+          <div>A — vs portfolio</div>
+          <div>C — raw</div>
+          <div>Δ since last</div>
+          <div></div>
+        </div>
+
+        <!-- Row 1: AVGO Tier A -->
+        <div class="grid items-center px-4 py-3 border-b border-slate-800/60 scan-row-confirmed-a card-hover" style="grid-template-columns: 100px 120px 1fr 120px 140px 120px 80px" @click="portfolioOpen = portfolioOpen === 'avgo' ? '' : 'avgo'" :style="{cursor: 'pointer'}">
+          <div>
+            <div class="font-bold text-white">AVGO</div>
+            <div class="text-xs text-slate-500">Mega-cap</div>
+          </div>
+          <div class="px-2 py-1 rounded text-xs font-bold tier-a text-emerald-200 text-center w-fit">A — Actionable</div>
+          <div class="flex items-center gap-2">
+            <span class="b-chip text-blue-300">3.8σ vol</span>
+            <span class="b-chip text-blue-300">2.9σ focus</span>
+            <span class="b-chip text-blue-300">2.6σ pressure</span>
+          </div>
+          <div class="text-sm text-slate-300">97th pct</div>
+          <div class="flex gap-1">
+            <span class="c-chip text-amber-300">9.8×</span>
+            <span class="c-chip text-amber-300">$440M</span>
+          </div>
+          <div class="delta-up text-sm font-semibold">↑ +0.8σ</div>
+          <div class="text-slate-600 text-sm">▼</div>
+        </div>
+        <!-- AVGO expanded mini -->
+        <div x-show="portfolioOpen === 'avgo'" class="px-4 pb-3 border-b border-slate-800/60 bg-slate-900/30">
+          <div class="flex gap-3 mt-2 text-xs text-slate-400">
+            <span>↑ Buyer-side · TradeVision confirmed · corroboration: 3/4</span>
+            <button class="action-btn text-xs">Open full analysis →</button>
+          </div>
+        </div>
+
+        <!-- Row 2: NVDA Tier B -->
+        <div class="grid items-center px-4 py-3 border-b border-slate-800/60 scan-row-confirmed-b card-hover" style="grid-template-columns: 100px 120px 1fr 120px 140px 120px 80px">
+          <div>
+            <div class="font-bold text-white">NVDA</div>
+            <div class="text-xs text-slate-500">Mega-cap</div>
+          </div>
+          <div class="px-2 py-1 rounded text-xs font-bold tier-b text-blue-200 text-center w-fit">B — Review</div>
+          <div class="flex items-center gap-2">
+            <span class="b-chip text-blue-300">2.1σ vol</span>
+            <span class="b-chip text-blue-300">1.8σ focus</span>
+          </div>
+          <div class="text-sm text-slate-300">84th pct</div>
+          <div class="flex gap-1">
+            <span class="c-chip text-amber-300">4.2×</span>
+            <span class="c-chip text-amber-300">$218M</span>
+          </div>
+          <div class="delta-up text-sm">↑ +0.3σ</div>
+          <div class="text-slate-600 text-sm">▼</div>
+        </div>
+
+        <!-- Row 3: META Tier B -->
+        <div class="grid items-center px-4 py-3 border-b border-slate-800/60 scan-row-confirmed-b card-hover" style="grid-template-columns: 100px 120px 1fr 120px 140px 120px 80px">
+          <div>
+            <div class="font-bold text-white">META</div>
+            <div class="text-xs text-slate-500">Mega-cap</div>
+          </div>
+          <div class="px-2 py-1 rounded text-xs font-bold tier-b text-blue-200 text-center w-fit">B — Review</div>
+          <div class="flex items-center gap-2">
+            <span class="b-chip text-blue-300">1.8σ pressure</span>
+            <span class="b-chip text-blue-300">1.6σ vol</span>
+          </div>
+          <div class="text-sm text-slate-300">78th pct</div>
+          <div class="flex gap-1">
+            <span class="c-chip text-amber-300">3.1×</span>
+            <span class="c-chip text-red-400">–64% pressure</span>
+          </div>
+          <div class="delta-down text-sm">↓ –0.2σ</div>
+          <div class="text-slate-600 text-sm">▼</div>
+        </div>
+
+        <!-- Row 4: MSFT Tier C -->
+        <div class="grid items-center px-4 py-3 border-b border-slate-800/60 scan-row-confirmed-c card-hover" style="grid-template-columns: 100px 120px 1fr 120px 140px 120px 80px">
+          <div>
+            <div class="font-bold text-slate-300">MSFT</div>
+            <div class="text-xs text-slate-500">Mega-cap</div>
+          </div>
+          <div class="px-2 py-1 rounded text-xs font-bold tier-c text-amber-200 text-center w-fit">C — Context</div>
+          <div class="flex items-center gap-2">
+            <span class="b-chip text-slate-400">1.1σ vol</span>
+          </div>
+          <div class="text-sm text-slate-400">52nd pct</div>
+          <div class="flex gap-1">
+            <span class="c-chip text-slate-400">1.8×</span>
+          </div>
+          <div class="delta-flat text-sm">— flat</div>
+          <div class="text-slate-600 text-sm">▼</div>
+        </div>
+
+        <!-- Row 5: AAPL Tier D -->
+        <div class="grid items-center px-4 py-3 scan-row-confirmed-c card-hover opacity-50" style="grid-template-columns: 100px 120px 1fr 120px 140px 120px 80px">
+          <div>
+            <div class="font-bold text-slate-500">AAPL</div>
+            <div class="text-xs text-slate-600">Mega-cap</div>
+          </div>
+          <div class="px-2 py-1 rounded text-xs font-bold tier-d text-slate-400 text-center w-fit">D — Suppressed</div>
+          <div class="text-xs text-slate-600 italic">Lane loading — baseline rebuild in progress</div>
+          <div class="text-sm text-slate-600">—</div>
+          <div class="text-sm text-slate-600">—</div>
+          <div class="text-sm text-slate-600">—</div>
+          <div class="text-slate-700 text-sm">▼</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ==================== SCAN MODE ==================== -->
+    <div x-show="mode === 'scan'" x-cloak>
+
+      <!-- Scan Controls -->
+      <div class="card p-4 mb-4">
+        <div class="grid grid-cols-3 gap-4">
+          <!-- Universe Selector -->
+          <div>
+            <label class="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1.5 block">Universe</label>
+            <select x-model="scanUniverse" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500">
+              <option value="djia">🟢 Dow Jones (30 tickers · ~45 sec)</option>
+              <option value="ndx">🟢 NASDAQ-100 (~100 tickers · ~55 sec)</option>
+              <option value="sp500" selected>🟡 S&P 500 (~503 tickers · 2–4 min)</option>
+              <option value="sp400">🟡 S&P Mid-Cap 400 (~400 · 2–4 min)</option>
+              <option value="r1000">🔴 Russell 1000 (~1000 · 5–10 min)</option>
+              <option value="r2000">🔴 Russell 2000 (~2000 · 5–10 min)</option>
+              <option value="it_sp500">🟢 Info Tech — S&P 500 (~70 · ~50 sec)</option>
+              <option value="custom">🟢 Custom list</option>
+            </select>
+            <div class="text-xs text-slate-500 mt-1">Last updated: Jun 6, 2026</div>
+          </div>
+          <!-- Direction -->
+          <div>
+            <label class="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1.5 block">Direction Filter</label>
+            <div class="flex gap-2">
+              <button @click="scanDirection = 'bullish'" class="flex-1 py-2 rounded-lg text-sm font-medium border transition-all" :class="scanDirection === 'bullish' ? 'bg-emerald-900/40 border-emerald-700 text-emerald-400' : 'bg-slate-900 border-slate-700 text-slate-500'">↑ Bullish</button>
+              <button @click="scanDirection = 'bearish'" class="flex-1 py-2 rounded-lg text-sm font-medium border transition-all" :class="scanDirection === 'bearish' ? 'bg-red-900/40 border-red-700 text-red-400' : 'bg-slate-900 border-slate-700 text-slate-500'">↓ Bearish</button>
+              <button @click="scanDirection = 'both'" class="flex-1 py-2 rounded-lg text-sm font-medium border transition-all" :class="scanDirection === 'both' ? 'bg-blue-900/40 border-blue-700 text-blue-400' : 'bg-slate-900 border-slate-700 text-slate-500'">↔ Both</button>
+            </div>
+          </div>
+          <!-- Scan Button -->
+          <div class="flex flex-col justify-end">
+            <button @click="startScan()" class="w-full py-2.5 bg-blue-600 hover:bg-blue-500 rounded-lg text-sm font-semibold text-white transition-all" :disabled="scanRunning">
+              <span x-show="!scanRunning">🔍 Run Scan</span>
+              <span x-show="scanRunning">⏳ Scanning...</span>
+            </button>
+            <div class="text-xs text-slate-500 mt-1 text-center">Pass 1 → Pass 2 on top 30</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Scan Progress (shown when running) -->
+      <div x-show="scanRunning || scanDone" class="card p-4 mb-4">
+        <div class="flex items-center justify-between mb-2">
+          <div class="text-sm font-semibold text-white">
+            <span x-show="scanPhase === 1">Pass 1 — Screening all 503 tickers...</span>
+            <span x-show="scanPhase === 2">Pass 2 — Deep analysis on shortlist (<span x-text="scanCompleted"></span>/30 complete)</span>
+            <span x-show="scanDone && !scanRunning">✅ Scan complete — 28 tickers analyzed</span>
+          </div>
+          <div class="flex items-center gap-3 text-xs text-slate-500">
+            <span x-show="scanRunning">Elapsed: <span class="text-slate-300" x-text="scanElapsed + 's'"></span></span>
+            <button x-show="scanRunning" @click="stopScan()" class="action-btn text-red-400 border-red-800">Stop</button>
+          </div>
+        </div>
+        <div class="bg-slate-800 rounded h-2">
+          <div class="progress-bar h-full" :style="{width: scanProgress + '%'}"></div>
+        </div>
+        <div class="text-xs text-slate-500 mt-1" x-show="scanPhase === 2">
+          Each ticker result appears as it completes · Click any row for full analysis
+        </div>
+      </div>
+
+      <!-- Scan Results Table -->
+      <div x-show="scanStarted" class="card overflow-hidden">
+        <div class="px-4 py-2.5 border-b border-slate-800 flex items-center justify-between">
+          <div class="text-xs font-semibold text-slate-400 uppercase tracking-wider">
+            Results — S&P 500 · ↑ Bullish filter · <span x-show="scanPhase === 1">Pass 1 (preliminary)</span><span x-show="scanPhase >= 2"><span x-text="scanCompleted"></span> confirmed · <span x-text="Math.max(0, 8 - scanCompleted)"></span> loading</span>
+          </div>
+          <div class="text-xs text-slate-500">Sort: C order (urgency)</div>
+        </div>
+
+        <div class="grid text-xs font-semibold text-slate-500 uppercase tracking-wider border-b border-slate-800 px-4 py-2" style="grid-template-columns: 80px 120px 80px 1fr 100px 80px 80px">
+          <div>Ticker</div>
+          <div>Tier</div>
+          <div>Sector</div>
+          <div>B vs history</div>
+          <div>A vs S&P 500</div>
+          <div>Direction</div>
+          <div>Status</div>
+        </div>
+
+        <!-- CONFIRMED ROWS -->
+        <template x-for="(row, i) in scanRows.filter(r => r.status === 'confirmed').slice(0, scanCompleted)" :key="row.ticker">
+          <div class="grid items-center px-4 py-3 border-b border-slate-800/60 card-hover"
+               :class="'scan-row-confirmed-' + row.tier.toLowerCase()"
+               style="grid-template-columns: 80px 120px 80px 1fr 100px 80px 80px; cursor: pointer">
+            <div class="font-bold text-white text-sm" x-text="row.ticker"></div>
+            <div class="px-2 py-0.5 rounded text-xs font-bold text-center w-fit"
+                 :class="row.tier === 'A' ? 'tier-a text-emerald-200' : row.tier === 'B' ? 'tier-b text-blue-200' : 'tier-c text-amber-200'"
+                 x-text="'Tier ' + row.tier"></div>
+            <div class="text-xs text-slate-500" x-text="row.sector"></div>
+            <div class="flex items-center gap-2">
+              <template x-for="b in row.bscores">
+                <span class="b-chip text-blue-300" x-text="b"></span>
+              </template>
+            </div>
+            <div class="text-sm text-slate-300" x-text="row.apct + ' pct'"></div>
+            <div :class="row.direction === 'bullish' ? 'text-emerald-400' : 'text-slate-400'" class="text-xs font-semibold" x-text="row.direction === 'bullish' ? '↑ Buyer' : '↔ Mixed'"></div>
+            <div class="text-xs text-emerald-500">● Live</div>
+          </div>
+        </template>
+
+        <!-- PRELIMINARY ROWS (Pass 1) -->
+        <template x-for="row in scanRows.filter(r => r.status === 'preliminary').slice(0, 8 - Math.min(scanCompleted, 8))" :key="row.ticker + '_prelim'">
+          <div class="grid items-center px-4 py-3 border-b border-slate-800/40 scan-row-preliminary"
+               style="grid-template-columns: 80px 120px 80px 1fr 100px 80px 80px">
+            <div class="font-bold text-slate-400 text-sm" x-text="row.ticker"></div>
+            <div class="px-2 py-0.5 rounded text-xs font-medium text-center w-fit border border-slate-700 text-slate-500">Preliminary</div>
+            <div class="text-xs text-slate-600" x-text="row.sector"></div>
+            <div class="text-xs text-slate-500 italic">
+              <span x-text="row.bscores[0]"></span> <span class="text-slate-700">(estimate)</span>
+            </div>
+            <div class="text-slate-600 text-xs">—</div>
+            <div class="text-slate-600 text-xs">—</div>
+            <div class="text-xs text-amber-500">
+              <span class="animate-pulse">⟳</span> Loading
+            </div>
+          </div>
+        </template>
+
+        <div x-show="!scanStarted || (!scanRunning && !scanDone)" class="px-4 py-8 text-center text-slate-600 text-sm">
+          Configure universe and direction, then click Run Scan
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- DATA HEALTH SIDEBAR -->
+  <div x-show="healthOpen" x-transition class="fixed right-0 top-[64px] bottom-0 w-80 bg-slate-900 border-l border-slate-800 overflow-y-auto z-30 p-4">
+    <div class="flex items-center justify-between mb-4">
+      <div class="text-sm font-semibold text-white">Data Health</div>
+      <button @click="healthOpen = false" class="text-slate-500 hover:text-white text-lg">×</button>
+    </div>
+
+    <div class="space-y-3">
+      <div class="text-xs font-semibold text-slate-500 uppercase tracking-wider">Required Lanes</div>
+
+      <div class="evidence-card p-3">
+        <div class="flex items-center justify-between mb-1">
+          <span class="text-sm font-semibold text-white">Live Trade Slices</span>
+          <span class="text-xs lane-ready">● Ready</span>
+        </div>
+        <div class="text-xs text-slate-500">Last: 14:23:07 ET · 100% coverage</div>
+        <div class="text-xs text-slate-600">Massive API · refreshes every 5 min</div>
+        <button class="action-btn mt-2 text-xs w-full">Refresh</button>
+      </div>
+
+      <div class="evidence-card p-3">
+        <div class="flex items-center justify-between mb-1">
+          <span class="text-sm font-semibold text-white">Baseline Cache</span>
+          <span class="text-xs lane-ready">● Ready</span>
+        </div>
+        <div class="text-xs text-slate-500">Built: Jun 6 23:00 ET · 412 tickers</div>
+        <div class="text-xs text-slate-600">Next rebuild: tonight 23:00 ET</div>
+      </div>
+
+      <div class="evidence-card p-3">
+        <div class="flex items-center justify-between mb-1">
+          <span class="text-sm font-semibold text-white">Pre-Market Slices</span>
+          <span class="text-xs lane-ready">● Ready</span>
+        </div>
+        <div class="text-xs text-slate-500">Last: 09:29:58 ET · Session closed</div>
+        <div class="text-xs text-slate-600">Available for pre-market analysis</div>
+      </div>
+
+      <div class="evidence-card p-3">
+        <div class="flex items-center justify-between mb-1">
+          <span class="text-sm font-semibold text-white">FRED Macro</span>
+          <span class="text-xs lane-ready">● Ready</span>
+        </div>
+        <div class="text-xs text-slate-500">VIX 21.4 · Fetched 07:02 ET</div>
+        <div class="text-xs text-slate-600">Updates daily at 07:00 ET</div>
+      </div>
+
+      <div class="evidence-card p-3 border-amber-900/40">
+        <div class="flex items-center justify-between mb-1">
+          <span class="text-sm font-semibold text-white">Confirmed Alerts</span>
+          <span class="text-xs lane-partial">◐ Partial</span>
+        </div>
+        <div class="text-xs text-slate-500">TradeVision: ✅ CSV connected</div>
+        <div class="text-xs text-slate-500">Unusual Whales: ⬜ Manual upload</div>
+        <div class="text-xs text-slate-600 mt-1">Partial coverage · alerts still corroborate</div>
+        <button class="action-btn mt-2 text-xs w-full">Upload Alerts</button>
+      </div>
+
+      <div class="evidence-card p-3">
+        <div class="flex items-center justify-between mb-1">
+          <span class="text-sm font-semibold text-slate-300">Earnings Calendar</span>
+          <span class="text-xs lane-ready">● Ready</span>
+        </div>
+        <div class="text-xs text-slate-500">FMP free tier · Updated 06:02 ET</div>
+        <div class="text-xs text-slate-600">Next 90 days loaded</div>
+      </div>
+
+      <div class="evidence-card p-3">
+        <div class="flex items-center justify-between mb-1">
+          <span class="text-sm font-semibold text-slate-300">Universe Constituents</span>
+          <span class="text-xs lane-ready">● Ready</span>
+        </div>
+        <div class="text-xs text-slate-500">Last updated: Jun 1, 2026</div>
+        <div class="text-xs text-slate-600">Next update: Sunday 02:00 ET</div>
+      </div>
+
+      <div class="evidence-card p-3">
+        <div class="flex items-center justify-between mb-1">
+          <span class="text-sm font-semibold text-slate-300">Ticker Profiles</span>
+          <span class="text-xs lane-ready">● Ready</span>
+        </div>
+        <div class="text-xs text-slate-500">Built: Jun 6 23:30 ET · 503 tickers</div>
+        <div class="text-xs text-slate-600">Liquidity buckets, thresholds cached</div>
+      </div>
+
+      <div class="mt-4 pt-3 border-t border-slate-800">
+        <div class="text-xs text-slate-600">Policy: condition_code_policy_v1.json</div>
+        <div class="text-xs text-slate-600 mt-0.5">Pi 5 · 8GB RAM · Storage: 2.1 GB / 7 GB</div>
+        <div class="text-xs text-slate-600 mt-0.5">Cloudflare tunnel: connected</div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+function utaApp() {
+  return {
+    mode: 'single',
+    singleExpanded: true,
+    portfolioOpen: '',
+    healthOpen: false,
+    openCard: '',
+
+    // Scan state
+    scanUniverse: 'sp500',
+    scanDirection: 'bullish',
+    scanRunning: false,
+    scanDone: false,
+    scanStarted: false,
+    scanPhase: 0,
+    scanProgress: 0,
+    scanCompleted: 0,
+    scanElapsed: 0,
+    scanTimer: null,
+    elapsedTimer: null,
+
+    scanRows: [
+      { ticker: 'AVGO', tier: 'A', sector: 'Tech', bscores: ['3.8σ vol', '2.9σ focus'], apct: '97th', direction: 'bullish', status: 'confirmed' },
+      { ticker: 'AMD', tier: 'B', sector: 'Tech', bscores: ['2.4σ vol', '1.9σ pressure'], apct: '89th', direction: 'bullish', status: 'confirmed' },
+      { ticker: 'GS', tier: 'A', sector: 'Fin', bscores: ['3.1σ vol', '2.7σ focus'], apct: '94th', direction: 'bullish', status: 'confirmed' },
+      { ticker: 'CAT', tier: 'B', sector: 'Ind', bscores: ['2.0σ vol', '1.7σ focus'], apct: '81st', direction: 'bullish', status: 'confirmed' },
+      { ticker: 'LLY', tier: 'B', sector: 'HC', bscores: ['1.9σ pressure'], apct: '76th', direction: 'bullish', status: 'confirmed' },
+      { ticker: 'ORCL', tier: 'C', sector: 'Tech', bscores: ['1.2σ vol'], apct: '61st', direction: 'mixed', status: 'confirmed' },
+      { ticker: 'HON', tier: 'B', sector: 'Ind', bscores: ['2.1σ focus'], apct: '79th', direction: 'bullish', status: 'confirmed' },
+      { ticker: 'AXP', tier: 'C', sector: 'Fin', bscores: ['1.1σ vol'], apct: '58th', direction: 'mixed', status: 'confirmed' },
+      // Preliminary rows
+      { ticker: 'CRWD', tier: 'B', sector: 'Tech', bscores: ['~2.3σ vol'], apct: '—', direction: '—', status: 'preliminary' },
+      { ticker: 'PANW', tier: 'B', sector: 'Tech', bscores: ['~1.8σ focus'], apct: '—', direction: '—', status: 'preliminary' },
+      { ticker: 'MCD', tier: 'C', sector: 'Disc', bscores: ['~1.3σ vol'], apct: '—', direction: '—', status: 'preliminary' },
+      { ticker: 'UNH', tier: 'B', sector: 'HC', bscores: ['~2.0σ pressure'], apct: '—', direction: '—', status: 'preliminary' },
+    ],
+
+    startScan() {
+      this.scanRunning = true;
+      this.scanDone = false;
+      this.scanStarted = true;
+      this.scanPhase = 1;
+      this.scanProgress = 0;
+      this.scanCompleted = 0;
+      this.scanElapsed = 0;
+
+      this.elapsedTimer = setInterval(() => { this.scanElapsed++; }, 1000);
+
+      // Phase 1: 3 seconds
+      let p1 = 0;
+      const p1timer = setInterval(() => {
+        p1 += 7;
+        this.scanProgress = Math.min(p1, 30);
+        if (p1 >= 30) {
+          clearInterval(p1timer);
+          this.scanPhase = 2;
+          this.runPass2();
+        }
+      }, 200);
+    },
+
+    runPass2() {
+      let done = 0;
+      const total = 8;
+      const interval = setInterval(() => {
+        done++;
+        this.scanCompleted = done;
+        this.scanProgress = 30 + (done / total) * 70;
+        if (done >= total) {
+          clearInterval(interval);
+          clearInterval(this.elapsedTimer);
+          this.scanRunning = false;
+          this.scanDone = true;
+          this.scanProgress = 100;
+        }
+      }, 600);
+    },
+
+    stopScan() {
+      this.scanRunning = false;
+      clearInterval(this.elapsedTimer);
+    }
+  }
+}
+</script>
+</body>
+</html>

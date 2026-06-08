@@ -1,0 +1,132 @@
+/* ============================================================
+   Unusual Trading Activity Agent — Design Tokens
+   Modern fintech: clean, calm, restrained color.
+   Dark default + light. Density + type are tweakable.
+   ============================================================ */
+
+@import url('https://fonts.googleapis.com/css2?family=Spline+Sans:wght@400;500;600;700&family=Spline+Sans+Mono:wght@400;500;600;700&display=swap');
+
+:root {
+  /* type families (overridable via tweaks) */
+  --font-ui: 'Spline Sans', system-ui, sans-serif;
+  --font-mono: 'Spline Sans Mono', ui-monospace, monospace;
+
+  /* density scale (set on [data-density]) */
+  --pad: 20px;
+  --gap: 16px;
+  --row-h: 44px;
+  --radius: 14px;
+  --radius-sm: 9px;
+  --fs-base: 15px;
+
+  /* accent (overridable via tweak) */
+  --accent: #5a82f0;
+  --accent-ink: #ffffff;
+
+  /* direction (restrained finance) */
+  --buy: #34a981;
+  --buy-soft: rgba(52, 169, 129, 0.14);
+  --sell: #e0695f;
+  --sell-soft: rgba(224, 105, 95, 0.14);
+
+  /* regime */
+  --risk-on: #34a981;
+  --risk-off: #e0a44a;
+  --crisis: #e0695f;
+}
+
+/* ---------- DARK (default) ---------- */
+[data-theme="dark"] {
+  --bg: #0a0c11;
+  --bg-grad: radial-gradient(1200px 700px at 78% -8%, rgba(90,130,240,0.07), transparent 60%), #0a0c11;
+  --panel: #12151d;
+  --panel-2: #161a24;
+  --panel-3: #1c212d;
+  --raised: #1a1f2b;
+  --border: rgba(255,255,255,0.075);
+  --border-strong: rgba(255,255,255,0.14);
+  --ink: #e8ebf2;
+  --ink-2: #a4adbe;
+  --ink-3: #6d7588;
+  --ink-faint: #4b5263;
+  --shadow: 0 1px 2px rgba(0,0,0,0.4), 0 12px 32px -12px rgba(0,0,0,0.6);
+  --shadow-lg: 0 24px 60px -20px rgba(0,0,0,0.7);
+  --accent-soft: rgba(90,130,240,0.16);
+  --accent-line: rgba(90,130,240,0.4);
+  --grid-line: rgba(255,255,255,0.05);
+  --hover: rgba(255,255,255,0.035);
+}
+
+/* ---------- LIGHT ---------- */
+[data-theme="light"] {
+  --bg: #f4f5f8;
+  --bg-grad: radial-gradient(1200px 700px at 78% -8%, rgba(90,130,240,0.08), transparent 60%), #f4f5f8;
+  --panel: #ffffff;
+  --panel-2: #fbfbfd;
+  --panel-3: #f1f3f7;
+  --raised: #ffffff;
+  --border: rgba(13,18,30,0.09);
+  --border-strong: rgba(13,18,30,0.16);
+  --ink: #161a22;
+  --ink-2: #555d6e;
+  --ink-3: #828b9c;
+  --ink-faint: #aab2c0;
+  --shadow: 0 1px 2px rgba(16,24,40,0.06), 0 12px 28px -14px rgba(16,24,40,0.18);
+  --shadow-lg: 0 24px 56px -22px rgba(16,24,40,0.28);
+  --accent-soft: rgba(90,130,240,0.12);
+  --accent-line: rgba(90,130,240,0.45);
+  --grid-line: rgba(13,18,30,0.06);
+  --hover: rgba(13,18,30,0.025);
+}
+
+/* ---------- density ---------- */
+[data-density="compact"]  { --pad: 14px; --gap: 11px; --row-h: 38px; --radius: 11px; --radius-sm: 7px; --fs-base: 14px; }
+[data-density="regular"]  { --pad: 20px; --gap: 16px; --row-h: 44px; --radius: 14px; --radius-sm: 9px; --fs-base: 15px; }
+[data-density="comfy"]    { --pad: 26px; --gap: 22px; --row-h: 52px; --radius: 16px; --radius-sm: 10px; --fs-base: 16px; }
+
+* { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; }
+
+body {
+  font-family: var(--font-ui);
+  font-size: var(--fs-base);
+  line-height: 1.5;
+  color: var(--ink);
+  background: var(--bg-grad);
+  background-attachment: fixed;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+  font-feature-settings: "ss01", "cv01";
+}
+
+.mono { font-family: var(--font-mono); font-feature-settings: "tnum"; font-variant-numeric: tabular-nums; }
+
+::selection { background: var(--accent-soft); }
+
+/* scrollbar */
+*::-webkit-scrollbar { width: 11px; height: 11px; }
+*::-webkit-scrollbar-track { background: transparent; }
+*::-webkit-scrollbar-thumb { background: var(--border-strong); border-radius: 99px; border: 3px solid transparent; background-clip: padding-box; }
+*::-webkit-scrollbar-thumb:hover { background: var(--ink-faint); background-clip: padding-box; }
+
+button { font-family: inherit; cursor: pointer; }
+input { font-family: inherit; }
+
+/* utility */
+.tnum { font-variant-numeric: tabular-nums; }
+.theme-switching * { transition: none !important; }
+.uplabel { font-size: 11px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-3); }
+.fade-in { animation: fadeIn 0.35s ease; }
+@keyframes fadeIn { from { transform: translateY(6px); } to { transform: none; } }
+@keyframes pulseSoft { 0%,100% { opacity: 1; } 50% { opacity: 0.45; } }
+@keyframes shimmer { 0% { background-position: -340px 0; } 100% { background-position: 340px 0; } }
+
+.skeleton {
+  background: linear-gradient(90deg, var(--panel-3) 0%, var(--raised) 50%, var(--panel-3) 100%);
+  background-size: 680px 100%;
+  animation: shimmer 1.4s infinite linear;
+  border-radius: 6px;
+}
+@media (prefers-reduced-motion: reduce) {
+  .fade-in, .skeleton { animation: none; }
+}

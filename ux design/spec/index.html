@@ -1,0 +1,236 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark" data-density="regular">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>UTA — Implementation Spec — Overview & Architecture</title>
+<link rel="stylesheet" href="spec.css" />
+</head>
+<body>
+
+<nav class="spec-nav">
+  <a class="brand" href="index.html">
+    <span class="mk"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12h4l3 8 4-16 3 8h4"/></svg></span>
+    <span><b>Unusual Trading Activity</b><span>Design &amp; UX implementation spec</span></span>
+  </a>
+  <a class="np active" href="index.html">Overview</a>
+  <a class="np" href="design-system.html">Design System</a>
+  <a class="np" href="screens.html">Screens</a>
+  <a class="np" href="data-logic.html">Data &amp; Logic</a>
+  <a class="np" href="tickets.html">Build Tickets</a>
+  <span class="grow"></span>
+  <span class="tag">v1 · 2026-06-08</span>
+</nav>
+
+<div class="wrap">
+
+  <header class="hero">
+    <div class="eyebrow">Implementation Specification</div>
+    <h1>Unusual Trading Activity Agent</h1>
+    <p>A complete, build-ready blueprint for the trading-intelligence dashboard suite. This document set covers every screen, the full design system, the data model and tier logic, navigation and data flow, and a phased ticket backlog. It is written from the working reference prototype — every token, component, and rule below is real and verifiable in the source.</p>
+    <div class="meta">
+      <span class="m"><b>4</b> modes + landing</span>
+      <span class="m"><b>16</b> documented screens &amp; states</span>
+      <span class="m"><b>30+</b> components</span>
+      <span class="m"><b>2</b> themes · 3 densities</span>
+      <span class="m">Stack <b>React 18 + CSS variables</b></span>
+    </div>
+  </header>
+
+  <section class="sec" id="contents">
+    <h2>This document set</h2>
+    <div class="h2sub">Five parts</div>
+    <p class="lead">Read in order for a full build, or jump to the part you need. The reference prototype (<code>Unusual Trading Activity Agent.html</code>) is the living counterpart to this spec — open it side-by-side.</p>
+    <div class="toc">
+      <a href="design-system.html">
+        <span class="ti">01</span>
+        <span class="tc"><span class="tt">Design System</span><span class="td">Themes &amp; tokens, color, typography, spacing, elevation, the full component library with live demos and specs, iconography.</span></span>
+      </a>
+      <a href="screens.html">
+        <span class="ti">02</span>
+        <span class="tc"><span class="tt">Screens &amp; States</span><span class="td">Screen-by-screen specs for Landing, Single Ticker, Portfolio, Scan, Alerts, plus modals, drawers, empty &amp; degraded states. Annotated.</span></span>
+      </a>
+      <a href="data-logic.html">
+        <span class="ti">03</span>
+        <span class="tc"><span class="tt">Data &amp; Logic</span><span class="td">Ticker schema, the A/B/C indicator framework, rule-based tier classification, the 9-state lane contract, the two-pass scan pipeline, persistence stores.</span></span>
+      </a>
+      <a href="tickets.html">
+        <span class="ti">04</span>
+        <span class="tc"><span class="tt">Build Tickets</span><span class="td">Epics broken into implementation tickets with acceptance criteria, dependencies, and a phased delivery plan.</span></span>
+      </a>
+      <a href="screens.html#flow">
+        <span class="ti">05</span>
+        <span class="tc"><span class="tt">Navigation &amp; Flow</span><span class="td">The route map, app-shell behavior, cross-mode drill-down, and global interactions — covered inline in Overview and Screens.</span></span>
+      </a>
+    </div>
+  </section>
+
+  <section class="sec" id="concept">
+    <h2>Product concept</h2>
+    <div class="h2sub">What the agent does</div>
+    <p class="lead">The agent surfaces <strong>unusual trading activity</strong> — abnormal volume, large off-exchange / block prints, and directional pressure — and classifies each name into a rule-based <strong>tier</strong>. It is explicitly an <strong>evidence tool, not a black box</strong>: it never collapses signals into a single opaque score, and it never infers direction from price.</p>
+
+    <div class="grid3">
+      <div class="feature">
+        <div class="fi"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3a9 9 0 100 18 9 9 0 000-18z"/><path d="M12 7a5 5 0 100 10 5 5 0 000-10z"/><path d="M12 11a1 1 0 100 2 1 1 0 000-2z"/></svg></div>
+        <h4>Three independent indicators</h4>
+        <p>Every signal is read on <b>A</b> (universe percentile), <b>B</b> (historical z-score vs the name's own history), and <b>C</b> (raw metric). They are shown separately and never averaged.</p>
+      </div>
+      <div class="feature">
+        <div class="fi"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12l4 4L19 7"/></svg></div>
+        <h4>Rule-based tier, not a model</h4>
+        <p>Tiers <b>A / B / C / D</b> come from explicit threshold gates that the user can read and audit. "Explain this tier" shows the exact rules that passed or failed.</p>
+      </div>
+      <div class="feature">
+        <div class="fi"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12c4.4 0 8 1.3 8 3s-3.6 3-8 3M21 7.5c0 1.7-3.6 3-8 3s-8-1.3-8-3 3.6-3 8-3 8 1.3 8 3z"/></svg></div>
+        <h4>Honest data lanes</h4>
+        <p>Each data source is a "lane" with one of <b>9 explicit states</b>. A tier is never emitted on incomplete data — degraded coverage caps or suppresses the tier instead of guessing.</p>
+      </div>
+    </div>
+
+    <div class="note rule"><span class="ni"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3a9 9 0 100 18 9 9 0 000-18z"/><path d="M12 8v.5M12 11v5"/></svg></span><div><b>Core principle to preserve in the build:</b> direction is derived from <b>signed order flow</b> (Lee-Ready signing on prints), never from price change. Price is only ever used as <em>corroboration</em>. Keep this separation everywhere — it is the product's credibility.</div></div>
+  </section>
+
+  <section class="sec" id="ia">
+    <h2>Information architecture</h2>
+    <div class="h2sub">Four modes around one shared detail view</div>
+    <p class="lead">The product is a single-page app with a persistent shell (top bar + market-regime banner). Four modes answer four different questions; all four drill into the <strong>same ticker detail view</strong>, which adapts its rules to the mode it was opened from.</p>
+
+    <div class="scroll">
+      <table class="stable">
+        <thead><tr><th>Mode</th><th>Question it answers</th><th>Primary surface</th><th>Tier rules applied</th><th>Indicator A scope</th></tr></thead>
+        <tbody>
+          <tr><td><b>Landing</b></td><td>"How do I want to look at the market?"</td><td>Mode chooser + activity-feed banner</td><td>—</td><td>—</td></tr>
+          <tr><td><b>Single Ticker</b></td><td>"What is happening with <em>this</em> name?"</td><td>Full detail: BLUF, evidence, corroboration</td><td><b>B + C</b> (no peer group)</td><td>N/A (no universe)</td></tr>
+          <tr><td><b>Portfolio</b></td><td>"What in my book needs attention now?"</td><td>Ranked holdings table</td><td><b>A + B + C</b></td><td>vs your portfolio</td></tr>
+          <tr><td><b>Scan / Discovery</b></td><td>"What across a universe matches my criteria?"</td><td>Two-pass pipeline → results (3 views)</td><td><b>A + B + C</b> · two-pass</td><td>vs the scanned universe</td></tr>
+          <tr><td><b>Alerts / Activity</b></td><td>"What moved this cycle, and what did my rules catch?"</td><td>Chronological feed + rule engine</td><td>reads tiers from cycle</td><td>cross-universe</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3 class="sub">Navigation map</h3>
+    <p>Mode is held in app state (<code>mode</code>); drilling into a ticker sets <code>openSym</code>. The shared detail view is reached from every mode and carries its origin mode so it can apply the right rule set and show the right breadcrumb.</p>
+    <div class="panel">
+      <div class="diagram">
+        <div class="flowrow">
+          <div class="flownode" style="flex:0 0 100%;background:var(--accent-soft);border-color:var(--accent-line)"><div class="fl">App shell — always mounted</div><div class="fv">Top bar (brand · mode tabs · ticker search · watchlist · theme · sync) + Market-Regime banner (hidden on Landing)</div></div>
+        </div>
+        <div class="flowarrow" style="height:18px">↓</div>
+        <div class="flowrow">
+          <div class="flownode"><div class="fl">Landing</div><div class="fv">Mode cards → pick a mode</div></div>
+          <div class="flownode"><div class="fl">Single Ticker</div><div class="fv">Detail view (B+C)</div></div>
+          <div class="flownode"><div class="fl">Portfolio</div><div class="fv">Ranked table</div></div>
+          <div class="flownode"><div class="fl">Scan</div><div class="fv">Pipeline → results</div></div>
+          <div class="flownode"><div class="fl">Alerts</div><div class="fv">Feed + rules</div></div>
+        </div>
+        <div class="flowarrow" style="height:18px">↓ &nbsp; row / card / feed-item click &nbsp; ↓</div>
+        <div class="flowrow">
+          <div class="flownode" style="flex:0 0 100%;background:var(--panel-2)"><div class="fl">Shared Ticker Detail (carries origin mode)</div><div class="fv">BLUF card · A/B/C summary · Cycle history · 8 evidence cards · Corroboration panel · Actions · drawers (Raw prints / Explain tier) · Compare-to-prior-cycle</div></div>
+        </div>
+        <div class="flowarrow" style="height:18px">↕ &nbsp; overlays available from any mode &nbsp; ↕</div>
+        <div class="flowrow">
+          <div class="flownode"><div class="fl">Watchlist drawer</div><div class="fv">global, top-bar</div></div>
+          <div class="flownode"><div class="fl">Alert-rules drawer</div><div class="fv">from Alerts</div></div>
+          <div class="flownode"><div class="fl">Tweaks panel</div><div class="fv">theme / density / type</div></div>
+        </div>
+      </div>
+    </div>
+    <ul class="clean">
+      <li><b>Single Ticker</b> keeps its drill-downs in local state — the breadcrumb returns to the search/detail; related-ticker links swap the symbol in place.</li>
+      <li><b>Portfolio / Scan / Alerts</b> toggle between their list surface and the detail view via <code>openSym</code>; the breadcrumb's first crumb returns to the list. Alerts opens detail in single-ticker (B+C) rules.</li>
+      <li>The global <b>ticker search</b> in the top bar always routes to Single Ticker for the typed symbol.</li>
+    </ul>
+  </section>
+
+  <section class="sec" id="shell">
+    <h2>App shell</h2>
+    <div class="h2sub">Persistent chrome</div>
+    <div class="grid2">
+      <div class="panel">
+        <h4 class="sub" style="margin-top:0">Top bar — <code>TopBar</code></h4>
+        <ul class="clean">
+          <li><b>Brand / home button</b> — returns to Landing.</li>
+          <li><b>Mode tabs</b> — Single Ticker · Portfolio · Scan · Alerts. Alerts carries a count badge (<code>alertCount</code> = "needs attention").</li>
+          <li><b>Ticker search</b> — autocompletes from the ticker list; submitting a known symbol routes to Single Ticker.</li>
+          <li><b>Watchlist pill</b> — opens the watchlist drawer; shows saved count.</li>
+          <li><b>Theme toggle</b> — dark ⇄ light (writes the <code>theme</code> tweak).</li>
+          <li><b>Sync indicator</b> — "Live · synced HH:MM:SS ET", or a spinning "Revalidating lanes…" pill during a revalidation event.</li>
+        </ul>
+      </div>
+      <div class="panel">
+        <h4 class="sub" style="margin-top:0">Market-Regime banner — <code>RegimeBanner</code></h4>
+        <p style="margin-top:0">Shown on every mode except Landing. Communicates macro context that shades signal interpretation.</p>
+        <ul class="clean">
+          <li><b>Regime badge</b> — Risk-On / Neutral / Risk-Off / Crisis, color-keyed.</li>
+          <li><b>VIX</b>, <b>yield-curve</b> spread, <b>Fed Funds</b> stats.</li>
+          <li><b>Interpretation line</b> — plain-English caution (e.g. risk-off ⇒ "treat bullish signals cautiously").</li>
+        </ul>
+        <div class="note warn" style="margin-bottom:0"><span class="ni"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l9 16H3L12 3z"/><path d="M12 9v5m0 3v.3"/></svg></span><div>Regime never changes a tier. It only frames the BLUF "Limitations" and the macro corroboration flag.</div></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="sec" id="codearch">
+    <h2>Code architecture</h2>
+    <div class="h2sub">File map of the reference build</div>
+    <p class="lead">The prototype is plain React 18 via in-browser Babel — no bundler — split into focused scripts loaded in dependency order. A production build should preserve this module boundary but compile ahead of time. Each module exports its public components to <code>window</code> (the prototype's cross-script bridge); in a real build these become normal ES module imports.</p>
+    <div class="scroll">
+      <table class="stable">
+        <thead><tr><th>File</th><th>Role</th><th>Key exports</th></tr></thead>
+        <tbody>
+          <tr><td class="mono">styles.css</td><td>Design tokens — color, type, density, theme. The single source of truth for all variables.</td><td class="mono">:root, [data-theme], [data-density]</td></tr>
+          <tr><td class="mono">components.css</td><td>Primitive component styles — buttons, tier badge, dir tag, chips, cards, charts, lanes.</td><td class="mono">.btn .tier-badge .dir-tag .card .ev-card</td></tr>
+          <tr><td class="mono">app.css · extras.css<br/>feed.css · scan.css</td><td>Layout + per-surface styles (shell, detail layout, drawers/modals, feed, scan pipeline).</td><td class="mono">.topbar .layout .drawer .feed .scan-funnel</td></tr>
+          <tr><td class="mono">data.js</td><td>The dataset + derivation. Builds the ticker table, BLUF text, lane states, universes, macro. Exposes <code>window.UTA</code>.</td><td class="mono">UTA.{tickers, bySym, macro, universes, …}</td></tr>
+          <tr><td class="mono">components.jsx</td><td>Shared primitives: icon set, TierBadge, DirTag, IndChip, Band, Sparkline, VolBars, PressureGauge, ConfBar, MixBar, DeltaChip.</td><td class="mono">Icon TierBadge DirTag …</td></tr>
+          <tr><td class="mono">evidence.jsx</td><td>BLUF card, A/B/C indicator summary, the 8 evidence cards, corroboration panel, actions panel, lane rows.</td><td class="mono">BlufCard EvidenceGrid CorroborationPanel ActionsPanel</td></tr>
+          <tr><td class="mono">options.jsx</td><td>Options-flow evidence card (optional corroboration lane).</td><td class="mono">OptionsFlowCard</td></tr>
+          <tr><td class="mono">detail-extras.jsx</td><td>Raw-prints drawer, Explain-tier modal, Compare-to-prior-cycle, Cycle-history timeline, lane legend, Landing screen.</td><td class="mono">RawPrintsDrawer ExplainTierPanel CycleTimeline HomeMode</td></tr>
+          <tr><td class="mono">modes.jsx</td><td>Ticker detail shell, Single Ticker, Portfolio, Scan mode + results table, stat cards.</td><td class="mono">TickerDetail SingleMode PortfolioMode ScanMode</td></tr>
+          <tr><td class="mono">scan.jsx</td><td>Scan results: refinement bar, 3 comparable views (table / grouped / cards), saved scans, bulk actions.</td><td class="mono">ScanResults SavedScans SrTable SrGrouped SrCards</td></tr>
+          <tr><td class="mono">alerts.jsx</td><td>Review state, alert-rule store + engine, activity-feed builder, Alerts mode, rules drawer + editor.</td><td class="mono">AlertsMode useRules ruleStore buildFeed</td></tr>
+          <tr><td class="mono">app.jsx</td><td>App shell: top bar, regime banner, routing, watchlist store + drawer, tweaks wiring, mount.</td><td class="mono">App TopBar RegimeBanner watchStore</td></tr>
+          <tr><td class="mono">tweaks-panel.jsx</td><td>In-design tweak controls (theme / accent / density / typeface). Demo-only — drop in production.</td><td class="mono">TweaksPanel useTweaks</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="note info"><span class="ni"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3a9 9 0 100 18 9 9 0 000-18z"/><path d="M12 8v.5M12 11v5"/></svg></span><div><b>Production note:</b> the prototype's <code>window.*</code> exports and in-browser Babel are scaffolding for fast iteration. Port to a real toolchain (Vite/Next + TypeScript), convert <code>data.js</code> into typed API responses, and replace the synthetic generators (BLUF text, raw prints, cycle history) with server-computed fields. Everything visual and behavioral is faithful as-is.</div></div>
+  </section>
+
+  <section class="sec" id="global">
+    <h2>Global behaviors</h2>
+    <div class="h2sub">Cross-cutting interactions</div>
+    <div class="grid2">
+      <div class="panel">
+        <h4 class="sub" style="margin-top:0">Lane revalidation</h4>
+        <p style="margin:0">Any "refresh lane" action dispatches a <code>uta:revalidate</code> event. The shell shows a top progress bar + "Revalidating lanes…" pill for ~1.9s, then stamps a fresh sync time. Use this same pattern for real refetches.</p>
+      </div>
+      <div class="panel">
+        <h4 class="sub" style="margin-top:0">Persistence (localStorage)</h4>
+        <p style="margin:0">Watchlist, review state (reviewed/ignored), alert rules, saved scans, scan-results view preference, and tweaks all persist locally. Keys are namespaced <code>uta_*_v1</code>. In production these become user-scoped server state.</p>
+      </div>
+      <div class="panel">
+        <h4 class="sub" style="margin-top:0">Theming &amp; density</h4>
+        <p style="margin:0">Theme (dark/light), accent, density (compact/regular/comfy), and typeface are driven by data-attributes on <code>&lt;html&gt;</code> and CSS variables. No component hard-codes a color — all reference tokens.</p>
+      </div>
+      <div class="panel">
+        <h4 class="sub" style="margin-top:0">Cycle model</h4>
+        <p style="margin:0">The agent runs on a <b>5-minute cycle</b>. "Δ cycle" everywhere compares the current cycle to the prior one. Tier changes, deltas, and the cycle-history timeline all key off this cadence.</p>
+      </div>
+    </div>
+  </section>
+
+  <div class="pagenav">
+    <a href="tickets.html"><div class="dir">Jump to</div><div class="t">Build Tickets →</div></a>
+    <a class="next" href="design-system.html"><div class="dir">Next part</div><div class="t">01 · Design System →</div></a>
+  </div>
+
+  <div class="foot">
+    <span>Unusual Trading Activity Agent — Implementation Spec · Part of the reference build</span>
+    <span><a href="../Unusual Trading Activity Agent.html">↗ Open the live prototype</a></span>
+  </div>
+
+</div>
+</body>
+</html>

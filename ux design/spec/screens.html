@@ -1,0 +1,238 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark" data-density="regular">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>UTA — Implementation Spec — Screens &amp; States</title>
+<link rel="stylesheet" href="spec.css" />
+</head>
+<body>
+
+<nav class="spec-nav">
+  <a class="brand" href="index.html">
+    <span class="mk"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12h4l3 8 4-16 3 8h4"/></svg></span>
+    <span><b>Unusual Trading Activity</b><span>Design &amp; UX implementation spec</span></span>
+  </a>
+  <a class="np" href="index.html">Overview</a>
+  <a class="np" href="design-system.html">Design System</a>
+  <a class="np active" href="screens.html">Screens</a>
+  <a class="np" href="data-logic.html">Data &amp; Logic</a>
+  <a class="np" href="tickets.html">Build Tickets</a>
+  <span class="grow"></span>
+  <span class="tag">Part 02</span>
+</nav>
+
+<div class="wrap">
+
+  <header class="hero">
+    <div class="eyebrow">Part 02 · Screens &amp; States</div>
+    <h1>Every screen, annotated</h1>
+    <p>Each surface below is shown as built, with its route, source files, anatomy, interactions, and the data it consumes. States that matter for the build — empty, loading, degraded, suppressed — are documented alongside the happy path. All design width is <strong>1440px</strong>; layouts are fluid down to a tablet breakpoint at 720–860px.</p>
+    <div class="meta">
+      <span class="m"><b>1</b> landing</span>
+      <span class="m"><b>4</b> modes</span>
+      <span class="m"><b>8</b> evidence cards</span>
+      <span class="m"><b>2</b> drawers · <b>1</b> modal</span>
+    </div>
+  </header>
+
+  <!-- ================= LANDING ================= -->
+  <section class="sec" id="landing">
+    <div class="screenblock">
+      <div class="sb-head"><h3>1 · Landing / Mode chooser</h3><span class="route">mode = home</span><span class="files">detail-extras.jsx → HomeMode</span></div>
+    </div>
+    <p class="lead">The entry point. Frames the product philosophy, then offers the three analytical modes plus a shortcut into the activity feed. No regime banner here — it's a calm, full-bleed welcome.</p>
+    <figure class="shot"><img src="images/01-home.png" alt="Landing screen" /><figcaption><b>Landing</b> · mode cards + activity-feed banner + live footer stats.</figcaption></figure>
+    <ol class="anat">
+      <li><span class="n">1</span><div><b>Hero block</b> — eyebrow, headline ("Choose how you want to look at the market."), and the one-paragraph thesis: three independent indicators, never a collapsed score.</div></li>
+      <li><span class="n">2</span><div><b>Three mode cards</b> — Single Ticker · Portfolio · Scan/Discovery. Each shows an icon, description, and the tier rules that apply in that mode. Whole card is the click target → switches mode.</div></li>
+      <li><span class="n">3</span><div><b>Activity-feed banner</b> — a wide button into Alerts, surfacing live counts (needs-attention, alerts, tier changes) pulled from <code>feedCounts()</code>.</div></li>
+      <li><span class="n">4</span><div><b>Footer stats</b> — live cycle cadence, scan-universe count, current market regime.</div></li>
+    </ol>
+    <div class="note rule"><span class="ni">◆</span><div><b>Build note:</b> the mode cards' "Tier rules" line is load-bearing copy — it sets the user's expectation that Single Ticker has no A indicator. Keep it.</div></div>
+  </section>
+
+  <!-- ================= SINGLE TICKER ================= -->
+  <section class="sec" id="single">
+    <div class="screenblock">
+      <div class="sb-head"><h3>2 · Single Ticker — detail view</h3><span class="route">mode = single</span><span class="files">modes.jsx → TickerDetail · evidence.jsx · detail-extras.jsx</span></div>
+    </div>
+    <p class="lead">The deepest surface and the shared detail view all modes drill into. A two-column layout: the evidence column (left, wide) and the verdict column (right, narrow). Single-ticker mode applies <strong>B + C</strong> rules — indicator A is shown as N/A because there's no peer universe.</p>
+    <figure class="shot"><img src="images/02-single.png" alt="Single ticker detail — AVGO Tier A" /><figcaption><b>AVGO · Tier A · Bullish</b> — BLUF, A/B/C summary, cycle history (left); corroboration + actions (right).</figcaption></figure>
+    <ol class="anat">
+      <li><span class="n">1</span><div><b>Breadcrumb + ticker head</b> — origin-mode crumb, symbol (mono), company, exchange/sector/cap pills, review chip, and price with signed % change.</div></li>
+      <li><span class="n">2</span><div><b>BLUF card</b> — "Bottom Line Up Front". Tier badge (lg) + headline + direction tag + band + direction-confidence pill, then a 2×2 grid: <em>What happened · Why it matters · What to check · Limitations</em>. This is the single most important component — it is the plain-English verdict.</div></li>
+      <li><span class="n">3</span><div><b>A/B/C indicator summary</b> — three chips making the framework explicit. In single-ticker mode the A chip reads N/A; in portfolio/scan it shows the universe percentile.</div></li>
+      <li><span class="n">4</span><div><b>Cycle history timeline</b> — last 12 cycles (5-min): signed-pressure bars above/below a zero line, a tier ribbon (A/B/C/D per cycle), a time axis, and event chips (tier transitions, confirmed alerts).</div></li>
+      <li><span class="n">5</span><div><b>Evidence grid</b> — the 8 evidence cards (detailed below).</div></li>
+      <li><span class="n">6</span><div><b>Corroboration panel</b> (right) — 6 flags across Strong / Moderate / Contextual independence, with the count of independent confirmations and the elevation rule restated.</div></li>
+      <li><span class="n">7</span><div><b>Actions panel</b> (right) — refresh lane, show raw prints, explain tier, compare to prior cycle, mark reviewed, add to watchlist, use as supporting evidence, ignore this cycle. Toggles show an "ON" state.</div></li>
+    </ol>
+
+    <h3 class="sub">The 8 evidence cards</h3>
+    <p>Each is a collapsible <code>EvCard</code> with an icon, title/subtitle, a headline metric, and a body of charts + key-values. Cards 1–3 open by default; the rest start collapsed.</p>
+    <div class="scroll">
+      <table class="stable">
+        <thead><tr><th>#</th><th>Card</th><th>Headline</th><th>Body contents</th></tr></thead>
+        <tbody>
+          <tr><td>1</td><td><b>Volume Anomaly</b></td><td>Notional ratio ×</td><td>Band tag, B-score pill, VolBars (today vs 20-day baseline by bucket), volume/notional/trade-count ratios, B-score.</td></tr>
+          <tr><td>2</td><td><b>Block / Off-Exchange</b></td><td>Focus print count</td><td>Focus notional / share / largest, venue split bar (off-exchange vs lit), focus count, largest print, block pressure, B-score.</td></tr>
+          <tr><td>3</td><td><b>Directional Pressure</b></td><td>Net pressure %</td><td>Pressure gauge (signed), net notional &amp; volume pressure, signing-confidence bar, signing-method mix (quote/tick/mid/unknown).</td></tr>
+          <tr><td>4</td><td><b>Pre-Market Activity</b></td><td>Pre-mkt vol ratio</td><td>Volume ratio, pressure, gap %, decay state (60-min half-life), pre-market B-score. Empty state when no pre-market prints.</td></tr>
+          <tr><td>5</td><td><b>Market Flow Trend</b></td><td>Building / Fading</td><td>Pressure sparkline over session (zero baseline), pressure delta, participation, trend direction.</td></tr>
+          <tr><td>6</td><td><b>Confirmed Alerts</b></td><td>Provider count</td><td>Each provider alert (name · type · direction · notional · time) with a direction tag. Eligible for tier elevation when aligned.</td></tr>
+          <tr><td>7</td><td><b>Options Flow</b></td><td>C/P ratio ×</td><td>Net premium, sweeps, call/put split, 25Δ skew, block share, dominant expiry, alignment verdict. <em>Optional lane</em> — disabled state when absent.</td></tr>
+          <tr><td>8</td><td><b>Macro Context</b></td><td>Regime band</td><td>VIX / yield curve / Fed Funds, VIX 8-session sparkline, regime interpretation.</td></tr>
+          <tr><td>9</td><td><b>Data Health</b></td><td>Ready</td><td>Lane rows, coverage %, prints analyzed, condition-excluded count, latest event, policy version, refresh-lane button.</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="note info"><span class="ni">i</span><div>Cards 6 (Confirmed Alerts) and 7 (Options Flow) back the matching <b>Strong</b> corroboration flags. Both are <b>optional lanes</b>: when absent they never lower a tier — only present, aligned evidence can corroborate upward. This asymmetry is core to the trust model.</div></div>
+
+    <h3 class="sub" id="explain">2a · Explain-this-tier modal</h3>
+    <p>Opened from Actions. Turns the rule engine inside-out: shows the verdict, each rule that was evaluated with pass/fail, a "why not the next tier up?" gap, and any elevation eligibility. This is the auditability promise made literal.</p>
+    <figure class="shot"><img src="images/03-explain-tier.png" alt="Explain this tier modal" /><figcaption><b>Explain modal</b> · rules evaluated with ✓/✗, gap-to-next-tier, and provider elevation note.</figcaption></figure>
+
+    <h3 class="sub" id="raw">2b · Raw-prints drawer</h3>
+    <p>Opened from Actions. The auditable underlying data: top prints by notional, focus prints highlighted, with time / price / size / notional / venue / signed side / signing method / condition codes. Footnote documents the condition-code policy (which codes are shown vs excluded).</p>
+    <figure class="shot"><img src="images/04-raw-prints.png" alt="Raw prints drawer" /><figcaption><b>Raw prints</b> · venue chips (Off-exch / ATS / TRF / Lit), buy/sell signing, condition codes. Post-policy-v1 view.</figcaption></figure>
+
+    <h3 class="sub" id="compare">2c · Compare-to-prior-cycle</h3>
+    <p>Toggled from Actions. Injects a delta banner above the BLUF and inline ± deltas into the A/B/C chips. Attributes the tier move to the specific indicator(s) that crossed a gate this cycle (e.g. "B cleared 2.5σ").</p>
+    <figure class="shot"><img src="images/05-compare.png" alt="Compare to prior cycle banner" /><figcaption><b>Cycle delta</b> · prior → current per driver, with gate-crossing callouts and a plain-English summary.</figcaption></figure>
+
+    <h3 class="sub" id="tierD">2d · Tier D — suppressed state</h3>
+    <p>When a required lane is loading or the sample is below threshold, <strong>no tier is emitted</strong>. The detail view degrades gracefully: BLUF explains the suppression, evidence is replaced by a lane-health panel and the 9-state legend, and a "Refresh Live Trade Slices" CTA drives revalidation. The cycle history still renders, ending in a dashed D cell.</p>
+    <figure class="shot"><img src="images/14-tierD.png" alt="Tier D suppressed state — MSFT" /><figcaption><b>MSFT · Tier D · Suppressed</b> — the product refuses to guess on incomplete data. This honesty is a feature, not an error screen.</figcaption></figure>
+  </section>
+
+  <!-- ================= PORTFOLIO ================= -->
+  <section class="sec" id="portfolio">
+    <div class="screenblock">
+      <div class="sb-head"><h3>3 · Portfolio</h3><span class="route">mode = portfolio</span><span class="files">modes.jsx → PortfolioMode · ResultsTable</span></div>
+    </div>
+    <p class="lead">Your holdings ranked by activity, so the most unusual names float to the top. Indicator A is computed <strong>relative to your portfolio</strong>. Rows that changed tier since the last cycle are flagged. Click any row → shared detail view (with portfolio rules).</p>
+    <figure class="shot"><img src="images/06-portfolio.png" alt="Portfolio mode" /><figcaption><b>Portfolio</b> · stat cards + ranked holdings table with tier, direction, B/A/C metrics, and Δ-cycle chips.</figcaption></figure>
+    <ol class="anat">
+      <li><span class="n">1</span><div><b>Stat cards</b> — Holdings · Tier A (actionable, accented) · Tier changes · Cycle time.</div></li>
+      <li><span class="n">2</span><div><b>Holdings table</b> — sortable columns: Ticker (symbol + name + review/rule flags), Tier badge, Direction tag, B (σ vol), A (percentile), C (notional ×), Δ cycle. Tier-changed rows get an accent left-edge; ignored rows dim.</div></li>
+      <li><span class="n">3</span><div><b>Refresh cycle</b> button — triggers a revalidation pass.</div></li>
+      <li><span class="n">4</span><div><b>Tier-D rows</b> render dashes across metrics — never fabricated values.</div></li>
+    </ol>
+  </section>
+
+  <!-- ================= SCAN ================= -->
+  <section class="sec" id="scan">
+    <div class="screenblock">
+      <div class="sb-head"><h3>4 · Scan / Discovery</h3><span class="route">mode = scan</span><span class="files">modes.jsx → ScanMode · ScanTable · scan.jsx → ScanResults</span></div>
+    </div>
+    <p class="lead">Search a whole universe for names matching bullish or bearish criteria. The signature interaction is a <strong>two-pass pipeline</strong>: Pass 1 cheaply screens every constituent from daily bars; Pass 2 pulls live slices for the shortlist and resolves each to full A/B/C — visibly, row by row.</p>
+
+    <h4 class="sub">4a · Controls &amp; idle</h4>
+    <figure class="shot"><img src="images/07-scan-idle.png" alt="Scan controls, idle" /><figcaption><b>Idle</b> · universe picker (grouped: Index / Sector / Custom), direction filter, performance-tier readout, saved scans, run CTA.</figcaption></figure>
+    <ul class="clean">
+      <li><b>Universe</b> select shows constituent count and a performance tier (Fast / Standard / Extended) with an estimated runtime — Extended universes default to Pass-1-only.</li>
+      <li><b>Direction filter</b> — Bullish / Bearish / Both segmented control.</li>
+      <li><b>Saved scans</b> — recall a universe+direction combo; persisted locally.</li>
+    </ul>
+
+    <h4 class="sub">4b · Running — the funnel</h4>
+    <figure class="shot"><img src="images/08-scan-running.png" alt="Scan running, funnel + progress" /><figcaption><b>Pipeline live</b> · Screened → Flagged → Resolved funnel, progress bar, and rows resolving highest-notional-first.</figcaption></figure>
+    <ol class="anat">
+      <li><span class="n">1</span><div><b>Funnel</b> — three stages with live counts: Screened (of N from bars) → Flagged (cleared pre-screen) → Resolved (n / total full A/B/C). The active stage is accent-keyed; the done stage turns green.</div></li>
+      <li><span class="n">2</span><div><b>Progress line</b> — phase label + bar + %. Pass 1 screens fast; Pass 2 resolves the shortlist with a per-row delay.</div></li>
+      <li><span class="n">3</span><div><b>Resolving table</b> — rows show preliminary <code>~Bσ</code> while queued, a "Resolving…" pulse on the active row, then "✓ Resolved" with full values. Rows aren't clickable until resolved.</div></li>
+    </ol>
+
+    <h4 class="sub">4c · Results — three comparable views</h4>
+    <p>Once resolved, a refinement bar appears: tier filter chips (All / A / B / C), a view switcher, and bulk actions (Watch all shown · Save scan). A "Matched" row restates the criteria each result satisfied. The view preference persists. The three views present the same data at different densities:</p>
+    <figure class="shot"><img src="images/09-scan-cards.png" alt="Scan results — signal cards" /><figcaption><b>Signal cards</b> (default) · symbol, tier (lg), direction + band + rule flag, B/A/C stats, signed-pressure bar, watchlist star.</figcaption></figure>
+    <div class="grid2">
+      <figure class="shot" style="margin:0"><img src="images/09b-scan-table.png" alt="Scan results — table view" /><figcaption><b>Table</b> · dense, sortable, scannable.</figcaption></figure>
+      <figure class="shot" style="margin:0"><img src="images/10-scan-grouped.png" alt="Scan results — grouped by tier" /><figcaption><b>Grouped by tier</b> · sections with tier meaning + rows.</figcaption></figure>
+    </div>
+    <div class="note info"><span class="ni">i</span><div>The three views are not cosmetic variants — they map to three user intents: <b>cards</b> for triage/glance, <b>table</b> for sorting/comparison, <b>grouped</b> for "show me only the actionable tier". Keep all three and persist the choice.</div></div>
+  </section>
+
+  <!-- ================= ALERTS ================= -->
+  <section class="sec" id="alerts">
+    <div class="screenblock">
+      <div class="sb-head"><h3>5 · Alerts / Activity feed</h3><span class="route">mode = alerts</span><span class="files">alerts.jsx → AlertsMode · RulesDrawer · FeedRow</span></div>
+    </div>
+    <p class="lead">Everything that moved this cycle, newest first — confirmed provider alerts, tier changes, news catalysts, data-lane events, and matches from the user's own alert rules. Filter chips slice the stream; each row drills into detail.</p>
+    <figure class="shot"><img src="images/11-alerts.png" alt="Activity feed" /><figcaption><b>Activity feed</b> · stat cards, filter chips, and a typed event stream (time · icon · symbol + title · description · tier + direction).</figcaption></figure>
+    <ol class="anat">
+      <li><span class="n">1</span><div><b>Stat cards</b> — Needs attention (accent) · Rule matches · Confirmed alerts · Tier changes.</div></li>
+      <li><span class="n">2</span><div><b>Filter chips</b> — All / My rules / Confirmed alerts / Tier changes / News / Data lanes, each with a count.</div></li>
+      <li><span class="n">3</span><div><b>Feed rows</b> — typed by kind (alert / tierup / tierdown / news / lane / rule), each with a color-keyed icon, symbol, title, one-line description, and the resulting tier + direction. Rule-matched rows carry a "rule" tag.</div></li>
+      <li><span class="n">4</span><div><b>Alert-rules button</b> — opens the rules drawer; badge shows active-rule count.</div></li>
+      <li><span class="n">5</span><div><b>Empty state</b> — per-filter ("No tier changes this cycle"), with a "Create a rule" CTA on the rules filter.</div></li>
+    </ol>
+
+    <h3 class="sub" id="rules">5a · Alert-rules drawer &amp; editor</h3>
+    <p>A persistent, evaluated rule engine. Each rule scopes (all / portfolio / watchlist), filters direction and minimum tier, sets B/A/C thresholds, and can require a confirmed provider alert. Matches flow into the feed tagged "rule" and surface as flags on table rows everywhere.</p>
+    <div class="grid2">
+      <figure class="shot" style="margin:0"><img src="images/12-rules.png" alt="Alert rules drawer" /><figcaption><b>Rules list</b> · each card: toggle, name, live match count, condition chips, matching symbols.</figcaption></figure>
+      <figure class="shot" style="margin:0"><img src="images/13-rule-editor.png" alt="Rule editor" /><figcaption><b>Rule editor</b> · name, scope, direction, min tier, B/A/C threshold sliders, provider requirement, live match preview.</figcaption></figure>
+    </div>
+    <div class="note rule"><span class="ni">◆</span><div><b>Live preview is essential UX:</b> the editor shows "Matches N tickers right now" as you drag thresholds, so a user tunes a rule against real current data instead of guessing. Re-evaluate on every control change.</div></div>
+  </section>
+
+  <!-- ================= OVERLAYS ================= -->
+  <section class="sec" id="overlays">
+    <h2>Shared overlays</h2>
+    <div class="h2sub">Available across modes</div>
+    <div class="grid3">
+      <div class="feature"><div class="fi"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3h12v18l-6-4-6 4V3z"/></svg></div><h4>Watchlist drawer</h4><p>Top-bar, global. Saved tickers with tier + direction; click to open, ✕ to remove. Empty state guides first save.</p></div>
+      <div class="feature"><div class="fi"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6h10M18 6h2M4 12h2M10 12h10M4 18h8M16 18h4"/></svg></div><h4>Tweaks panel</h4><p>Demo-time controls: theme, accent, density, typeface. Production replaces with user settings.</p></div>
+      <div class="feature"><div class="fi"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4v5h5M19 9a7 7 0 00-13-2M5 15a7 7 0 0013 2"/></svg></div><h4>Revalidation bar</h4><p>Top progress bar + sync pill during a <code>uta:revalidate</code> pass; stamps a fresh time on completion.</p></div>
+    </div>
+  </section>
+
+  <!-- ================= FLOW ================= -->
+  <section class="sec" id="flow">
+    <h2>Navigation &amp; flow</h2>
+    <div class="h2sub">How surfaces connect</div>
+    <div class="panel">
+      <div class="diagram">
+        <div class="flowrow">
+          <div class="flownode"><div class="fl">Top-bar search</div><div class="fv">type symbol → Single Ticker</div></div>
+          <div class="flownode"><div class="fl">Landing card</div><div class="fv">→ switch mode</div></div>
+          <div class="flownode"><div class="fl">Mode tab</div><div class="fv">→ switch mode (clears openSym)</div></div>
+        </div>
+        <div class="flowarrow" style="height:16px">↓</div>
+        <div class="flowrow">
+          <div class="flownode"><div class="fl">Portfolio row</div><div class="fv">→ detail (A+B+C)</div></div>
+          <div class="flownode"><div class="fl">Scan result</div><div class="fv">→ detail (A+B+C)</div></div>
+          <div class="flownode"><div class="fl">Feed row</div><div class="fv">→ detail (B+C)</div></div>
+          <div class="flownode"><div class="fl">Rule match / watchlist</div><div class="fv">→ detail</div></div>
+        </div>
+        <div class="flowarrow" style="height:16px">↓ &nbsp; within detail &nbsp; ↓</div>
+        <div class="flowrow">
+          <div class="flownode"><div class="fl">Actions → drawers</div><div class="fv">Raw prints · Explain tier</div></div>
+          <div class="flownode"><div class="fl">Actions → compare</div><div class="fv">prior-cycle deltas inline</div></div>
+          <div class="flownode"><div class="fl">Related ticker</div><div class="fv">swap symbol in place</div></div>
+          <div class="flownode"><div class="fl">Breadcrumb</div><div class="fv">← back to list</div></div>
+        </div>
+      </div>
+    </div>
+    <ul class="clean">
+      <li>Mode lives in app state; switching modes clears the open ticker. The detail view carries its <b>origin mode</b> so it applies the correct rule set and breadcrumb.</li>
+      <li>Alerts intentionally opens detail under <b>single-ticker (B+C)</b> rules — a feed item is a cross-universe event, not a portfolio position.</li>
+      <li>All list→detail→back transitions are in-page state (no full nav); a <code>fade-in</code> eases the detail mount.</li>
+    </ul>
+  </section>
+
+  <div class="pagenav">
+    <a href="design-system.html"><div class="dir">Previous</div><div class="t">← 01 · Design System</div></a>
+    <a class="next" href="data-logic.html"><div class="dir">Next part</div><div class="t">03 · Data &amp; Logic →</div></a>
+  </div>
+
+  <div class="foot">
+    <span>Screens &amp; States · 16 surfaces documented</span>
+    <span><a href="../Unusual Trading Activity Agent.html">↗ Open the live prototype</a></span>
+  </div>
+
+</div>
+</body>
+</html>
