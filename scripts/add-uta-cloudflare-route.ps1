@@ -21,26 +21,36 @@ if [ ! -f "`$CONFIG_PATH" ]; then
   exit 1
 fi
 
-if sudo grep -q "hostname: `$UTA_HOSTNAME" "`$CONFIG_PATH"; then
-  echo "Cloudflare route already exists for `$UTA_HOSTNAME"
-else
-  echo "Adding Cloudflare route `$UTA_HOSTNAME -> `$SERVICE_URL"
-  sudo cp "`$CONFIG_PATH" "`$CONFIG_PATH.bak-`$(date +%Y%m%d-%H%M%S)"
-  sudo python3 - "`$CONFIG_PATH" "`$UTA_HOSTNAME" "`$SERVICE_URL" <<'PY'
+echo "Normalizing Cloudflare route `$UTA_HOSTNAME -> `$SERVICE_URL"
+sudo cp "`$CONFIG_PATH" "`$CONFIG_PATH.bak-`$(date +%Y%m%d-%H%M%S)"
+sudo python3 - "`$CONFIG_PATH" "`$UTA_HOSTNAME" "`$SERVICE_URL" <<'PY'
 from pathlib import Path
 import sys
 
 path = Path(sys.argv[1])
 hostname = sys.argv[2]
 service = sys.argv[3]
-text = path.read_text()
+lines = path.read_text().splitlines()
 marker = "  - service: http_status:404"
 entry = f"  - hostname: {hostname}\n    service: {service}\n\n"
+
+cleaned = []
+i = 0
+while i < len(lines):
+    line = lines[i]
+    if line.strip() == f"- hostname: {hostname}":
+        i += 1
+        while i < len(lines) and (lines[i].startswith("    ") or not lines[i].strip()):
+            i += 1
+        continue
+    cleaned.append(line)
+    i += 1
+
+text = "\n".join(cleaned) + "\n"
 if marker not in text:
     raise SystemExit("fallback http_status route not found")
 path.write_text(text.replace(marker, entry + marker))
 PY
-fi
 
 sudo systemctl restart cloudflared
 sudo systemctl status cloudflared --no-pager
