@@ -4,6 +4,7 @@ param(
 
   [string]$User = "ahad",
   [string]$RepoDir = "/home/ahad/autonomous_stock_trader_ahad",
+  [string]$RepoUrl = "https://github.com/meiriohad76-oss/flow_momentum_transition-08062026.git",
   [string]$ServiceName = "uta-autonomous-stock-trader",
   [string]$BaseUrl = "http://127.0.0.1:3000",
   [switch]$SkipNpmCi
@@ -13,11 +14,16 @@ $ErrorActionPreference = "Stop"
 
 function Invoke-Pi {
   param([string]$Command)
-  ssh "$User@$HostName" $Command
+  ssh -tt "$User@$HostName" $Command
 }
 
 $remoteScript = @"
 set -euo pipefail
+if [ ! -d "$RepoDir/.git" ]; then
+  echo "Repo directory $RepoDir is missing; cloning $RepoUrl"
+  mkdir -p "`$(dirname "$RepoDir")"
+  git clone "$RepoUrl" "$RepoDir"
+fi
 cd "$RepoDir"
 git fetch origin main
 git pull --ff-only origin main

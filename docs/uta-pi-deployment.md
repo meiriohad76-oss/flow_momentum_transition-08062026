@@ -80,10 +80,11 @@ npm run check:uta-deploy-smoke -- --base-url https://uta.example.com
 From Windows, after updating `HostName`, this helper pulls the latest `main` branch on the Pi, builds UTA, runs validation gates, restarts systemd, and runs the deployment smoke:
 
 ```powershell
-.\scripts\deploy-uta-pi.ps1 -HostName 10.100.102.18 -User ahad -RepoDir /home/ahad/autonomous_stock_trader_ahad -BaseUrl http://127.0.0.1:3000
+$PiHost = "10.100.102.18"
+.\scripts\deploy-uta-pi.ps1 -HostName $PiHost -User ahad -RepoDir /home/ahad/autonomous_stock_trader_ahad -BaseUrl http://127.0.0.1:3000
 ```
 
-Use the real Pi hostname/IP and service paths before running it.
+Replace `10.100.102.18` with the real Pi hostname or IP before running it. Do not include angle brackets around the hostname.
 
 ## Trading Guard
 
