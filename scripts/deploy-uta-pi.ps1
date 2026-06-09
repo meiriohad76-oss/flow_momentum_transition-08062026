@@ -7,12 +7,15 @@ param(
   [string]$RepoUrl = "https://github.com/meiriohad76-oss/flow_momentum_transition-08062026.git",
   [string]$ServiceName = "uta-autonomous-stock-trader",
   [string]$BaseUrl = "http://127.0.0.1:3000",
+  [string]$DatabaseDir = "/mnt/uta-ssd",
+  [switch]$AllowUnMountedDatabaseDir,
   [switch]$InstallNode24,
   [switch]$SkipNpmCi
 )
 
 $ErrorActionPreference = "Stop"
 $installNode24Value = if ($InstallNode24) { "true" } else { "false" }
+$allowUnMountedDatabaseDirValue = if ($AllowUnMountedDatabaseDir) { "true" } else { "false" }
 
 $remoteScript = @"
 set -euo pipefail
@@ -56,6 +59,19 @@ npm run check:uta-pi-profile
 npm run check:uta-historical-replay
 npm run check:uta-calibration
 npm run check:uta-trading-integration
+DATABASE_DIR="$DatabaseDir"
+ALLOW_UNMOUNTED_DATABASE_DIR="$allowUnMountedDatabaseDirValue"
+sudo mkdir -p "`$DATABASE_DIR"
+sudo chown "${User}:${User}" "`$DATABASE_DIR"
+sudo chmod 750 "`$DATABASE_DIR"
+if ! findmnt -T "`$DATABASE_DIR" >/dev/null 2>&1; then
+  if [ "`$ALLOW_UNMOUNTED_DATABASE_DIR" = "true" ]; then
+    echo "WARNING: `$DATABASE_DIR is not on a mounted filesystem target; continuing because AllowUnMountedDatabaseDir is set." >&2
+  else
+    echo "Database directory `$DATABASE_DIR is not on a mounted filesystem target. Mount SSD/NVMe there or re-run with -AllowUnMountedDatabaseDir for a temporary smoke only." >&2
+    exit 1
+  fi
+fi
 if [ ! -f "/etc/systemd/system/$ServiceName.service" ]; then
   echo "Installing $ServiceName.service"
 else
@@ -66,6 +82,7 @@ sudo sed -i \
   -e "s#^User=.*#User=$User#" \
   -e "s#^Group=.*#Group=$User#" \
   -e "s#^WorkingDirectory=.*#WorkingDirectory=$RepoDir#" \
+  -e "s#^Environment=DATABASE_PATH=.*#Environment=DATABASE_PATH=$DatabaseDir/sentiment-analyst.sqlite#" \
   "/etc/systemd/system/$ServiceName.service"
 sudo systemctl daemon-reload
 sudo systemctl enable "$ServiceName"

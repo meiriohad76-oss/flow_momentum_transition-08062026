@@ -86,6 +86,15 @@ $PiHost = "10.100.102.18"
 
 Replace `10.100.102.18` with the real Pi hostname or IP before running it. Do not include angle brackets around the hostname.
 
+The helper creates and owns the database directory specified by `-DatabaseDir`, which defaults to `/mnt/uta-ssd`.
+For production, mount SSD/NVMe storage at that path before deployment. For a temporary service smoke only, you may add:
+
+```powershell
+-AllowUnMountedDatabaseDir
+```
+
+Do not treat an unmounted `/mnt/uta-ssd` directory as production storage.
+
 ## Trading Guard
 
 UTA remains supporting evidence only. Do not enable paper-trading effects until:
