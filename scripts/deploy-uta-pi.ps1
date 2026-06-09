@@ -3,7 +3,7 @@ param(
   [string]$HostName,
 
   [string]$User = "ahad",
-  [string]$RepoDir = "/home/ahad/autonomous_stock_trader_ahad",
+  [string]$RepoDir = "/home/ahad/flow_momentum_transition-08062026",
   [string]$RepoUrl = "https://github.com/meiriohad76-oss/flow_momentum_transition-08062026.git",
   [string]$ServiceName = "uta-autonomous-stock-trader",
   [string]$BaseUrl = "http://127.0.0.1:3000",
@@ -11,11 +11,6 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
-
-function Invoke-Pi {
-  param([string]$Command)
-  ssh -tt "$User@$HostName" $Command
-}
 
 $remoteScript = @"
 set -euo pipefail
@@ -41,4 +36,4 @@ npm run check:uta-deploy-smoke -- --base-url "$BaseUrl"
 "@
 
 Write-Host "Deploying UTA to $User@$HostName from $RepoDir"
-Invoke-Pi $remoteScript
+$remoteScript | ssh -tt "$User@$HostName" "bash -s"
