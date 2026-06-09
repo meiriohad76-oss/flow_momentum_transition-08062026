@@ -1,5 +1,5 @@
 [Unit]
-Description=Autonomous Stock Trader UTA Node service
+Description=Flow Momentum Transition UTA Node service
 After=network-online.target
 Wants=network-online.target
 
@@ -7,7 +7,7 @@ Wants=network-online.target
 Type=simple
 User=ahad
 Group=ahad
-WorkingDirectory=/home/ahad/autonomous_stock_trader_ahad
+WorkingDirectory=/home/ahad/flow_momentum_transition-08062026
 Environment=NODE_ENV=production
 Environment=HOST=127.0.0.1
 Environment=PORT=3000

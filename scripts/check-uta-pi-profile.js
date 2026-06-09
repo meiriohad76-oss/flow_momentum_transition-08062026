@@ -25,7 +25,7 @@ try {
   assert(gitignore.includes("data/backups/"), "SQLite backups must be ignored.");
   assert(existsSync(path.join(config.rootDir, "sql", "uta-schema.sql")), "UTA schema file missing.");
   assert(piDoc.includes("SQLite WAL storage must live on SSD/NVMe"), "UTA Pi deployment doc must require SSD/NVMe storage.");
-  assert(systemdUnit.includes("WorkingDirectory=/home/ahad/autonomous_stock_trader_ahad"), "UTA systemd unit should point at the Pi checkout.");
+  assert(systemdUnit.includes("WorkingDirectory=/home/ahad/flow_momentum_transition-08062026"), "UTA systemd unit should point at the Pi checkout.");
   assert(systemdUnit.includes("DATABASE_PATH=/mnt/uta-ssd/"), "UTA systemd unit must keep SQLite on SSD/NVMe.");
   assert(systemdUnit.includes("API_SAVER_MODE=true"), "UTA systemd unit must enable API saver mode.");
   assert(systemdUnit.includes("DASHBOARD_MUTATIONS_ENABLED=false"), "UTA systemd unit must disable public dashboard mutations by default.");

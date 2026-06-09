@@ -56,7 +56,19 @@ npm run check:uta-pi-profile
 npm run check:uta-historical-replay
 npm run check:uta-calibration
 npm run check:uta-trading-integration
+if [ ! -f "/etc/systemd/system/$ServiceName.service" ]; then
+  echo "Installing $ServiceName.service"
+else
+  echo "Refreshing $ServiceName.service"
+fi
+sudo install -m 0644 "deploy/uta-autonomous-stock-trader.service" "/etc/systemd/system/$ServiceName.service"
+sudo sed -i \
+  -e "s#^User=.*#User=$User#" \
+  -e "s#^Group=.*#Group=$User#" \
+  -e "s#^WorkingDirectory=.*#WorkingDirectory=$RepoDir#" \
+  "/etc/systemd/system/$ServiceName.service"
 sudo systemctl daemon-reload
+sudo systemctl enable "$ServiceName"
 sudo systemctl restart "$ServiceName"
 sudo systemctl status "$ServiceName" --no-pager
 npm run check:uta-deploy-smoke -- --base-url "$BaseUrl"
@@ -66,7 +78,7 @@ Write-Host "Deploying UTA to $User@$HostName from $RepoDir"
 $localTemp = Join-Path ([System.IO.Path]::GetTempPath()) "uta-deploy-$([System.Guid]::NewGuid().ToString('N')).sh"
 $remoteTemp = "/tmp/uta-deploy-$([System.Guid]::NewGuid().ToString('N')).sh"
 try {
-  Set-Content -LiteralPath $localTemp -Value $remoteScript -Encoding UTF8
+  [System.IO.File]::WriteAllText($localTemp, $remoteScript, [System.Text.UTF8Encoding]::new($false))
   scp $localTemp "$User@$HostName`:$remoteTemp"
   ssh -tt "$User@$HostName" "chmod +x '$remoteTemp' && bash '$remoteTemp'; status=`$?; rm -f '$remoteTemp'; exit `$status"
 } finally {
