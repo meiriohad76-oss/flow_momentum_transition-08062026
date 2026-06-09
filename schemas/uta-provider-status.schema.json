@@ -1,0 +1,56 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "UTA Provider Status",
+  "type": "object",
+  "required": ["schema_version", "generated_at", "mode", "replay_available", "live_ready", "summary", "provider_lanes", "safeguards", "policy"],
+  "properties": {
+    "schema_version": { "const": "uta.provider_status.v1" },
+    "generated_at": { "type": "string" },
+    "source": { "type": "string" },
+    "mode": { "type": "string" },
+    "replay_available": { "type": "boolean" },
+    "live_ready": { "type": "boolean" },
+    "live_trade_prints_configured": { "type": "boolean" },
+    "summary": {
+      "type": "object",
+      "required": ["required_configured", "required_total", "optional_configured", "optional_total", "auto_start_allowed"],
+      "properties": {
+        "total_lanes": { "type": "number" },
+        "required_configured": { "type": "number" },
+        "required_total": { "type": "number" },
+        "optional_configured": { "type": "number" },
+        "optional_total": { "type": "number" },
+        "live_capable": { "type": "number" },
+        "auto_start_allowed": { "type": "number" }
+      }
+    },
+    "provider_lanes": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["lane_id", "label", "provider_family", "provider", "enabled", "configured", "live_capable", "auto_start_allowed", "operator_copy"],
+        "properties": {
+          "lane_id": { "type": "string" },
+          "label": { "type": "string" },
+          "required": { "type": "boolean" },
+          "provider_family": { "type": "string" },
+          "provider": { "type": "string" },
+          "enabled": { "type": "boolean" },
+          "configured": { "type": "boolean" },
+          "credential_configured": { "type": "boolean" },
+          "credential_env_names": { "type": "array", "items": { "type": "string" } },
+          "live_capable": { "type": "boolean" },
+          "auto_start_allowed": { "type": "boolean" },
+          "pi_safe_manual_only": { "type": "boolean" },
+          "state_if_unavailable": { "type": "string" },
+          "tier_effect_when_unavailable": { "type": "string" },
+          "optional_corroboration_only": { "type": "boolean" },
+          "operator_copy": { "type": "string" },
+          "next_action": { "type": "object" }
+        }
+      }
+    },
+    "safeguards": { "type": "array", "items": { "type": "string" } },
+    "policy": { "type": "string" }
+  }
+}

@@ -16,3 +16,14 @@ The first UTA implementation starts with replay data. Live providers are introdu
 
 Provider failures must become lane states. They must not create synthetic live signals.
 
+## Runtime Readiness Surface
+
+`GET /api/uta/providers` exposes the provider-readiness contract used by the Runtime UI. It reports:
+
+- which provider family backs each UTA lane;
+- whether the provider is enabled/configured without exposing secrets;
+- the fallback lane state and tier effect if unavailable;
+- Pi-safe manual-only/autostart safeguards;
+- replay-first policy text and validation safeguards.
+
+This endpoint is operational visibility only. It must not start polling, mutate lane history, promote replay data to live data, or enable paper-trading effects.

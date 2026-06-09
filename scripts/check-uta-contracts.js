@@ -39,6 +39,7 @@ try {
     "schemas/uta-raw-prints.schema.json",
     "schemas/uta-sse-event.schema.json",
     "schemas/uta-error.schema.json",
+    "schemas/uta-provider-status.schema.json",
     "sql/uta-schema.sql",
     "data/uta/replay/avgo-single.json",
     "data/uta/replay/historical-evaluation.json",

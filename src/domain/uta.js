@@ -643,6 +643,204 @@ function defaultUtaStoreState() {
   };
 }
 
+function providerCredential(config, envNames = []) {
+  const configured = envNames.some((name) => {
+    if (name === "TRADE_PRINTS_API_KEY") {
+      return Boolean(config.tradePrintsApiKey);
+    }
+    if (name === "POLYGON_API_KEY") {
+      return Boolean(config.polygonApiKey);
+    }
+    if (name === "IEX_API_KEY") {
+      return Boolean(config.iexApiKey);
+    }
+    if (name === "STOCKTWITS_API_KEY") {
+      return Boolean(config.stocktwitsApiKey);
+    }
+    if (name === "EARNINGS_API_KEY") {
+      return Boolean(config.earningsApiKey);
+    }
+    return false;
+  });
+  return {
+    env_names: envNames,
+    configured
+  };
+}
+
+function buildProviderReadiness(config = {}, registry = []) {
+  const byLane = new Map(registry.map((lane) => [lane.lane_id, lane]));
+  const tradePrintCredential = providerCredential(config, ["TRADE_PRINTS_API_KEY", "POLYGON_API_KEY", "IEX_API_KEY"]);
+  const marketProvider = config.marketDataProvider || "synthetic";
+  const marketConfigured = marketProvider !== "synthetic";
+  const earningsCredential = providerCredential(config, ["EARNINGS_API_KEY"]);
+  const stocktwitsCredential = providerCredential(config, ["STOCKTWITS_API_KEY"]);
+  const piBlocksHeavyAutoStart = Boolean(config.apiSaverMode || config.piPerformanceMode);
+
+  const specs = [
+    {
+      lane_id: "massive_live_trade_slices",
+      provider_family: "trade_prints",
+      provider: config.tradePrintsProvider || "polygon",
+      enabled: Boolean(config.tradePrintsEnabled),
+      credential: tradePrintCredential,
+      fallback_state: "unavailable",
+      operator_copy_ready: "Live trade-print adapter is configured; keep polling manual until replay/live parity is validated.",
+      operator_copy_missing: "Live trade-print adapter is not configured; required flow lanes remain replay-backed or unavailable and no live signal is fabricated."
+    },
+    {
+      lane_id: "massive_premarket_trade_slices",
+      provider_family: "trade_prints",
+      provider: config.tradePrintsProvider || "polygon",
+      enabled: Boolean(config.tradePrintsEnabled),
+      credential: tradePrintCredential,
+      fallback_state: "disabled",
+      operator_copy_ready: "Pre-market trade-print adapter is configured and can be run manually.",
+      operator_copy_missing: "Pre-market slices stay disabled when trade prints are unavailable or the session is outside premarket."
+    },
+    {
+      lane_id: "massive_daily_bars",
+      provider_family: "bars",
+      provider: marketProvider,
+      enabled: Boolean(config.autonomousDataEnabled),
+      credential: { env_names: ["MARKET_DATA_PROVIDER"], configured: marketConfigured },
+      fallback_state: marketConfigured ? "stale" : "unavailable",
+      operator_copy_ready: "Market-data bars provider is configured for baseline and trend lanes.",
+      operator_copy_missing: "Daily bars need a non-synthetic market-data provider before live baselines can be trusted."
+    },
+    {
+      lane_id: "massive_block_trade_feed",
+      provider_family: "derived_trade_prints",
+      provider: config.tradePrintsProvider || "polygon",
+      enabled: Boolean(config.tradePrintsEnabled),
+      credential: tradePrintCredential,
+      fallback_state: "unavailable",
+      operator_copy_ready: "Block/TRF evidence can be derived from normalized live prints.",
+      operator_copy_missing: "Block/TRF evidence cannot be derived until live prints are configured."
+    },
+    {
+      lane_id: "fred_macro_context",
+      provider_family: "macro",
+      provider: "existing_macro_context",
+      enabled: true,
+      credential: { env_names: [], configured: true },
+      fallback_state: "stale",
+      operator_copy_ready: "Macro lane is contextual only and can use existing macro/regime state.",
+      operator_copy_missing: "Macro lane is contextual only; missing data never penalizes UTA tiers."
+    },
+    {
+      lane_id: "activity_alerts",
+      provider_family: "alerts",
+      provider: "manual_or_import",
+      enabled: false,
+      credential: { env_names: [], configured: false },
+      fallback_state: "disabled",
+      operator_copy_ready: "Optional alert imports are available.",
+      operator_copy_missing: "Optional alert imports are disabled and never penalize tiers."
+    },
+    {
+      lane_id: "options_flow",
+      provider_family: "options",
+      provider: "future_adapter",
+      enabled: false,
+      credential: { env_names: [], configured: false },
+      fallback_state: "disabled",
+      operator_copy_ready: "Optional options-flow adapter is available.",
+      operator_copy_missing: "Options flow is optional, disabled in v1, and never penalizes tiers."
+    },
+    {
+      lane_id: "earnings_calendar",
+      provider_family: "earnings",
+      provider: config.earningsProvider || "yahoo",
+      enabled: Boolean(config.earningsEnabled),
+      credential: earningsCredential.configured || (config.earningsProvider || "yahoo") === "yahoo"
+        ? { ...earningsCredential, configured: true }
+        : earningsCredential,
+      fallback_state: "stale",
+      operator_copy_ready: "Earnings calendar is available for baseline exclusion context.",
+      operator_copy_missing: "Earnings calendar is stale; baseline exclusion must disclose reduced confidence."
+    },
+    {
+      lane_id: "universe_constituents",
+      provider_family: "universe",
+      provider: "json_fixture_or_reference_provider",
+      enabled: true,
+      credential: { env_names: [], configured: true },
+      fallback_state: "stale",
+      operator_copy_ready: "Universe constituents are available from fixtures or configured reference data.",
+      operator_copy_missing: "Universe constituents are stale; scan can run with last known universe and a warning."
+    },
+    {
+      lane_id: "activity_alerts",
+      provider_family: "social_sentiment",
+      provider: "stocktwits",
+      enabled: Boolean(config.stocktwitsEnabled),
+      credential: stocktwitsCredential,
+      fallback_state: "disabled",
+      operator_copy_ready: "StockTwits can provide optional corroborating sentiment only.",
+      operator_copy_missing: "StockTwits is optional and cannot penalize or promote a UTA tier by itself.",
+      optional_corroboration_only: true
+    }
+  ];
+
+  const providerLanes = specs.map((spec) => {
+    const lane = byLane.get(spec.lane_id) || {};
+    const credentialConfigured = Boolean(spec.credential?.configured);
+    const configured = Boolean(spec.enabled && credentialConfigured);
+    const liveCapable = configured && !piBlocksHeavyAutoStart;
+    return {
+      lane_id: spec.lane_id,
+      label: lane.label || spec.lane_id,
+      required: Boolean(lane.required),
+      provider_family: spec.provider_family,
+      provider: spec.provider,
+      enabled: Boolean(spec.enabled),
+      configured,
+      credential_configured: credentialConfigured,
+      credential_env_names: spec.credential?.env_names || [],
+      live_capable: liveCapable,
+      auto_start_allowed: false,
+      pi_safe_manual_only: piBlocksHeavyAutoStart || configured,
+      state_if_unavailable: spec.fallback_state,
+      tier_effect_when_unavailable: lane.required ? lane.tier_effect_when_missing : "none",
+      optional_corroboration_only: Boolean(spec.optional_corroboration_only || !lane.required),
+      operator_copy: configured ? spec.operator_copy_ready : spec.operator_copy_missing,
+      next_action: configured
+        ? { action: "manual_revalidate", label: "Run manual replay/live parity check" }
+        : { action: "configure_provider", label: `Configure ${spec.provider_family}` }
+    };
+  });
+
+  const required = providerLanes.filter((lane) => lane.required);
+  const optional = providerLanes.filter((lane) => !lane.required);
+  return {
+    schema_version: "uta.provider_status.v1",
+    generated_at: nowIso(),
+    source: "docs/uta-provider-adapter-matrix.md",
+    mode: "replay_first",
+    replay_available: false,
+    live_ready: required.every((lane) => lane.configured),
+    live_trade_prints_configured: Boolean(config.tradePrintsApiKey),
+    summary: {
+      total_lanes: providerLanes.length,
+      required_configured: required.filter((lane) => lane.configured).length,
+      required_total: required.length,
+      optional_configured: optional.filter((lane) => lane.configured).length,
+      optional_total: optional.length,
+      live_capable: providerLanes.filter((lane) => lane.live_capable).length,
+      auto_start_allowed: 0
+    },
+    provider_lanes: providerLanes,
+    safeguards: [
+      "Replay remains the source of truth until live-provider parity checks pass.",
+      "Provider failures become lane states; they do not create synthetic live signals.",
+      "Optional corroboration lanes never penalize UTA tiers.",
+      "No paper-trading effect is enabled by provider readiness."
+    ],
+    policy: "Provider failures become lane states; they do not create synthetic live signals."
+  };
+}
+
 function ensureUtaStoreState(store) {
   if (!store) {
     return defaultUtaStoreState();
@@ -1084,12 +1282,16 @@ export function createUtaService({ config, store } = {}) {
   function getLaneStates() {
     const fixture = getReplayPayload("single_ticker");
     const fixtureStates = new Map(fixture.lane_states.map((lane) => [lane.lane_id, lane]));
+    const providerStates = new Map(
+      getProviderStatus().provider_lanes.map((provider) => [provider.lane_id, provider])
+    );
     return {
       schema_version: "uta.lane_states.v1",
       generated_at: fixture.generated_at,
       lanes: getLaneRegistry().lanes.map((lane) => {
         const current = fixtureStates.get(lane.lane_id);
-        return current || {
+        const provider_status = providerStates.get(lane.lane_id) || null;
+        return current ? { ...current, provider_status } : {
           lane_id: lane.lane_id,
           label: lane.label,
           state: lane.required ? "unavailable" : "disabled",
@@ -1102,7 +1304,8 @@ export function createUtaService({ config, store } = {}) {
           operator_copy: lane.required
             ? `${lane.label} is unavailable in the replay slice. No live signal is fabricated.`
             : `${lane.label} is optional or disabled and does not penalize tiers.`,
-          next_action: { label: `Refresh ${lane.label}`, route: lane.refresh_route }
+          next_action: { label: `Refresh ${lane.label}`, route: lane.refresh_route },
+          provider_status
         };
       })
     };
@@ -1309,11 +1512,8 @@ export function createUtaService({ config, store } = {}) {
 
   function getProviderStatus() {
     return {
-      schema_version: "uta.provider_status.v1",
-      source: "docs/uta-provider-adapter-matrix.md",
-      replay_available: existsSync(paths.single),
-      live_trade_prints_configured: Boolean(config.tradePrintsApiKey),
-      policy: "Provider failures become lane states; they do not create synthetic live signals."
+      ...buildProviderReadiness(config, getLaneRegistry().lanes),
+      replay_available: existsSync(paths.single)
     };
   }
 

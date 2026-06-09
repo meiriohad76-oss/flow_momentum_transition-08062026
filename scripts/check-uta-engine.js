@@ -143,6 +143,46 @@ try {
   const optionalDisabled = lanes.find((lane) => lane.lane_id === "options_flow");
   assert(optionalDisabled?.required === false, "Options flow must be optional.");
   assert(optionalDisabled?.tier_effect === "none", "Optional disabled lane must not penalize tier.");
+  assert(
+    lanes.every((lane) => lane.provider_status && lane.provider_status.auto_start_allowed === false),
+    "Lane states must expose provider readiness without enabling auto-start.",
+    lanes
+  );
+
+  const providerService = createUtaService({
+    config: {
+      ...config,
+      tradePrintsEnabled: false,
+      tradePrintsApiKey: "",
+      polygonApiKey: "",
+      iexApiKey: "",
+      marketDataProvider: "synthetic",
+      autonomousDataEnabled: false,
+      stocktwitsEnabled: false,
+      stocktwitsApiKey: ""
+    }
+  });
+  const providers = providerService.getProviderStatus();
+  assert(providers.schema_version === "uta.provider_status.v1", "Provider status schema mismatch.", providers);
+  assert(providers.replay_available === true, "Replay fixture must stay available while providers are configured.", providers);
+  assert(providers.live_ready === false, "Default UTA provider status must not claim live readiness.", providers);
+  assert(providers.summary.auto_start_allowed === 0, "UTA provider readiness must not allow heavy auto-start.", providers.summary);
+  assert(
+    providers.provider_lanes.some((lane) =>
+      lane.lane_id === "massive_live_trade_slices" &&
+      lane.required &&
+      lane.configured === false &&
+      lane.state_if_unavailable === "unavailable" &&
+      lane.tier_effect_when_unavailable === "suppress_to_d"
+    ),
+    "Missing live trade-print provider must be explicit and suppress required live lanes.",
+    providers.provider_lanes
+  );
+  assert(
+    providers.provider_lanes.some((lane) => lane.provider_family === "options" && lane.optional_corroboration_only && lane.tier_effect_when_unavailable === "none"),
+    "Optional provider lanes must remain corroboration-only.",
+    providers.provider_lanes
+  );
 
   const portfolio = service.getPortfolioAnalysis({ tickers: ["AVGO", "ZZZZ"] });
   assert(portfolio.results.length === 2, "Portfolio should preserve requested ticker count.");

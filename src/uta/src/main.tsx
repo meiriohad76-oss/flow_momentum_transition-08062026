@@ -135,6 +135,7 @@ type RuntimeStatus = {
   schema_version: string;
   generated_at: string;
   mode: string;
+  provider_status?: ProviderStatus;
   scheduler?: {
     enabled?: boolean;
     mode?: string;
@@ -155,6 +156,41 @@ type RuntimeStatus = {
     storage: string;
   };
   next_actions?: { action: string; label: string; safe: boolean }[];
+};
+
+type ProviderLane = {
+  lane_id: string;
+  label: string;
+  required: boolean;
+  provider_family: string;
+  provider: string;
+  enabled: boolean;
+  configured: boolean;
+  live_capable: boolean;
+  auto_start_allowed: boolean;
+  state_if_unavailable: string;
+  tier_effect_when_unavailable: string;
+  optional_corroboration_only?: boolean;
+  operator_copy: string;
+};
+
+type ProviderStatus = {
+  schema_version: string;
+  generated_at: string;
+  mode: string;
+  replay_available: boolean;
+  live_ready: boolean;
+  summary: {
+    required_configured: number;
+    required_total: number;
+    optional_configured: number;
+    optional_total: number;
+    live_capable: number;
+    auto_start_allowed: number;
+  };
+  provider_lanes: ProviderLane[];
+  safeguards: string[];
+  policy: string;
 };
 
 type HistoryResult = {
@@ -914,6 +950,7 @@ function AlertsMode({
 
 function RuntimeMode({
   runtime,
+  providers,
   scheduler,
   history,
   stream,
@@ -921,6 +958,7 @@ function RuntimeMode({
   onRefreshRuntime
 }: {
   runtime: LoadState<RuntimeStatus>;
+  providers: LoadState<ProviderStatus>;
   scheduler: LoadState<SchedulerResult>;
   history: HistoryResult | null;
   stream: ReturnType<typeof useSseEvents>;
@@ -928,6 +966,7 @@ function RuntimeMode({
   onRefreshRuntime: () => void;
 }) {
   const status = runtime.data;
+  const providerStatus = providers.data || status?.provider_status;
   return (
     <section className="mode-stack">
       <div className="runtime-grid">
@@ -973,6 +1012,44 @@ function RuntimeMode({
       </div>
       <div className="two-column">
         <section className="panel">
+          <SectionHeader
+            title="Provider Readiness"
+            meta={providerStatus?.live_ready ? "live ready" : providers.status}
+          />
+          <div className="metric-grid three">
+            <MetricTile
+              label="Required configured"
+              value={`${providerStatus?.summary.required_configured ?? "N/A"} / ${providerStatus?.summary.required_total ?? "N/A"}`}
+            />
+            <MetricTile
+              label="Optional configured"
+              value={`${providerStatus?.summary.optional_configured ?? "N/A"} / ${providerStatus?.summary.optional_total ?? "N/A"}`}
+            />
+            <MetricTile
+              label="Auto-start"
+              value={providerStatus?.summary.auto_start_allowed ?? "N/A"}
+              detail="kept off for Pi"
+            />
+          </div>
+          <div className="compact-list provider-list">
+            {(providerStatus?.provider_lanes || []).slice(0, 8).map((lane) => (
+              <div className="compact-row" key={`${lane.lane_id}-${lane.provider_family}`}>
+                <div>
+                  <b>{lane.label}</b>
+                  <span>{lane.provider_family} / {lane.provider} / fallback {lane.state_if_unavailable}</span>
+                </div>
+                <div className="row-metrics">
+                  <Pill tone={lane.configured ? "good" : lane.required ? "warn" : "neutral"}>
+                    {lane.configured ? "configured" : "missing"}
+                  </Pill>
+                  <Pill tone={lane.auto_start_allowed ? "bad" : "good"}>manual</Pill>
+                </div>
+              </div>
+            ))}
+            {!providerStatus?.provider_lanes?.length ? <p className="empty">Provider readiness has not loaded yet.</p> : null}
+          </div>
+        </section>
+        <section className="panel">
           <SectionHeader title="SSE Events" meta={stream.state} />
           <div className="compact-list">
             {stream.events.map((event, index) => (
@@ -1001,6 +1078,7 @@ function App() {
   const [scan, setScan] = useState<LoadState<ScanResult>>({ status: "idle" });
   const [pass2, setPass2] = useState<LoadState<ScanResult>>({ status: "idle" });
   const [runtime, setRuntime] = useState<LoadState<RuntimeStatus>>({ status: "idle" });
+  const [providers, setProviders] = useState<LoadState<ProviderStatus>>({ status: "idle" });
   const [history, setHistory] = useState<HistoryResult | null>(null);
   const [scheduler, setScheduler] = useState<LoadState<SchedulerResult>>({ status: "idle" });
   const [userState, setUserState] = useState<UserStateResult | null>(null);
@@ -1021,13 +1099,16 @@ function App() {
 
   async function loadRuntime() {
     setRuntime((current) => ({ status: "loading", data: current.data, message: "Refreshing runtime..." }));
-    const [runtimeData, schedulerData, historyData, stateData] = await Promise.all([
+    setProviders((current) => ({ status: "loading", data: current.data, message: "Refreshing providers..." }));
+    const [runtimeData, providerData, schedulerData, historyData, stateData] = await Promise.all([
       apiGet<RuntimeStatus>("/api/uta/runtime"),
+      apiGet<ProviderStatus>("/api/uta/providers"),
       apiGet<SchedulerResult>("/api/uta/scheduler"),
       apiGet<HistoryResult>("/api/uta/history?limit=20"),
       apiGet<UserStateResult>("/api/uta/user-state")
     ]);
     setRuntime({ status: "ready", data: runtimeData });
+    setProviders({ status: "ready", data: providerData });
     setScheduler({ status: "ready", data: schedulerData });
     setHistory(historyData);
     setUserState(stateData);
@@ -1155,6 +1236,7 @@ function App() {
       return (
         <RuntimeMode
           runtime={runtime}
+          providers={providers}
           scheduler={scheduler}
           history={history}
           stream={stream}
@@ -1173,7 +1255,7 @@ function App() {
         onWatchlist={() => toggleWatchlist().catch((error) => setRuntime({ status: "error", data: runtime.data, message: error.message }))}
       />
     );
-  }, [mode, single, portfolio, scan, pass2, runtime, scheduler, history, stream, activeTicker, userState]);
+  }, [mode, single, portfolio, scan, pass2, runtime, providers, scheduler, history, stream, activeTicker, userState]);
 
   return (
     <main className="uta-shell">

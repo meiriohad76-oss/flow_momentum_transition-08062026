@@ -155,6 +155,11 @@ export async function routeRequest(app, request, response) {
     return;
   }
 
+  if (pathname === "/api/uta/providers" && request.method === "GET") {
+    sendJson(response, 200, app.getUtaProviderStatus());
+    return;
+  }
+
   if (pathname === "/api/uta/history" && request.method === "GET") {
     sendJson(response, 200, app.getUtaHistory({
       ticker: query.ticker || "",
