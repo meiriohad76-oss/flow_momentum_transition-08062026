@@ -63,4 +63,12 @@ npm run check:uta-deploy-smoke -- --base-url "$BaseUrl"
 "@
 
 Write-Host "Deploying UTA to $User@$HostName from $RepoDir"
-$remoteScript | ssh -tt "$User@$HostName" "bash -s"
+$localTemp = Join-Path ([System.IO.Path]::GetTempPath()) "uta-deploy-$([System.Guid]::NewGuid().ToString('N')).sh"
+$remoteTemp = "/tmp/uta-deploy-$([System.Guid]::NewGuid().ToString('N')).sh"
+try {
+  Set-Content -LiteralPath $localTemp -Value $remoteScript -Encoding UTF8
+  scp $localTemp "$User@$HostName`:$remoteTemp"
+  ssh -tt "$User@$HostName" "chmod +x '$remoteTemp' && bash '$remoteTemp'; status=`$?; rm -f '$remoteTemp'; exit `$status"
+} finally {
+  Remove-Item -LiteralPath $localTemp -ErrorAction SilentlyContinue
+}
