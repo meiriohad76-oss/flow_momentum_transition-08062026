@@ -71,7 +71,11 @@ sudo systemctl daemon-reload
 sudo systemctl enable "$ServiceName"
 sudo systemctl restart "$ServiceName"
 sudo systemctl status "$ServiceName" --no-pager
-npm run check:uta-deploy-smoke -- --base-url "$BaseUrl"
+if ! npm run check:uta-deploy-smoke -- --base-url "$BaseUrl" --wait-ms 120000 --interval-ms 3000; then
+  echo "UTA deploy smoke failed; recent service logs follow." >&2
+  sudo journalctl -u "$ServiceName" -n 80 --no-pager
+  exit 1
+fi
 "@
 
 Write-Host "Deploying UTA to $User@$HostName from $RepoDir"

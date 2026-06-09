@@ -22,6 +22,15 @@ function normalizeBaseUrl(value) {
   return String(value || "http://127.0.0.1:3000").replace(/\/+$/, "");
 }
 
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function numberArg(name, fallback) {
+  const value = Number(argValue(name, fallback));
+  return Number.isFinite(value) && value > 0 ? value : fallback;
+}
+
 function requestText(url, { timeoutMs = 8000, stream = false } = {}) {
   return new Promise((resolve, reject) => {
     const parsed = new URL(url);
@@ -57,9 +66,32 @@ async function jsonGet(baseUrl, path) {
   return JSON.parse(response.body);
 }
 
+async function waitForHealth(baseUrl, { timeoutMs, intervalMs }) {
+  const startedAt = Date.now();
+  let lastError = null;
+  while (Date.now() - startedAt <= timeoutMs) {
+    try {
+      const health = await jsonGet(baseUrl, "/api/health");
+      if (health.status === "green") {
+        return health;
+      }
+      lastError = new Error(`Health status is ${health.status}`);
+      lastError.details = health;
+    } catch (error) {
+      lastError = error;
+    }
+    await sleep(intervalMs);
+  }
+  const error = new Error(`Health endpoint did not become green within ${timeoutMs}ms.`);
+  error.details = { base_url: baseUrl, last_error: lastError?.message, last_details: lastError?.details || {} };
+  throw error;
+}
+
 try {
   const baseUrl = normalizeBaseUrl(argValue("--base-url", process.env.UTA_BASE_URL || "http://127.0.0.1:3000"));
-  const health = await jsonGet(baseUrl, "/api/health");
+  const waitMs = numberArg("--wait-ms", Number(process.env.UTA_DEPLOY_SMOKE_WAIT_MS || 90000));
+  const intervalMs = numberArg("--interval-ms", Number(process.env.UTA_DEPLOY_SMOKE_INTERVAL_MS || 2500));
+  const health = await waitForHealth(baseUrl, { timeoutMs: waitMs, intervalMs });
   const runtime = await jsonGet(baseUrl, "/api/uta/runtime");
   const single = await jsonGet(baseUrl, "/api/uta/single?ticker=AVGO");
   const html = await requestText(`${baseUrl}/uta`);
@@ -79,6 +111,7 @@ try {
   console.log(JSON.stringify({
     status: "ok",
     base_url: baseUrl,
+    wait_ms: waitMs,
     health: health.status,
     uta_mode: runtime.mode,
     scheduler_mode: runtime.scheduler.mode,
