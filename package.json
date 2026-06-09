@@ -43,6 +43,7 @@
     "check:uta-calibration": "node scripts/check-uta-calibration.js",
     "check:uta-trading-integration": "node scripts/check-uta-trading-integration.js",
     "check:uta-pi-profile": "node scripts/check-uta-pi-profile.js",
+    "check:uta-deploy-smoke": "node scripts/check-uta-deploy-smoke.js",
     "ux:smoke": "node scripts/ux-smoke.js",
     "sqlite:backup": "node scripts/sqlite-backup.js",
     "sqlite:health": "node scripts/sqlite-health.js",

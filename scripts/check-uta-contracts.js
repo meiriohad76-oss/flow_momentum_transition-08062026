@@ -51,7 +51,9 @@ try {
     "src/public/uta/index.html",
     "scripts/check-uta-historical-replay.js",
     "scripts/check-uta-calibration.js",
-    "scripts/check-uta-trading-integration.js"
+    "scripts/check-uta-trading-integration.js",
+    "scripts/check-uta-deploy-smoke.js",
+    "scripts/deploy-uta-pi.ps1"
   ];
 
   const missing = requiredFiles.filter((file) => !existsSync(path.join(config.rootDir, file)));

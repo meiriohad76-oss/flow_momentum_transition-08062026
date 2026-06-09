@@ -25,6 +25,8 @@ npm run build:uta
 npm run check:uta-pi-profile
 npm run check:uta-historical-replay
 npm run check:uta-calibration
+npm run check:uta-trading-integration
+npm run check:uta-deploy-smoke -- --base-url http://127.0.0.1:3000
 ```
 
 Run on the Pi after deploy:
@@ -35,8 +37,7 @@ npm ci --omit=dev
 npm run build:uta
 npm run check:uta-pi-profile
 npm run check:uta-api
-curl -fsS http://127.0.0.1:3000/api/uta/runtime
-curl -fsS http://127.0.0.1:3000/uta
+npm run check:uta-deploy-smoke -- --base-url http://127.0.0.1:3000
 ```
 
 ## Service Install Sketch
@@ -67,6 +68,22 @@ curl -fsS https://uta.example.com/uta
 ```
 
 Also verify `/api/uta/stream` stays connected through the tunnel.
+
+The reusable smoke command can target the Cloudflare hostname:
+
+```bash
+npm run check:uta-deploy-smoke -- --base-url https://uta.example.com
+```
+
+## PowerShell Helper
+
+From Windows, after updating `HostName`, this helper pulls the latest `main` branch on the Pi, builds UTA, runs validation gates, restarts systemd, and runs the deployment smoke:
+
+```powershell
+.\scripts\deploy-uta-pi.ps1 -HostName 10.100.102.18 -User ahad -RepoDir /home/ahad/autonomous_stock_trader_ahad -BaseUrl http://127.0.0.1:3000
+```
+
+Use the real Pi hostname/IP and service paths before running it.
 
 ## Trading Guard
 
