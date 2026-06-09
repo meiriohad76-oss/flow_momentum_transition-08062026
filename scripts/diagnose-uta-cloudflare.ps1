@@ -19,11 +19,11 @@ sudo cat "`$CONFIG_PATH"
 
 echo
 echo "== ingress validate =="
-cloudflared tunnel ingress validate --config "`$CONFIG_PATH"
+cloudflared tunnel --config "`$CONFIG_PATH" ingress validate
 
 echo
 echo "== ingress rule for UTA =="
-cloudflared tunnel ingress rule --config "`$CONFIG_PATH" "https://`$UTA_HOSTNAME/api/health"
+cloudflared tunnel --config "`$CONFIG_PATH" ingress rule "https://`$UTA_HOSTNAME/api/health"
 
 echo
 echo "== local service health =="
