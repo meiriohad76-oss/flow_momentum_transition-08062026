@@ -7,10 +7,12 @@ param(
   [string]$RepoUrl = "https://github.com/meiriohad76-oss/flow_momentum_transition-08062026.git",
   [string]$ServiceName = "uta-autonomous-stock-trader",
   [string]$BaseUrl = "http://127.0.0.1:3000",
+  [switch]$InstallNode24,
   [switch]$SkipNpmCi
 )
 
 $ErrorActionPreference = "Stop"
+$installNode24Value = if ($InstallNode24) { "true" } else { "false" }
 
 $remoteScript = @"
 set -euo pipefail
@@ -22,7 +24,32 @@ fi
 cd "$RepoDir"
 git fetch origin main
 git pull --ff-only origin main
+INSTALL_NODE24="$installNode24Value"
+if ! command -v node >/dev/null 2>&1; then
+  if [ "`$INSTALL_NODE24" = "true" ]; then
+    echo "Node.js is missing; installing Node.js 24 from NodeSource"
+    sudo apt-get update
+    sudo apt-get install -y ca-certificates curl gnupg
+    curl -fsSL https://deb.nodesource.com/setup_24.x | sudo -E bash -
+    sudo apt-get install -y nodejs
+  else
+    echo "Node.js is missing. Re-run with -InstallNode24 or install Node.js 24 on the Pi first." >&2
+    exit 127
+  fi
+fi
 node --version
+NODE_MAJOR="`$(node --version | sed 's/^v//' | cut -d. -f1)"
+if [ "`$NODE_MAJOR" -lt 24 ]; then
+  if [ "`$INSTALL_NODE24" = "true" ]; then
+    echo "Node.js major version `$NODE_MAJOR is below 24; upgrading via NodeSource"
+    curl -fsSL https://deb.nodesource.com/setup_24.x | sudo -E bash -
+    sudo apt-get install -y nodejs
+  else
+    echo "Node.js 24+ is required. Current version: `$(node --version). Re-run with -InstallNode24." >&2
+    exit 127
+  fi
+fi
+npm --version
 $(if ($SkipNpmCi) { "echo 'Skipping npm ci by request'" } else { "npm ci" })
 npm run build:uta
 npm run check:uta-pi-profile

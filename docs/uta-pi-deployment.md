@@ -81,7 +81,7 @@ From Windows, after updating `HostName`, this helper pulls the latest `main` bra
 
 ```powershell
 $PiHost = "10.100.102.18"
-.\scripts\deploy-uta-pi.ps1 -HostName $PiHost -User ahad -RepoDir /home/ahad/autonomous_stock_trader_ahad -BaseUrl http://127.0.0.1:3000
+.\scripts\deploy-uta-pi.ps1 -HostName $PiHost -User ahad -BaseUrl http://127.0.0.1:3000 -InstallNode24
 ```
 
 Replace `10.100.102.18` with the real Pi hostname or IP before running it. Do not include angle brackets around the hostname.
