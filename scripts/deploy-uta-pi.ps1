@@ -78,6 +78,7 @@ if [ "$OldServiceName" != "$ServiceName" ] && [ -f "/etc/systemd/system/$OldServ
   sudo systemctl stop "$OldServiceName" >/dev/null 2>&1 || true
   sudo systemctl disable "$OldServiceName" >/dev/null 2>&1 || true
   sudo rm -f "/etc/systemd/system/$OldServiceName.service"
+  sudo systemctl reset-failed "$OldServiceName" >/dev/null 2>&1 || true
 fi
 if [ ! -f "/etc/systemd/system/$ServiceName.service" ]; then
   echo "Installing $ServiceName.service"
