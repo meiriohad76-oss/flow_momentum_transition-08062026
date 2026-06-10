@@ -82,7 +82,7 @@ Expected optional gaps:
 
 - `marketaux_news` is `unconfigured` until `MARKETAUX_API_KEY` is set. RSS fallback can still feed the Live News source.
 - `stocktwits_stream` is `unconfigured` until `STOCKTWITS_API_KEY` is set, because unauthenticated server requests are commonly blocked.
-- `trade_prints` is `unconfigured` until `POLYGON_API_KEY`, `IEX_API_KEY`, or `TRADE_PRINTS_API_KEY` is set.
+- `trade_prints` is `unconfigured` until `MASSIVE_API_KEY`, `POLYGON_API_KEY`, `IEX_API_KEY`, or `TRADE_PRINTS_API_KEY` is set.
 - Earnings use Yahoo with a crumb/cookie handshake by default. Twelve Data can be selected with `EARNINGS_PROVIDER=twelvedata`, but some earnings endpoints are plan-gated.
 
 ## API

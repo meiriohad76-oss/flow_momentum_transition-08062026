@@ -135,6 +135,7 @@ const alphaVantageApiKey = firstCredential("ALPHA_VANTAGE_API_KEY", "ALPHAVANTAG
 const marketauxApiKey = envCredential("MARKETAUX_API_KEY");
 const stocktwitsApiKey = envCredential("STOCKTWITS_API_KEY");
 const polygonApiKey = envCredential("POLYGON_API_KEY");
+const massiveApiKey = firstCredential("MASSIVE_API_KEY", "POLYGON_API_KEY");
 const iexApiKey = envCredential("IEX_API_KEY");
 const genericTradePrintsApiKey = envCredential("TRADE_PRINTS_API_KEY");
 const alpacaMarketDataApiKeyId = firstCredential(
@@ -162,6 +163,7 @@ const hasFmpKey = Boolean(fmpApiKey);
 const hasAlphaVantageKey = Boolean(alphaVantageApiKey);
 const hasStocktwitsKey = Boolean(stocktwitsApiKey);
 const hasPolygonKey = Boolean(polygonApiKey);
+const hasMassiveKey = Boolean(massiveApiKey);
 const hasIexKey = Boolean(iexApiKey);
 const hasGenericTradePrintsKey = Boolean(genericTradePrintsApiKey);
 const hasAlpacaMarketDataKey = Boolean(alpacaMarketDataApiKeyId && alpacaMarketDataApiSecretKey);
@@ -182,11 +184,14 @@ const stocktwitsEnabled =
 const tradePrintsEnabled =
   String(
     process.env.TRADE_PRINTS_ENABLED ||
-      (hasGenericTradePrintsKey || hasPolygonKey || hasIexKey ? "true" : "false")
+      (hasGenericTradePrintsKey || hasMassiveKey || hasPolygonKey || hasIexKey ? "true" : "false")
   ).toLowerCase() !== "false";
 
 function marketProvider(envName, { allowAlpaca = true, includeFmp = false } = {}) {
   const requested = process.env[envName];
+  if (autonomousDataEnabled && hasMassiveKey && (!requested || requested === "synthetic")) {
+    return "massive";
+  }
   if (autonomousDataEnabled && allowAlpaca && alpacaMarketDataEnabled && hasAlpacaMarketDataKey && (!requested || requested === "synthetic")) {
     return "alpaca";
   }
@@ -203,9 +208,11 @@ function marketProvider(envName, { allowAlpaca = true, includeFmp = false } = {}
     return "alphavantage";
   }
   return requested || (
-    allowAlpaca && alpacaMarketDataEnabled && hasAlpacaMarketDataKey
-      ? "alpaca"
-      : finnhubEnabled && hasFinnhubKey
+    hasMassiveKey
+      ? "massive"
+      : allowAlpaca && alpacaMarketDataEnabled && hasAlpacaMarketDataKey
+        ? "alpaca"
+        : finnhubEnabled && hasFinnhubKey
         ? "finnhub"
         : includeFmp && fmpEnabled && hasFmpKey
           ? "fmp"
@@ -235,10 +242,10 @@ const selectedEarningsProvider = String(
 ).trim().toLowerCase();
 const selectedTradePrintsProvider =
   String(process.env.TRADE_PRINTS_PROVIDER || "").trim().toLowerCase() ||
-  (hasPolygonKey || hasGenericTradePrintsKey ? "polygon" : hasIexKey ? "iex" : "polygon");
+  (hasMassiveKey || hasGenericTradePrintsKey ? "massive" : hasPolygonKey ? "polygon" : hasIexKey ? "iex" : "massive");
 const selectedTradePrintsApiKey =
   genericTradePrintsApiKey ||
-  (selectedTradePrintsProvider === "iex" ? iexApiKey : polygonApiKey) ||
+  (selectedTradePrintsProvider === "iex" ? iexApiKey : massiveApiKey || polygonApiKey) ||
   "";
 const selectionWorkflowTestMode =
   String(process.env.SELECTION_WORKFLOW_TEST_MODE || "false").toLowerCase() === "true";
@@ -348,6 +355,12 @@ export const config = {
   polygonReserveRequestsPerMinute: Number(process.env.POLYGON_RESERVE_REQUESTS_PER_MINUTE || 1),
   polygonMaxRequestsPerDay: Number(process.env.POLYGON_MAX_REQUESTS_PER_DAY || 0),
   polygonReserveRequestsPerDay: Number(process.env.POLYGON_RESERVE_REQUESTS_PER_DAY || 0),
+  massiveBaseUrl: process.env.MASSIVE_BASE_URL || "https://api.massive.com",
+  massiveCompatBaseUrl: process.env.MASSIVE_COMPAT_BASE_URL || "https://api.polygon.io",
+  massiveMaxRequestsPerMinute: Number(process.env.MASSIVE_MAX_REQUESTS_PER_MINUTE || process.env.POLYGON_MAX_REQUESTS_PER_MINUTE || 4),
+  massiveReserveRequestsPerMinute: Number(process.env.MASSIVE_RESERVE_REQUESTS_PER_MINUTE || process.env.POLYGON_RESERVE_REQUESTS_PER_MINUTE || 1),
+  massiveMaxRequestsPerDay: Number(process.env.MASSIVE_MAX_REQUESTS_PER_DAY || process.env.POLYGON_MAX_REQUESTS_PER_DAY || 0),
+  massiveReserveRequestsPerDay: Number(process.env.MASSIVE_RESERVE_REQUESTS_PER_DAY || process.env.POLYGON_RESERVE_REQUESTS_PER_DAY || 0),
   autonomousDataEnabled: apiSaverMode ? false : autonomousDataEnabled,
   marketDataProvider: selectedMarketDataProvider,
   marketDataInterval: process.env.MARKET_DATA_INTERVAL || "15min",
@@ -517,7 +530,9 @@ export const config = {
   tradePrintsEnabled,
   tradePrintsScope: process.env.TRADE_PRINTS_SCOPE || "finalists",
   tradePrintsProvider: selectedTradePrintsProvider,
+  utaPrimaryProvider: process.env.UTA_PRIMARY_PROVIDER || selectedTradePrintsProvider || selectedMarketDataProvider,
   polygonApiKey,
+  massiveApiKey,
   iexApiKey,
   tradePrintsApiKey: selectedTradePrintsApiKey,
   tradePrintsPollMs: apiSaverIntervalMs("TRADE_PRINTS_POLL_MS", 60000, 300000, 3600000),

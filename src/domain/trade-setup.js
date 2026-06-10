@@ -149,6 +149,7 @@ function isDirectMoneyFlowEvidence(item) {
   const sourceName = String(item.source_name || "").toLowerCase();
   return (
     ["official_filing", "delayed_trade_prints"].includes(observationLevel) ||
+    sourceName === "massive_trades" ||
     sourceName === "polygon_trades" ||
     sourceName === "iex_trades" ||
     sourceName === "sec_edgar"

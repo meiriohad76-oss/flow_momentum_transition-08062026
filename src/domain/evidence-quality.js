@@ -34,10 +34,10 @@ function reliabilityContext(normalized = {}, score = {}) {
     observationLevel = "official_filing";
     verificationStatus = "verified_official_source";
     multiplier = 1;
-  } else if (sourceName === "polygon_trades" || sourceName === "iex_trades" || /trade_prints/.test(collector)) {
+  } else if (sourceName === "massive_trades" || sourceName === "polygon_trades" || sourceName === "iex_trades" || /trade_prints/.test(collector)) {
     observationLevel = "delayed_trade_prints";
     verificationStatus = "direct_trade_prints_delayed";
-    multiplier = sourceName === "polygon_trades" ? 0.86 : 0.8;
+    multiplier = ["massive_trades", "polygon_trades"].includes(sourceName) ? 0.86 : 0.8;
     warnings.push("Trade-print direction is inferred from print price versus a reference price; it is not full order-book aggressor data.");
   } else if (sourceName === "market_flow" || sourceType === "market_flow" || collector === "market_flow") {
     observationLevel = "bar_derived_inferred";

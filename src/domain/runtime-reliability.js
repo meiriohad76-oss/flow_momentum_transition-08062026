@@ -205,7 +205,7 @@ export const RUNTIME_PROFILES = {
       STOCKTWITS_POLL_MS: "900000",
       STOCKTWITS_MAX_TICKERS_PER_POLL: "20",
       TRADE_PRINTS_ENABLED: "false",
-      TRADE_PRINTS_PROVIDER: "polygon",
+      TRADE_PRINTS_PROVIDER: "massive",
       TRADE_PRINTS_POLL_MS: "300000",
       TRADE_PRINTS_MAX_TICKERS_PER_POLL: "25",
       FUNDAMENTAL_MARKET_DATA_PROVIDER: "twelvedata",
@@ -260,7 +260,7 @@ export const RUNTIME_PROFILES = {
       STOCKTWITS_POLL_MS: "900000",
       STOCKTWITS_MAX_TICKERS_PER_POLL: "20",
       TRADE_PRINTS_ENABLED: "false",
-      TRADE_PRINTS_PROVIDER: "polygon",
+      TRADE_PRINTS_PROVIDER: "massive",
       TRADE_PRINTS_POLL_MS: "300000",
       TRADE_PRINTS_MAX_TICKERS_PER_POLL: "25",
       FUNDAMENTAL_MARKET_DATA_PROVIDER: "alpaca",
@@ -312,7 +312,7 @@ export const RUNTIME_PROFILES = {
       STOCKTWITS_POLL_MS: "300000",
       STOCKTWITS_MAX_TICKERS_PER_POLL: "50",
       TRADE_PRINTS_ENABLED: "true",
-      TRADE_PRINTS_PROVIDER: "polygon",
+      TRADE_PRINTS_PROVIDER: "massive",
       TRADE_PRINTS_POLL_MS: "60000",
       TRADE_PRINTS_MAX_TICKERS_PER_POLL: "50",
       FUNDAMENTAL_MARKET_DATA_PROVIDER: "twelvedata",
@@ -409,7 +409,7 @@ function hasEarningsAccess(config) {
 }
 
 function hasTradePrintsAccess(config) {
-  return Boolean(config.tradePrintsApiKey);
+  return Boolean(config.tradePrintsApiKey || config.massiveApiKey || config.polygonApiKey);
 }
 
 function sourceSpecs(config) {
@@ -531,7 +531,7 @@ function sourceSpecs(config) {
       intervalMs: config.tradePrintsPollMs,
       criticality: "medium",
       configured: hasTradePrintsAccess(config),
-      missingConfigReason: "Delayed exchange trade prints need POLYGON_API_KEY, IEX_API_KEY, or TRADE_PRINTS_API_KEY.",
+      missingConfigReason: "Delayed exchange trade prints need MASSIVE_API_KEY, POLYGON_API_KEY, IEX_API_KEY, or TRADE_PRINTS_API_KEY.",
       notes: `Classifies delayed block prints from ${config.tradePrintsProvider}.`
     },
     {

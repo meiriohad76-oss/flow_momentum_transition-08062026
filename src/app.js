@@ -690,6 +690,7 @@ function canonicalRuntimeSourceKey(source) {
     yahoo_earnings_calendar: "earnings_calendar",
     earnings: "earnings_calendar",
     stocktwits: "stocktwits_stream",
+    massive_trade_prints: "trade_prints",
     polygon_trade_prints: "trade_prints",
     iex_trade_prints: "trade_prints",
     [providerTradePrints]: "trade_prints"
@@ -1884,6 +1885,7 @@ export function createSentimentApp() {
         stocktwits_stream: !stocktwitsEnabled,
         stocktwits: !stocktwitsEnabled,
         trade_prints: !tradePrintsEnabled,
+        massive_trade_prints: !tradePrintsEnabled,
         polygon_trade_prints: !tradePrintsEnabled,
         iex_trade_prints: !tradePrintsEnabled,
         [`${config.tradePrintsProvider}_trade_prints`]: !tradePrintsEnabled,
@@ -1953,6 +1955,7 @@ export function createSentimentApp() {
           yahoo_earnings_calendar: "earnings_calendar",
           earnings: "earnings_calendar",
           stocktwits: "stocktwits_stream",
+          massive_trade_prints: "trade_prints",
           polygon_trade_prints: "trade_prints",
           iex_trade_prints: "trade_prints",
           [`${config.tradePrintsProvider}_trade_prints`]: "trade_prints"

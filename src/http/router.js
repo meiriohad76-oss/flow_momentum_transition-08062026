@@ -163,9 +163,13 @@ export async function routeRequest(app, request, response) {
   if (pathname === "/api/uta/providers/preflight" && request.method === "POST") {
     let body = "";
     request.on("data", (chunk) => { body += chunk; });
-    request.on("end", () => {
-      const payload = parseJsonBody(body) || {};
-      sendJson(response, 200, app.runUtaProviderPreflight(payload));
+    request.on("end", async () => {
+      try {
+        const payload = parseJsonBody(body) || {};
+        sendJson(response, 200, await app.runUtaProviderPreflight(payload));
+      } catch (error) {
+        sendJson(response, 400, { ok: false, error: error.message });
+      }
     });
     return;
   }

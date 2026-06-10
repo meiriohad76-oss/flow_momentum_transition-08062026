@@ -30,6 +30,7 @@ export const SOURCE_TRUST = {
   market_flow: 0.76,
   yahoo_earnings: 0.72,
   stocktwits: 0.58,
+  massive_trades: 0.81,
   polygon_trades: 0.81,
   iex_trades: 0.75,
   manual: 0.5

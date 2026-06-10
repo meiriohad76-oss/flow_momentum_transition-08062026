@@ -17,7 +17,14 @@ export function hasAlpacaMarketDataAccess(config) {
   );
 }
 
+export function hasMassiveAccess(config) {
+  return Boolean(config?.massiveApiKey || config?.polygonApiKey);
+}
+
 export function isLiveMarketProviderConfigured(config, provider = config?.marketDataProvider) {
+  if (provider === "massive") {
+    return hasMassiveAccess(config);
+  }
   if (provider === "twelvedata") {
     return hasTwelveDataAccess(config);
   }
@@ -61,6 +68,7 @@ export function liveMarketProviderChain(config, preferred = config?.marketDataPr
   }
 
   add(preferred);
+  add("massive");
   add("alpaca");
   add("finnhub");
   if (includeFmp) {
@@ -82,7 +90,10 @@ export function hasConfiguredLiveMarketProvider(config, preferred = config?.mark
 
 export function marketProviderMissingConfigReason(provider, purpose = "live market data") {
   if (provider !== "synthetic" && !provider) {
-    return `${purpose} needs MARKET_DATA_PROVIDER=alpaca, finnhub, fmp, twelvedata, alphavantage, or synthetic plus matching credentials.`;
+    return `${purpose} needs MARKET_DATA_PROVIDER=massive, alpaca, finnhub, fmp, twelvedata, alphavantage, or synthetic plus matching credentials.`;
+  }
+  if (provider === "massive") {
+    return `${purpose} needs MASSIVE_API_KEY or POLYGON_API_KEY.`;
   }
   if (provider === "alpaca") {
     return `${purpose} needs Alpaca market data credentials. Set ALPACA_API_KEY/ALPACA_SECRET_KEY or ALPACA_API_KEY_ID/ALPACA_API_SECRET_KEY.`;
@@ -106,7 +117,9 @@ export function liveMarketDataStatus(config, provider = config?.marketDataProvid
     provider_chain: providerChain,
     fallback_mode: provider === "synthetic" || !liveProviders.length,
     feed:
-      provider === "alpaca"
+      provider === "massive"
+        ? "stocks_rest"
+        : provider === "alpaca"
         ? config?.alpacaMarketDataFeed || "iex"
         : provider === "finnhub"
           ? "stock_candle"

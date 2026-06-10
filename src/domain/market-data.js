@@ -45,6 +45,24 @@ function isoDaysAgo(days) {
   return new Date(Date.now() - Math.max(1, Number(days || 1)) * 24 * 60 * 60 * 1000).toISOString();
 }
 
+function isoDateDaysAgo(days) {
+  return new Date(Date.now() - Math.max(1, Number(days || 1)) * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+}
+
+function massiveRangeSpec(interval = "15min") {
+  const normalized = String(interval || "15min").trim().toLowerCase();
+  const match = normalized.match(/^(\d+)\s*(m|min|minute|minutes|h|hr|hour|hours|d|day|days)$/);
+  const value = Math.max(1, Number(match?.[1] || 1));
+  const unit = match?.[2] || "day";
+  if (["m", "min", "minute", "minutes"].includes(unit)) {
+    return { multiplier: value, timespan: "minute" };
+  }
+  if (["h", "hr", "hour", "hours"].includes(unit)) {
+    return { multiplier: value, timespan: "hour" };
+  }
+  return { multiplier: value, timespan: "day" };
+}
+
 function marketHealth(store, config) {
   if (!store.health.liveSources.market_data) {
     store.health.liveSources.market_data = {
@@ -277,6 +295,46 @@ async function fetchAlpacaSeries(config, ticker) {
   }
 }
 
+async function fetchMassiveSeries(config, ticker, quotaManager = null) {
+  const lookbackDays = intervalLookbackDays(config.marketDataInterval, config.marketDataHistoryPoints);
+  const { multiplier, timespan } = massiveRangeSpec(config.marketDataInterval);
+  const from = isoDateDaysAgo(lookbackDays);
+  const to = new Date().toISOString().slice(0, 10);
+  const apiKey = config.massiveApiKey || config.polygonApiKey;
+  const base = trimTrailingSlash(config.massiveBaseUrl || config.massiveCompatBaseUrl || "https://api.massive.com");
+  const params = new URLSearchParams({
+    adjusted: "true",
+    sort: "asc",
+    limit: String(config.marketDataHistoryPoints || 18),
+    apiKey
+  });
+  const request = withTimeout(config.marketDataRequestTimeoutMs);
+
+  try {
+    const run = async () => {
+      const response = await fetch(`${base}/v2/aggs/ticker/${encodeURIComponent(ticker)}/range/${multiplier}/${timespan}/${from}/${to}?${params.toString()}`, {
+        signal: request.signal,
+        headers: {
+          Accept: "application/json",
+          "User-Agent": "SentimentAnalyst/1.0 (+massive market data)"
+        }
+      });
+      if (!response.ok) {
+        const text = await response.text().catch(() => "");
+        throw new Error(`Massive aggregates request failed with ${response.status}${text ? `: ${text.slice(0, 160)}` : ""}`);
+      }
+      const payload = await response.json();
+      if (!Array.isArray(payload.results) || !payload.results.length) {
+        throw new Error("Massive returned no aggregate bars");
+      }
+      return payload;
+    };
+    return quotaManager ? quotaManager.run("massive", run) : run();
+  } finally {
+    request.clear();
+  }
+}
+
 function mapTwelveDataSeries(payload, scoredDocs) {
   const values = payload.values.map((point) => ({
     timestamp: parseSeriesTimestamp(point.datetime),
@@ -338,6 +396,41 @@ function mapAlpacaSeries(payload, scoredDocs, config) {
   }));
 
   const baselineWindow = WINDOWS.find((window) => window.key === "1d")?.label || normalizeAlpacaTimeframe(config.marketDataInterval);
+  return buildSeriesPayload(priceHistory, sentimentHistory, baselineWindow, values.map((point) => ({
+    timestamp: point.timestamp,
+    open: round(point.open, 2),
+    high: round(point.high, 2),
+    low: round(point.low, 2),
+    close: round(point.close, 2),
+    volume: Math.round(point.volume || 0)
+  })));
+}
+
+function mapMassiveSeries(payload, scoredDocs, config) {
+  const values = [...(payload.results || [])].map((point) => ({
+    timestamp: parseSeriesTimestamp(point.t),
+    open: Number(point.o),
+    high: Number(point.h),
+    low: Number(point.l),
+    close: Number(point.c),
+    volume: Number(point.v || 0)
+  }));
+
+  const sentimentHistory = values.map((point) => {
+    const signal = buildSeriesSignal(scoredDocs, new Date(point.timestamp));
+    return {
+      timestamp: point.timestamp,
+      sentiment: round(signal.sentiment, 4),
+      confidence: round(signal.confidence, 4)
+    };
+  });
+
+  const priceHistory = values.map((point) => ({
+    timestamp: point.timestamp,
+    price: round(point.close, 2)
+  }));
+
+  const baselineWindow = WINDOWS.find((window) => window.key === "1d")?.label || `${massiveRangeSpec(config.marketDataInterval).timespan} bars`;
   return buildSeriesPayload(priceHistory, sentimentHistory, baselineWindow, values.map((point) => ({
     timestamp: point.timestamp,
     open: round(point.open, 2),
@@ -447,6 +540,8 @@ export function createMarketDataService({ config, store, providerQuota = null })
     const rawPayload =
       provider === "alpaca"
         ? await fetchAlpacaSeries(config, ticker)
+        : provider === "massive"
+          ? await fetchMassiveSeries(config, ticker, providerQuota)
         : provider === "twelvedata"
           ? await fetchTwelveDataSeries(config, ticker, providerQuota)
           : await fetchResearchProviderBars(provider, config, ticker, providerQuota, {
@@ -457,6 +552,8 @@ export function createMarketDataService({ config, store, providerQuota = null })
     const payload =
       provider === "alpaca"
         ? mapAlpacaSeries(rawPayload, scoredDocs, config)
+        : provider === "massive"
+          ? mapMassiveSeries(rawPayload, scoredDocs, config)
         : provider === "twelvedata"
           ? mapTwelveDataSeries(rawPayload, scoredDocs)
           : mapGenericBarSeries(rawPayload, scoredDocs);

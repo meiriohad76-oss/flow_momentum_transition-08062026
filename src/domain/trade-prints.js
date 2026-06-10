@@ -1,6 +1,6 @@
 import { getTrackedUniverseEntries, rotateUniverseEntries } from "./tracked-universe.js";
 
-const POLYGON_BASE = "https://api.polygon.io/v3/trades";
+const POLYGON_BASE = "https://api.polygon.io";
 const IEX_BASE = "https://cloud.iexapis.com/stable/stock";
 
 function dateSlot() {
@@ -32,8 +32,10 @@ function normalizeTradeTimestamp(value) {
   return new Date(numeric * 1000).toISOString();
 }
 
-async function fetchPolygonTrades(ticker, apiKey, timeoutMs, quotaManager = null) {
-  const url = `${POLYGON_BASE}/${encodeURIComponent(ticker)}?limit=50&sort=timestamp&order=desc&apiKey=${encodeURIComponent(apiKey)}`;
+async function fetchMassiveCompatibleTrades(ticker, apiKey, timeoutMs, quotaManager = null, options = {}) {
+  const provider = options.provider || "massive";
+  const base = String(options.baseUrl || POLYGON_BASE).replace(/\/+$/, "");
+  const url = `${base}/v3/trades/${encodeURIComponent(ticker)}?limit=50&sort=timestamp&order=desc&apiKey=${encodeURIComponent(apiKey)}`;
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
@@ -42,10 +44,10 @@ async function fetchPolygonTrades(ticker, apiKey, timeoutMs, quotaManager = null
         signal: controller.signal,
         headers: { "User-Agent": "SentimentAnalyst/1.0 (+trade-prints)" }
       });
-      if (!response.ok) throw new Error(`Polygon trades ${response.status}`);
+      if (!response.ok) throw new Error(`${provider} trades ${response.status}`);
       return response.json();
     };
-    const json = quotaManager ? await quotaManager.run("polygon", run) : await run();
+    const json = quotaManager ? await quotaManager.run(provider, run) : await run();
     return (json?.results ?? []).map((t) => ({
       price: t.price,
       size: t.size,
@@ -81,7 +83,14 @@ async function fetchTrades(ticker, config, quotaManager = null) {
   if (config.tradePrintsProvider === "iex") {
     return fetchIexTrades(ticker, config.tradePrintsApiKey, config.tradePrintsRequestTimeoutMs);
   }
-  return fetchPolygonTrades(ticker, config.tradePrintsApiKey, config.tradePrintsRequestTimeoutMs, quotaManager);
+  const provider = config.tradePrintsProvider === "polygon" ? "polygon" : "massive";
+  const baseUrl = provider === "polygon"
+    ? config.massiveCompatBaseUrl || "https://api.polygon.io"
+    : config.massiveBaseUrl || "https://api.massive.com";
+  return fetchMassiveCompatibleTrades(ticker, config.tradePrintsApiKey, config.tradePrintsRequestTimeoutMs, quotaManager, {
+    provider,
+    baseUrl
+  });
 }
 
 function classifyTrades(trades, basePrice, minNotionalUsd) {
@@ -115,7 +124,7 @@ function buildRawDocument(entry, action, buyNotional, sellNotional, blockCount, 
   const isBuy = action === "block_trade_buying";
   const dominantNotional = isBuy ? buyNotional : sellNotional;
   const usd = (dominantNotional / 1e6).toFixed(1);
-  const sourceName = provider === "iex" ? "iex_trades" : "polygon_trades";
+  const sourceName = provider === "iex" ? "iex_trades" : provider === "massive" ? "massive_trades" : "polygon_trades";
   const observedAt = latestTimestamp || new Date().toISOString();
   return {
     source_name: sourceName,

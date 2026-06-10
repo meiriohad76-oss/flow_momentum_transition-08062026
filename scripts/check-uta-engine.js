@@ -154,6 +154,7 @@ try {
       ...config,
       tradePrintsEnabled: false,
       tradePrintsApiKey: "",
+      massiveApiKey: "",
       polygonApiKey: "",
       iexApiKey: "",
       marketDataProvider: "synthetic",
@@ -171,7 +172,9 @@ try {
     providers.provider_lanes.some((lane) =>
       lane.lane_id === "massive_live_trade_slices" &&
       lane.required &&
+      lane.provider === "massive" &&
       lane.configured === false &&
+      lane.credential_env_names.includes("MASSIVE_API_KEY") &&
       lane.state_if_unavailable === "unavailable" &&
       lane.tier_effect_when_unavailable === "suppress_to_d"
     ),
@@ -182,6 +185,28 @@ try {
     providers.provider_lanes.some((lane) => lane.provider_family === "options" && lane.optional_corroboration_only && lane.tier_effect_when_unavailable === "none"),
     "Optional provider lanes must remain corroboration-only.",
     providers.provider_lanes
+  );
+  const massiveReadyService = createUtaService({
+    config: {
+      ...config,
+      tradePrintsEnabled: true,
+      tradePrintsProvider: "massive",
+      tradePrintsApiKey: "test_massive_key",
+      massiveApiKey: "test_massive_key",
+      polygonApiKey: "",
+      iexApiKey: "",
+      marketDataProvider: "massive",
+      autonomousDataEnabled: true,
+      apiSaverMode: true
+    }
+  });
+  const massiveProviders = massiveReadyService.getProviderStatus();
+  assert(massiveProviders.live_ready === true, "Massive should satisfy required UTA provider readiness when configured.", massiveProviders);
+  assert(massiveProviders.summary.auto_start_allowed === 0, "Massive readiness must still keep Pi auto-start disabled.", massiveProviders.summary);
+  assert(
+    massiveProviders.provider_lanes.filter((lane) => lane.required).every((lane) => lane.configured && lane.provider !== "polygon"),
+    "Required UTA lanes should prefer Massive, not Polygon, when Massive is configured.",
+    massiveProviders.provider_lanes
   );
 
   const portfolio = service.getPortfolioAnalysis({ tickers: ["AVGO", "ZZZZ"] });

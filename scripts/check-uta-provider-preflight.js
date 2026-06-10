@@ -48,6 +48,11 @@ try {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ ticker: "AVGO" })
   });
+  const liveProbeNoKeys = await readJson(baseUrl, "/api/uta/providers/preflight", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ ticker: "AVGO", probe_live: true })
+  });
   const historyAfter = await readJson(baseUrl, "/api/uta/history?limit=250");
   const schedulerAfter = await readJson(baseUrl, "/api/uta/scheduler");
 
@@ -57,6 +62,9 @@ try {
   assert(preflight.payload.probe_live === false, "Default preflight must not run live probes.");
   assert(preflight.payload.summary.trading_effect === "none", "Preflight must have no trading effect.");
   assert(preflight.payload.summary.sample_attempts === 0, "Default preflight must not call external samples.");
+  assert(liveProbeNoKeys.payload.probe_live === true, "Explicit preflight probe flag should be reflected.");
+  assert(liveProbeNoKeys.payload.live_probe_status === "manual_probe_completed", "Live probe request should complete safely.");
+  assert(liveProbeNoKeys.payload.summary.sample_attempts === 0, "Live probe without Massive credentials should not call external samples.");
   assert(preflight.payload.summary.required_missing >= 1, "Default config should show missing required live providers.");
   assert(preflight.payload.checks.some((check) => check.state === "missing_key"), "Preflight should expose missing provider state.");
   assert(preflight.payload.checks.some((check) => check.state === "configured"), "Preflight should expose configured provider state.");
@@ -91,6 +99,7 @@ try {
     checks: preflight.payload.checks.length,
     by_state: preflight.payload.summary.by_state,
     required_missing: preflight.payload.summary.required_missing,
+    live_probe_without_keys_sample_attempts: liveProbeNoKeys.payload.summary.sample_attempts,
     trading_effect: preflight.payload.summary.trading_effect,
     mutation_guard: {
       historical_signal_results_preserved: preflight.payload.mutation_guard.historical_signal_results_preserved,

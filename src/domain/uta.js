@@ -651,6 +651,9 @@ function providerCredential(config, envNames = []) {
     if (name === "POLYGON_API_KEY") {
       return Boolean(config.polygonApiKey);
     }
+    if (name === "MASSIVE_API_KEY") {
+      return Boolean(config.massiveApiKey);
+    }
     if (name === "IEX_API_KEY") {
       return Boolean(config.iexApiKey);
     }
@@ -670,9 +673,9 @@ function providerCredential(config, envNames = []) {
 
 function buildProviderReadiness(config = {}, registry = []) {
   const byLane = new Map(registry.map((lane) => [lane.lane_id, lane]));
-  const tradePrintCredential = providerCredential(config, ["TRADE_PRINTS_API_KEY", "POLYGON_API_KEY", "IEX_API_KEY"]);
+  const tradePrintCredential = providerCredential(config, ["TRADE_PRINTS_API_KEY", "MASSIVE_API_KEY", "POLYGON_API_KEY", "IEX_API_KEY"]);
   const marketProvider = config.marketDataProvider || "synthetic";
-  const marketConfigured = marketProvider !== "synthetic";
+  const marketConfigured = marketProvider === "massive" ? Boolean(config.massiveApiKey || config.polygonApiKey) : marketProvider !== "synthetic";
   const earningsCredential = providerCredential(config, ["EARNINGS_API_KEY"]);
   const stocktwitsCredential = providerCredential(config, ["STOCKTWITS_API_KEY"]);
   const piBlocksHeavyAutoStart = Boolean(config.apiSaverMode || config.piPerformanceMode);
@@ -681,7 +684,7 @@ function buildProviderReadiness(config = {}, registry = []) {
     {
       lane_id: "massive_live_trade_slices",
       provider_family: "trade_prints",
-      provider: config.tradePrintsProvider || "polygon",
+      provider: config.tradePrintsProvider || "massive",
       enabled: Boolean(config.tradePrintsEnabled),
       credential: tradePrintCredential,
       fallback_state: "unavailable",
@@ -691,7 +694,7 @@ function buildProviderReadiness(config = {}, registry = []) {
     {
       lane_id: "massive_premarket_trade_slices",
       provider_family: "trade_prints",
-      provider: config.tradePrintsProvider || "polygon",
+      provider: config.tradePrintsProvider || "massive",
       enabled: Boolean(config.tradePrintsEnabled),
       credential: tradePrintCredential,
       fallback_state: "disabled",
@@ -711,7 +714,7 @@ function buildProviderReadiness(config = {}, registry = []) {
     {
       lane_id: "massive_block_trade_feed",
       provider_family: "derived_trade_prints",
-      provider: config.tradePrintsProvider || "polygon",
+      provider: config.tradePrintsProvider || "massive",
       enabled: Boolean(config.tradePrintsEnabled),
       credential: tradePrintCredential,
       fallback_state: "unavailable",
@@ -847,6 +850,112 @@ function countBy(items = [], key = "state") {
     counts[value] = (counts[value] || 0) + 1;
     return counts;
   }, {});
+}
+
+function massiveApiKey(config = {}) {
+  return config.massiveApiKey || config.tradePrintsApiKey || config.polygonApiKey || "";
+}
+
+function massiveBaseUrl(config = {}, provider = "massive") {
+  return String(
+    provider === "polygon"
+      ? config.massiveCompatBaseUrl || "https://api.polygon.io"
+      : config.massiveBaseUrl || "https://api.massive.com"
+  ).replace(/\/+$/, "");
+}
+
+function intervalToMassiveRange(interval = "1day") {
+  const normalized = String(interval || "1day").trim().toLowerCase();
+  const match = normalized.match(/^(\d+)\s*(m|min|minute|minutes|h|hr|hour|hours|d|day|days)$/);
+  const multiplier = Math.max(1, Number(match?.[1] || 1));
+  const unit = match?.[2] || "day";
+  const timespan = ["m", "min", "minute", "minutes"].includes(unit)
+    ? "minute"
+    : ["h", "hr", "hour", "hours"].includes(unit)
+      ? "hour"
+      : "day";
+  return { multiplier, timespan };
+}
+
+function dateDaysAgo(days) {
+  return new Date(Date.now() - Math.max(1, Number(days || 1)) * 86_400_000).toISOString().slice(0, 10);
+}
+
+async function fetchPreflightJson(url, { timeoutMs = 8000, provider = "massive" } = {}) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const response = await fetch(url, {
+      signal: controller.signal,
+      headers: {
+        Accept: "application/json",
+        "User-Agent": `SentimentAnalyst/1.0 (+uta ${provider} preflight)`
+      }
+    });
+    const text = await response.text();
+    let payload = null;
+    try {
+      payload = text ? JSON.parse(text) : null;
+    } catch {
+      payload = null;
+    }
+    if (!response.ok) {
+      const error = new Error(`${provider} preflight ${response.status}${text ? `: ${text.slice(0, 160)}` : ""}`);
+      error.status = response.status;
+      throw error;
+    }
+    return payload;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function runMassivePreflightSample(providerCheck, config = {}, ticker = "AVGO") {
+  const provider = providerCheck.provider === "polygon" ? "polygon" : "massive";
+  if (!["massive", "polygon"].includes(providerCheck.provider)) {
+    return { state: "configured", sample_count: null, sample_attempted: false };
+  }
+  const apiKey = massiveApiKey(config);
+  if (!apiKey) {
+    return { state: "missing_key", sample_count: null, sample_attempted: false };
+  }
+  const base = massiveBaseUrl(config, provider);
+  const timeoutMs = Math.min(12000, Math.max(1000, Number(config.tradePrintsRequestTimeoutMs || config.marketDataRequestTimeoutMs || 8000)));
+  let url = "";
+  let countPath = "results";
+  if (providerCheck.provider_family === "trade_prints" || providerCheck.provider_family === "derived_trade_prints") {
+    url = `${base}/v3/trades/${encodeURIComponent(ticker)}?limit=5&sort=timestamp&order=desc&apiKey=${encodeURIComponent(apiKey)}`;
+  } else if (providerCheck.provider_family === "bars") {
+    const { multiplier, timespan } = intervalToMassiveRange(config.marketDataInterval || "1day");
+    url = `${base}/v2/aggs/ticker/${encodeURIComponent(ticker)}/range/${multiplier}/${timespan}/${dateDaysAgo(7)}/${new Date().toISOString().slice(0, 10)}?adjusted=true&sort=desc&limit=5&apiKey=${encodeURIComponent(apiKey)}`;
+  } else if (providerCheck.provider_family === "universe") {
+    url = `${base}/v3/reference/tickers/${encodeURIComponent(ticker)}?apiKey=${encodeURIComponent(apiKey)}`;
+    countPath = "results_single";
+  } else {
+    return { state: "configured", sample_count: null, sample_attempted: false };
+  }
+
+  try {
+    const payload = await fetchPreflightJson(url, { timeoutMs, provider });
+    const sampleCount = countPath === "results_single"
+      ? payload?.results ? 1 : 0
+      : Array.isArray(payload?.results) ? payload.results.length : 0;
+    return {
+      state: "sample_ok",
+      sample_count: sampleCount,
+      sample_attempted: true
+    };
+  } catch (error) {
+    const message = String(error?.message || error || "");
+    return {
+      state: Number(error?.status || 0) === 429 || /rate.?limit|too many requests|quota/i.test(message)
+        ? "rate_limited"
+        : "provider_error",
+      sample_count: null,
+      sample_attempted: true,
+      error: message.slice(0, 240)
+    };
+  }
 }
 
 function ensureUtaStoreState(store) {
@@ -1525,7 +1634,7 @@ export function createUtaService({ config, store } = {}) {
     };
   }
 
-  function runProviderPreflight(payload = {}) {
+  async function runProviderPreflight(payload = {}) {
     const startedAt = nowIso();
     const ticker = normalizeTickerSymbol(payload.ticker || "AVGO") || "AVGO";
     const probeLive = Boolean(payload.probe_live || payload.live_probe);
@@ -1537,10 +1646,13 @@ export function createUtaService({ config, store } = {}) {
       scheduler_mode: state.scheduler.mode
     };
     const providerStatus = getProviderStatus();
-    const checks = providerStatus.provider_lanes.map((provider) => {
+    const checks = [];
+    for (const provider of providerStatus.provider_lanes) {
       const stateName = provider.configured ? "configured" : "missing_key";
-      const sampleAttempted = false;
-      return {
+      const sample = probeLive && provider.configured
+        ? await runMassivePreflightSample(provider, config, ticker)
+        : { state: stateName, sample_attempted: false, sample_count: null };
+      checks.push({
         id: `${provider.lane_id}:${provider.provider_family}`,
         lane_id: provider.lane_id,
         label: provider.label,
@@ -1549,19 +1661,22 @@ export function createUtaService({ config, store } = {}) {
         provider: provider.provider,
         enabled: provider.enabled,
         configured: provider.configured,
-        state: stateName,
-        sample_attempted: sampleAttempted,
+        state: sample.state || stateName,
+        sample_attempted: Boolean(sample.sample_attempted),
         sample_ticker: ticker,
-        sample_count: null,
-        rate_limit_observed: false,
+        sample_count: sample.sample_count ?? null,
+        rate_limit_observed: sample.state === "rate_limited",
         mutation_allowed: false,
         trading_effect: "none",
         tier_effect_if_missing: provider.tier_effect_when_unavailable,
+        error: sample.error || null,
         operator_copy: provider.configured
-          ? "Provider is configured. Live sample probing remains disabled unless explicitly requested in a future manual probe."
+          ? probeLive
+            ? "Provider was manually probed without writing UTA signal history."
+            : "Provider is configured. Live sample probing remains disabled unless explicitly requested."
           : provider.operator_copy
-      };
-    });
+      });
+    }
     const after = {
       signal_results: state.signalResults.length,
       replay_runs: state.replayRuns.length,
@@ -1578,10 +1693,10 @@ export function createUtaService({ config, store } = {}) {
       mode: "manual_preflight",
       probe_live: probeLive,
       live_probe_status: probeLive
-        ? "not_implemented_in_safe_slice"
+        ? "manual_probe_completed"
         : "not_requested",
       ok: true,
-      live_ready: false,
+      live_ready: providerStatus.live_ready && checks.filter((check) => check.required).every((check) => ["configured", "sample_ok"].includes(check.state)),
       provider_status: providerStatus,
       checks,
       summary: {

@@ -61,6 +61,16 @@ const PROVIDER_CONFIG = {
     defaultDayLimit: 0,
     defaultMinuteReserve: 1,
     defaultDayReserve: 0
+  },
+  massive: {
+    minuteLimitKey: "massiveMaxRequestsPerMinute",
+    dayLimitKey: "massiveMaxRequestsPerDay",
+    minuteReserveKey: "massiveReserveRequestsPerMinute",
+    dayReserveKey: "massiveReserveRequestsPerDay",
+    defaultMinuteLimit: 4,
+    defaultDayLimit: 0,
+    defaultMinuteReserve: 1,
+    defaultDayReserve: 0
   }
 };
 
