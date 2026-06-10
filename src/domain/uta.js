@@ -454,7 +454,9 @@ function capTier(tier, cap) {
 
 export function classifyTier({ mode = "single_ticker", indicators = {}, laneStates = [], corroboration = {}, signing = {} } = {}) {
   const requiredProblem = laneStates.find((lane) =>
-    lane.required && ["loading", "failed", "unavailable"].includes(String(lane.state || "").toLowerCase())
+    lane.required &&
+    ["loading", "failed", "unavailable"].includes(String(lane.state || "").toLowerCase()) &&
+    String(lane.tier_effect || "").toLowerCase() !== "cap_at_c"
   );
   const staleSuppressingProblem = laneStates.find((lane) =>
     lane.required &&
@@ -533,7 +535,7 @@ export function classifyTier({ mode = "single_ticker", indicators = {}, laneStat
           id: "required_lanes_ready",
           label: "Required lanes are ready enough for this tier",
           passed: !requiredProblem && !staleSuppressingProblem,
-          actual: requiredProblem?.operator_copy || staleSuppressingProblem?.operator_copy || "Required lanes ready"
+          actual: requiredProblem?.operator_copy || staleSuppressingProblem?.operator_copy || capProblem?.operator_copy || "Required lanes ready"
         }
       ],
       gap_to_next_tier:
@@ -1040,18 +1042,19 @@ async function fetchMassiveLiveInputs(config = {}, ticker = "AVGO") {
   };
 }
 
-function liveLaneStates(registry = [], { trades = [], bars = [], clock = createLiveClock() } = {}) {
+function liveLaneStates(registry = [], { trades = [], bars = [], reference = null, clock = createLiveClock() } = {}) {
   const latestTrade = trades.at(-1)?.ts || null;
-  const latestBar = bars.at(-1)?.date ? `${bars.at(-1).date}T20:00:00.000Z` : null;
+  const latestBar = bars.at(-1)?.date ? `${bars.at(-1).date}T00:00:00.000Z` : null;
+  const fetchedAt = clock.iso();
   const observed = [
     {
       lane_id: "massive_live_trade_slices",
       state: trades.length ? "ready" : "unavailable",
       tier_effect: trades.length ? "none" : "suppress_to_d",
       coverage: trades.length ? 1 : 0,
-      latest_as_of: latestTrade,
+      latest_as_of: fetchedAt,
       operator_copy: trades.length
-        ? `Massive returned ${trades.length} recent trade prints for this manual sample.`
+        ? `Massive returned ${trades.length} recent trade prints for this manual sample; newest print timestamp ${latestTrade || "unknown"}.`
         : "Massive returned no usable recent trade prints; no live signal is fabricated."
     },
     {
@@ -1069,10 +1072,20 @@ function liveLaneStates(registry = [], { trades = [], bars = [], clock = createL
       state: trades.length ? "ready" : "unavailable",
       tier_effect: trades.length ? "none" : "cap_at_c",
       coverage: trades.length ? 1 : 0,
-      latest_as_of: latestTrade,
+      latest_as_of: fetchedAt,
       operator_copy: trades.length
         ? "Block/TRF evidence was derived from the normalized Massive trade sample."
         : "Block/TRF evidence cannot be derived without live prints."
+    },
+    {
+      lane_id: "universe_constituents",
+      state: reference ? "ready" : "stale",
+      tier_effect: reference ? "none" : "cap_at_c",
+      coverage: reference ? 1 : 0,
+      latest_as_of: reference ? fetchedAt : null,
+      operator_copy: reference
+        ? "Ticker reference data was returned by Massive for this manual sample."
+        : "Universe reference data was not confirmed; live tier is capped rather than fabricated."
     }
   ];
   return buildLaneStates(registry, observed, clock);
@@ -1110,6 +1123,7 @@ async function buildLiveManualPayload(ticker, context = {}) {
   const laneStates = liveLaneStates(laneRegistry.lanes || laneRegistry || [], {
     trades: inputs.trades,
     bars: inputs.bars,
+    reference: inputs.reference,
     clock
   });
   const classifier = classifyTier({

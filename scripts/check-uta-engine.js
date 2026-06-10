@@ -126,6 +126,20 @@ try {
     signing: signed
   });
   assert(capped.tier === "C" && capped.capped === true, "Block-lane partial coverage should cap at C.", capped);
+  const cappedUnavailable = classifyTier({
+    mode: "single_ticker",
+    indicators: singleIndicators,
+    laneStates: laneStates.map((lane) =>
+      lane.lane_id === "universe_constituents" ? { ...lane, state: "unavailable", tier_effect: "cap_at_c" } : lane
+    ),
+    corroboration: fixture.corroboration,
+    signing: signed
+  });
+  assert(
+    cappedUnavailable.tier === "C" && cappedUnavailable.suppressed === false,
+    "Required cap_at_c unavailable lanes must cap instead of suppressing to D.",
+    cappedUnavailable
+  );
 
   const fullAnalysis = analyzeReplayFixture(fixture, {
     policy,
