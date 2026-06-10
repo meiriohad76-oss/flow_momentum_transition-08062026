@@ -333,7 +333,7 @@ function ruleMatches(rule: UtaRule, result?: UtaTickerResult | null) {
 
 async function readJson<T>(response: Response): Promise<T> {
   const payload = await response.json();
-  if (!response.ok && !payload?.schema_version) {
+  if (!response.ok) {
     throw new Error(payload.detail || payload.error || `HTTP ${response.status}`);
   }
   return payload;
