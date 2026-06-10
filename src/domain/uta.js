@@ -883,6 +883,14 @@ function dateDaysAgo(days) {
   return new Date(Date.now() - Math.max(1, Number(days || 1)) * 86_400_000).toISOString().slice(0, 10);
 }
 
+function parseTickerList(value, fallback = []) {
+  const source = Array.isArray(value) ? value : String(value || "").split(/[,\s]+/);
+  const tickers = source
+    .map(normalizeTickerSymbol)
+    .filter(Boolean);
+  return [...new Set(tickers.length ? tickers : fallback.map(normalizeTickerSymbol).filter(Boolean))];
+}
+
 function createLiveClock(at = new Date()) {
   const date = new Date(at);
   const ms = date.getTime();
@@ -1042,6 +1050,43 @@ async function fetchMassiveLiveInputs(config = {}, ticker = "AVGO") {
   };
 }
 
+async function fetchMassiveBarSummary(config = {}, ticker = "AVGO") {
+  const provider = config.tradePrintsProvider === "polygon" ? "polygon" : "massive";
+  const apiKey = massiveApiKey(config);
+  if (!apiKey) {
+    const error = new Error("MASSIVE_API_KEY or POLYGON_API_KEY is required for live UTA scan.");
+    error.status = 409;
+    throw error;
+  }
+  const base = massiveBaseUrl(config, provider);
+  const timeoutMs = Math.min(12000, Math.max(1000, Number(config.marketDataRequestTimeoutMs || config.tradePrintsRequestTimeoutMs || 8000)));
+  const today = new Date().toISOString().slice(0, 10);
+  const barsUrl = `${base}/v2/aggs/ticker/${encodeURIComponent(ticker)}/range/1/day/${dateDaysAgo(75)}/${today}?adjusted=true&sort=asc&limit=80&apiKey=${encodeURIComponent(apiKey)}`;
+  const payload = await fetchPreflightJson(barsUrl, { timeoutMs, provider });
+  const bars = [...(payload?.results || [])]
+    .map((bar) => ({
+      date: normalizeMassiveTimestamp(bar.t)?.slice(0, 10),
+      volume: Number(bar.v || 0),
+      close: Number(bar.c),
+      notional: Number(bar.v || 0) * Number(bar.vw || bar.c || 0)
+    }))
+    .filter((bar) => bar.date && Number.isFinite(bar.volume) && bar.volume > 0);
+  const latest = bars.at(-1) || null;
+  const previous = bars.slice(-21, -1);
+  const volumeMedian = median(previous.map((bar) => bar.volume));
+  const notionalMedian = median(previous.map((bar) => bar.notional));
+  return {
+    ticker,
+    provider,
+    bars,
+    latest,
+    volume_ratio: volumeMedian > 0 && latest ? latest.volume / volumeMedian : null,
+    notional_ratio: notionalMedian > 0 && latest ? latest.notional / notionalMedian : null,
+    volume_zscore: robustZScore(latest?.volume, volumeMedian, mad(previous.map((bar) => bar.volume), volumeMedian)),
+    notional_zscore: robustZScore(latest?.notional, notionalMedian, mad(previous.map((bar) => bar.notional), notionalMedian))
+  };
+}
+
 function liveLaneStates(registry = [], { trades = [], bars = [], reference = null, clock = createLiveClock() } = {}) {
   const latestTrade = trades.at(-1)?.ts || null;
   const latestBar = bars.at(-1)?.date ? `${bars.at(-1).date}T00:00:00.000Z` : null;
@@ -1118,7 +1163,14 @@ async function buildLiveManualPayload(ticker, context = {}) {
   const normalized = normalizeTradePrints(inputs.trades, policy);
   const signing = signTradePrints(normalized, { previous_trade_price: latestBar?.close });
   const blocks = detectBlockTrf(signing, { profile, baseline });
-  const components = computeSignalComponents({ baseline, signed: signing, blocks });
+  const componentSigned = latestBar
+    ? {
+        ...signing,
+        total_volume: latestBar.volume,
+        total_notional: latestBar.notional
+      }
+    : signing;
+  const components = computeSignalComponents({ baseline, signed: componentSigned, blocks });
   const indicators = computeAbcIndicators({ mode: "single_ticker", components });
   const laneStates = liveLaneStates(laneRegistry.lanes || laneRegistry || [], {
     trades: inputs.trades,
@@ -1168,7 +1220,7 @@ async function buildLiveManualPayload(ticker, context = {}) {
         title: "Massive Trade Prints",
         status: inputs.trades.length ? "ready" : "unavailable",
         headline_metric: `$${Math.round((signing.total_notional || 0) / 1_000_000)}M`,
-        summary: `${normalized.summary.eligible_prints} eligible prints after condition-code policy.`
+        summary: `${normalized.summary.eligible_prints} eligible prints after condition-code policy. Daily bar volume/notional drives B; prints drive signed pressure and focus evidence.`
       },
       {
         id: "signed_flow",
@@ -1191,6 +1243,11 @@ async function buildLiveManualPayload(ticker, context = {}) {
       reason: components.state === "ready" ? "live_manual_computed" : "insufficient_live_history",
       baseline,
       signal_components: components,
+      print_sample: {
+        total_notional: signing.total_notional,
+        total_volume: signing.total_volume,
+        eligible_prints: normalized.summary.eligible_prints
+      },
       provider: inputs.provider,
       fetched_at: inputs.fetched_at
     },
@@ -1204,6 +1261,8 @@ async function buildLiveManualPayload(ticker, context = {}) {
       price_is_corroboration_only: true,
       abc_indicators_kept_separate: true,
       latest_bar_date: latestBar?.date || null,
+      live_volume_source: latestBar ? "massive_current_daily_bar" : "massive_recent_print_sample",
+      print_sample_used_for: ["signed_flow", "focus_prints", "raw_prints"],
       live_manual_only: true
     }
   };
@@ -1516,23 +1575,29 @@ export function createUtaService({ config, store } = {}) {
         rememberSignal(result.payload, { mode: "single_ticker", replayMode: result.payload?.data_state !== "live_manual" });
         events.push({ type: "uta_signal_result", payload: result.payload });
       } else if (mode === "portfolio") {
-        const portfolio = getPortfolioAnalysis({ ...body, tickers });
+        const portfolio = sourceMode === "live" || sourceMode === "live_manual"
+          ? await getLivePortfolioAnalysis({ ...body, tickers })
+          : getPortfolioAnalysis({ ...body, tickers });
         result = { status: 200, payload: { ...portfolio, cycle_id: cycleId } };
         for (const row of result.payload.results || []) {
-          rememberSignal({ ...row, cycle_id: cycleId }, { mode: "portfolio", replayMode: true });
+          rememberSignal({ ...row, cycle_id: cycleId }, { mode: "portfolio", replayMode: row.data_state !== "live_manual" });
         }
         events.push({ type: "uta_signal_result", payload: result.payload });
       } else if (mode === "scan_pass2") {
-        const scan = runScanPass2(body);
+        const scan = sourceMode === "live" || sourceMode === "live_manual"
+          ? await runLiveScanPass2(body)
+          : runScanPass2(body);
         result = { status: 200, payload: { ...scan, cycle_id: cycleId } };
         for (const row of scan.results || []) {
           if (row.result) {
-            rememberSignal({ ...row.result, cycle_id: cycleId }, { mode: "scan", universe: scan.universe, replayMode: true });
+            rememberSignal({ ...row.result, cycle_id: cycleId }, { mode: "scan", universe: scan.universe, replayMode: row.result.data_state !== "live_manual" });
           }
         }
         events.push({ type: "uta_scan_progress", payload: result.payload });
       } else {
-        const scan = getScan(query);
+        const scan = sourceMode === "live" || sourceMode === "live_manual"
+          ? await getLiveScan(query)
+          : getScan(query);
         result = { status: 200, payload: { ...scan, cycle_id: cycleId } };
         events.push({ type: "uta_scan_progress", payload: result.payload });
       }
@@ -1758,6 +1823,80 @@ export function createUtaService({ config, store } = {}) {
     };
   }
 
+  async function getLivePortfolioAnalysis(payload = {}) {
+    const requested = parseTickerList(payload.tickers, ["AVGO"]);
+    const limit = Math.max(1, Math.min(12, Number(payload.limit || payload.max_tickers || requested.length || 1)));
+    const tickers = requested.slice(0, limit);
+    const results = [];
+    for (const ticker of tickers) {
+      const analysis = await getLiveSingleAnalysis(ticker);
+      results.push(analysis.status === 200 ? analysis.payload : {
+        schema_version: "uta.ticker_result.v1",
+        mode: "portfolio",
+        ticker,
+        generated_at: nowIso(),
+        data_state: "live_unavailable",
+        tier: "D",
+        direction: "undetermined",
+        signing_confidence: 0,
+        indicators: { A: null, B: {}, C: {} },
+        lane_states: [],
+        bluf: {
+          headline: `${ticker} live analysis unavailable`,
+          what_happened: analysis.payload?.detail || "Live provider request failed.",
+          why_it_matters: "The row is not ranked from replay data.",
+          what_to_check: "Check Massive credentials, entitlements, and provider status.",
+          limitations: "No actionable UTA tier is produced for this row."
+        },
+        evidence_cards: [],
+        explain_tier: {
+          mode: "portfolio",
+          rule_set: "portfolio_or_scan_abc",
+          verdict: "Tier D",
+          rules: [],
+          gap_to_next_tier: ["Restore live provider data."]
+        },
+        calculation_metadata: {
+          source_mode: "live_manual",
+          direction_source: "unavailable",
+          price_is_corroboration_only: true,
+          abc_indicators_kept_separate: true
+        }
+      });
+    }
+    const population = results.map((row) => row.indicators?.C || {});
+    const ranked = results.map((row) => ({
+      ...row,
+      mode: "portfolio",
+      indicators: {
+        ...row.indicators,
+        A: row.data_state === "live_manual"
+          ? {
+              volume_percentile: roundNumber(percentileRank(row.indicators?.C?.volume_ratio, population.map((peer) => peer.volume_ratio)), 3),
+              focus_notional_share_percentile: roundNumber(percentileRank(row.indicators?.C?.focus_notional_share, population.map((peer) => peer.focus_notional_share)), 3),
+              net_notional_pressure_percentile: roundNumber(percentileRank(row.indicators?.C?.net_notional_pressure, population.map((peer) => peer.net_notional_pressure)), 3),
+              scope_label: "relative to your live portfolio sample"
+            }
+          : null
+      }
+    })).sort((a, b) => {
+      const aRank = Number(a.indicators?.A?.volume_percentile || 0) + Number(a.indicators?.A?.focus_notional_share_percentile || 0) + Number(a.indicators?.A?.net_notional_pressure_percentile || 0);
+      const bRank = Number(b.indicators?.A?.volume_percentile || 0) + Number(b.indicators?.A?.focus_notional_share_percentile || 0) + Number(b.indicators?.A?.net_notional_pressure_percentile || 0);
+      return bRank - aRank;
+    });
+    return {
+      schema_version: "uta.portfolio.v1",
+      mode: "portfolio",
+      generated_at: new Date().toISOString(),
+      data_state: "live_manual",
+      source_mode: "live_manual",
+      portfolio_ticker_count: tickers.length,
+      requested_ticker_count: requested.length,
+      truncated: requested.length > tickers.length,
+      results: ranked
+    };
+  }
+
   function getScan(query = {}) {
     const universe = getUniverseFixture();
     const direction = String(query.direction || "bullish").toLowerCase();
@@ -1787,6 +1926,73 @@ export function createUtaService({ config, store } = {}) {
     };
   }
 
+  async function getLiveScan(query = {}) {
+    const universe = getUniverseFixture();
+    const direction = String(query.direction || "bullish").toLowerCase();
+    const requested = parseTickerList(query.tickers, universe.tickers.map((row) => row.symbol));
+    const limit = Math.max(1, Math.min(25, Number(query.limit || query.max_tickers || requested.length || 10)));
+    const tickers = requested.slice(0, limit);
+    const rows = [];
+    for (const ticker of tickers) {
+      try {
+        const summary = await fetchMassiveBarSummary(config, ticker);
+        const directionMultiplier = direction === "bearish" ? -1 : 1;
+        const bScore = Math.max(
+          Number(summary.volume_zscore || 0),
+          Number(summary.notional_zscore || 0)
+        );
+        const cScreen = Math.max(
+          Number(summary.volume_ratio || 0),
+          Number(summary.notional_ratio || 0)
+        );
+        rows.push({
+          ticker,
+          preliminary_tier: bScore >= 2.5 || cScreen >= 3 ? "B" : bScore >= 1.5 || cScreen >= 1.8 ? "C" : "D",
+          B_estimate: {
+            volume_zscore_from_bars: roundNumber(summary.volume_zscore, 2),
+            notional_zscore_from_bars: roundNumber(summary.notional_zscore, 2)
+          },
+          C_screen: roundNumber(directionMultiplier * cScreen, 3),
+          pass2_status: "pending",
+          label: "Preliminary - live Massive bars only",
+          latest_bar_date: summary.latest?.date || null,
+          data_state: "live_preliminary"
+        });
+      } catch (error) {
+        rows.push({
+          ticker,
+          preliminary_tier: "D",
+          B_estimate: {},
+          C_screen: null,
+          pass2_status: "blocked",
+          label: `Live scan blocked: ${error.message}`,
+          data_state: "live_unavailable"
+        });
+      }
+    }
+    const shortlist = rows
+      .filter((row) => row.pass2_status === "pending")
+      .sort((a, b) => Math.abs(Number(b.C_screen || 0)) - Math.abs(Number(a.C_screen || 0)))
+      .slice(0, Math.max(1, Math.min(10, Number(query.shortlist_limit || 5))));
+    return {
+      schema_version: "uta.scan_result.v1",
+      mode: "scan",
+      universe: universe.universe_id,
+      universe_label: `${universe.label} live manual`,
+      universe_ticker_count: tickers.length,
+      requested_ticker_count: requested.length,
+      direction_filter: direction,
+      pass: 1,
+      generated_at: new Date().toISOString(),
+      data_state: "live_manual",
+      performance_tier: "pi_bounded_manual",
+      shortlist_count: shortlist.length,
+      results: shortlist.length ? shortlist : rows.slice(0, 5),
+      scanned_count: rows.length,
+      scan_policy: "Pass 1 uses Massive daily bars only; pass 2 fetches trade prints for the shortlist."
+    };
+  }
+
   function runScanPass2(payload = {}) {
     const shortlist = Array.isArray(payload.shortlist) && payload.shortlist.length ? payload.shortlist : ["AVGO"];
     return {
@@ -1796,6 +2002,35 @@ export function createUtaService({ config, store } = {}) {
         status: "resolved",
         result: getSingleAnalysis(ticker).payload
       }))
+    };
+  }
+
+  async function runLiveScanPass2(payload = {}) {
+    const shortlist = parseTickerList(payload.shortlist, ["AVGO"]).slice(0, Math.max(1, Math.min(10, Number(payload.limit || 5))));
+    const results = [];
+    for (const ticker of shortlist) {
+      const analysis = await getLiveSingleAnalysis(ticker);
+      results.push({
+        ticker,
+        status: analysis.status === 200 ? "resolved" : "blocked",
+        result: analysis.status === 200 ? analysis.payload : null,
+        error: analysis.status === 200 ? null : analysis.payload?.detail || analysis.payload?.error || "Live analysis unavailable"
+      });
+    }
+    const universe = getUniverseFixture();
+    return {
+      schema_version: "uta.scan_result.v1",
+      mode: "scan",
+      universe: payload.universe || universe.universe_id,
+      universe_label: `${universe.label} live manual`,
+      universe_ticker_count: shortlist.length,
+      direction_filter: payload.direction || "bullish",
+      pass: 2,
+      generated_at: new Date().toISOString(),
+      data_state: "live_manual",
+      performance_tier: "pi_bounded_manual",
+      shortlist_count: shortlist.length,
+      results
     };
   }
 
@@ -2056,8 +2291,11 @@ export function createUtaService({ config, store } = {}) {
     getSingleAnalysis,
     getLiveSingleAnalysis,
     getPortfolioAnalysis,
+    getLivePortfolioAnalysis,
     getScan,
+    getLiveScan,
     runScanPass2,
+    runLiveScanPass2,
     getUniverses,
     getLaneStates,
     refreshLane,

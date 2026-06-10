@@ -92,6 +92,26 @@ try {
   assert(liveWithoutCredentials.payload.error === "live_uta_unavailable", "Live UTA should fail explicitly instead of replaying a fixture.");
   assert(liveWithoutCredentials.payload.ticker === "MSFT", "Live UTA error should preserve the requested ticker.");
 
+  const livePortfolioWithoutCredentials = await readJson(baseUrl, "/api/uta/portfolio", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ tickers: ["MSFT", "NVDA"], source: "live" })
+  });
+  assert(livePortfolioWithoutCredentials.payload.data_state === "live_manual", "Live portfolio should expose live_manual state.");
+  assert(
+    livePortfolioWithoutCredentials.payload.results.every((row) => row.data_state === "live_unavailable" && row.ticker),
+    "Live portfolio without credentials must return explicit unavailable rows, not replay fixtures.",
+    livePortfolioWithoutCredentials.payload.results
+  );
+
+  const liveScanWithoutCredentials = await readJson(baseUrl, "/api/uta/scan?source=live&tickers=MSFT,NVDA&direction=bullish&pass=1");
+  assert(liveScanWithoutCredentials.payload.data_state === "live_manual", "Live scan should expose live_manual state.");
+  assert(
+    liveScanWithoutCredentials.payload.results.every((row) => row.data_state === "live_unavailable" && row.pass2_status === "blocked"),
+    "Live scan without credentials must return blocked live rows, not replay fixtures.",
+    liveScanWithoutCredentials.payload.results
+  );
+
   const refresh = await readJson(baseUrl, "/api/uta/lanes/massive_live_trade_slices/refresh", { method: "POST" });
   assert(refresh.payload.ok === true, "Lane refresh should return ok.");
 
