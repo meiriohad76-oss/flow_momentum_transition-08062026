@@ -2110,6 +2110,9 @@ export function createSentimentApp() {
     getUtaProviderStatus() {
       return uta.getProviderStatus();
     },
+    runUtaProviderPreflight(payload = {}) {
+      return uta.runProviderPreflight(payload);
+    },
     getUtaSupportingEvidenceForTickers(tickers = []) {
       return uta.getSupportingEvidenceForTickers(tickers);
     },

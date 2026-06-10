@@ -40,6 +40,7 @@ try {
     "schemas/uta-sse-event.schema.json",
     "schemas/uta-error.schema.json",
     "schemas/uta-provider-status.schema.json",
+    "schemas/uta-provider-preflight.schema.json",
     "sql/uta-schema.sql",
     "data/uta/replay/avgo-single.json",
     "data/uta/replay/historical-evaluation.json",
@@ -53,6 +54,7 @@ try {
     "scripts/check-uta-historical-replay.js",
     "scripts/check-uta-calibration.js",
     "scripts/check-uta-trading-integration.js",
+    "scripts/check-uta-provider-preflight.js",
     "scripts/check-uta-deploy-smoke.js",
     "scripts/deploy-uta-pi.ps1"
   ];

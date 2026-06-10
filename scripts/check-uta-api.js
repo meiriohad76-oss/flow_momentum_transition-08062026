@@ -127,6 +127,16 @@ try {
     "Provider status should include required trade-print lane."
   );
 
+  const preflight = await readJson(baseUrl, "/api/uta/providers/preflight", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ ticker: "AVGO" })
+  });
+  assert(preflight.response.status === 200, "Provider preflight API should return 200.");
+  assert(preflight.payload.schema_version === "uta.provider_preflight.v1", "Provider preflight schema mismatch.");
+  assert(preflight.payload.summary.trading_effect === "none", "Provider preflight must not affect trading.");
+  assert(preflight.payload.mutation_guard.historical_signal_results_preserved, "Provider preflight must preserve signal history.");
+
   const scheduler = await readJson(baseUrl, "/api/uta/scheduler", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -160,7 +170,7 @@ try {
   console.log(JSON.stringify({
     status: "ok",
     base_url: baseUrl,
-    checked_endpoints: 16,
+    checked_endpoints: 17,
     history_rows: historyAfter.payload.rows.length,
     runtime_signal_results: runtime.payload.signal_result_count
   }, null, 2));

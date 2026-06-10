@@ -1,0 +1,52 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "UTA Provider Preflight",
+  "type": "object",
+  "required": ["schema_version", "generated_at", "mode", "probe_live", "checks", "summary", "mutation_guard", "safeguards"],
+  "properties": {
+    "schema_version": { "const": "uta.provider_preflight.v1" },
+    "generated_at": { "type": "string" },
+    "started_at": { "type": "string" },
+    "completed_at": { "type": "string" },
+    "ticker": { "type": "string" },
+    "mode": { "const": "manual_preflight" },
+    "probe_live": { "type": "boolean" },
+    "live_probe_status": { "type": "string" },
+    "ok": { "type": "boolean" },
+    "live_ready": { "type": "boolean" },
+    "provider_status": { "type": "object" },
+    "checks": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "lane_id", "provider_family", "provider", "state", "sample_attempted", "mutation_allowed", "trading_effect"],
+        "properties": {
+          "id": { "type": "string" },
+          "lane_id": { "type": "string" },
+          "label": { "type": "string" },
+          "required": { "type": "boolean" },
+          "provider_family": { "type": "string" },
+          "provider": { "type": "string" },
+          "enabled": { "type": "boolean" },
+          "configured": { "type": "boolean" },
+          "state": {
+            "type": "string",
+            "enum": ["configured", "missing_key", "provider_error", "rate_limited", "sample_ok"]
+          },
+          "sample_attempted": { "type": "boolean" },
+          "sample_ticker": { "type": "string" },
+          "sample_count": { "type": ["number", "null"] },
+          "rate_limit_observed": { "type": "boolean" },
+          "mutation_allowed": { "type": "boolean" },
+          "trading_effect": { "const": "none" },
+          "tier_effect_if_missing": { "type": "string" },
+          "operator_copy": { "type": "string" }
+        }
+      }
+    },
+    "summary": { "type": "object" },
+    "mutation_guard": { "type": "object" },
+    "next_actions": { "type": "array" },
+    "safeguards": { "type": "array", "items": { "type": "string" } }
+  }
+}

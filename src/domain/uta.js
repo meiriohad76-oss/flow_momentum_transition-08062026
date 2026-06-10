@@ -841,6 +841,14 @@ function buildProviderReadiness(config = {}, registry = []) {
   };
 }
 
+function countBy(items = [], key = "state") {
+  return items.reduce((counts, item) => {
+    const value = item?.[key] || "unknown";
+    counts[value] = (counts[value] || 0) + 1;
+    return counts;
+  }, {});
+}
+
 function ensureUtaStoreState(store) {
   if (!store) {
     return defaultUtaStoreState();
@@ -1517,6 +1525,103 @@ export function createUtaService({ config, store } = {}) {
     };
   }
 
+  function runProviderPreflight(payload = {}) {
+    const startedAt = nowIso();
+    const ticker = normalizeTickerSymbol(payload.ticker || "AVGO") || "AVGO";
+    const probeLive = Boolean(payload.probe_live || payload.live_probe);
+    const before = {
+      signal_results: state.signalResults.length,
+      replay_runs: state.replayRuns.length,
+      lane_states: state.laneStates.length,
+      audit_log: state.auditLog.length,
+      scheduler_mode: state.scheduler.mode
+    };
+    const providerStatus = getProviderStatus();
+    const checks = providerStatus.provider_lanes.map((provider) => {
+      const stateName = provider.configured ? "configured" : "missing_key";
+      const sampleAttempted = false;
+      return {
+        id: `${provider.lane_id}:${provider.provider_family}`,
+        lane_id: provider.lane_id,
+        label: provider.label,
+        required: provider.required,
+        provider_family: provider.provider_family,
+        provider: provider.provider,
+        enabled: provider.enabled,
+        configured: provider.configured,
+        state: stateName,
+        sample_attempted: sampleAttempted,
+        sample_ticker: ticker,
+        sample_count: null,
+        rate_limit_observed: false,
+        mutation_allowed: false,
+        trading_effect: "none",
+        tier_effect_if_missing: provider.tier_effect_when_unavailable,
+        operator_copy: provider.configured
+          ? "Provider is configured. Live sample probing remains disabled unless explicitly requested in a future manual probe."
+          : provider.operator_copy
+      };
+    });
+    const after = {
+      signal_results: state.signalResults.length,
+      replay_runs: state.replayRuns.length,
+      lane_states: state.laneStates.length,
+      audit_log: state.auditLog.length,
+      scheduler_mode: state.scheduler.mode
+    };
+    return {
+      schema_version: "uta.provider_preflight.v1",
+      generated_at: nowIso(),
+      started_at: startedAt,
+      completed_at: nowIso(),
+      ticker,
+      mode: "manual_preflight",
+      probe_live: probeLive,
+      live_probe_status: probeLive
+        ? "not_implemented_in_safe_slice"
+        : "not_requested",
+      ok: true,
+      live_ready: false,
+      provider_status: providerStatus,
+      checks,
+      summary: {
+        total: checks.length,
+        required_total: checks.filter((check) => check.required).length,
+        required_missing: checks.filter((check) => check.required && check.state !== "configured" && check.state !== "sample_ok").length,
+        by_state: countBy(checks, "state"),
+        sample_attempts: checks.filter((check) => check.sample_attempted).length,
+        trading_effect: "none"
+      },
+      mutation_guard: {
+        historical_signal_results_preserved: before.signal_results === after.signal_results,
+        replay_runs_preserved: before.replay_runs === after.replay_runs,
+        lane_states_preserved: before.lane_states === after.lane_states,
+        audit_log_preserved: before.audit_log === after.audit_log,
+        scheduler_mode_preserved: before.scheduler_mode === after.scheduler_mode,
+        before,
+        after
+      },
+      next_actions: [
+        {
+          action: "configure_required_providers",
+          label: "Configure trade prints and market bars before live UTA mode",
+          required: true
+        },
+        {
+          action: "manual_live_sample_probe",
+          label: "Add explicit one-ticker live sample probes after credentials are present",
+          required: true
+        }
+      ],
+      safeguards: [
+        "Preflight does not write signal results.",
+        "Preflight does not refresh lanes or mutate lane history.",
+        "Preflight does not change scheduler mode.",
+        "Preflight has no paper-trading effect."
+      ]
+    };
+  }
+
   function getSupportingEvidenceForTickers(tickers = []) {
     const uniqueTickers = [...new Set((tickers || []).map(normalizeTickerSymbol).filter(Boolean))];
     return Object.fromEntries(
@@ -1561,6 +1666,7 @@ export function createUtaService({ config, store } = {}) {
     getScheduler,
     updateScheduler,
     getProviderStatus,
+    runProviderPreflight,
     getSupportingEvidenceForTickers,
     getReplayFixture: () => clone(getReplayPayload("single_ticker")),
     analyzeReplayFixture: () => clone(analyzeReplayFixture(getSingleFixture(), {

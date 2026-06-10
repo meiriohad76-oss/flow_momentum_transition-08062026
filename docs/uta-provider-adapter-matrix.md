@@ -27,3 +27,5 @@ Provider failures must become lane states. They must not create synthetic live s
 - replay-first policy text and validation safeguards.
 
 This endpoint is operational visibility only. It must not start polling, mutate lane history, promote replay data to live data, or enable paper-trading effects.
+
+`POST /api/uta/providers/preflight` runs a manual, read-only provider preflight. The default mode is deterministic and does not call external APIs; it reports `configured` or `missing_key` states, validates mutation guards, and keeps trading effect at `none`. Future explicit live probes may return `sample_ok`, `provider_error`, or `rate_limited`, but must remain manual-only and must not write historical signal rows.

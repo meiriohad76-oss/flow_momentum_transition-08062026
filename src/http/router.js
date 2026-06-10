@@ -160,6 +160,16 @@ export async function routeRequest(app, request, response) {
     return;
   }
 
+  if (pathname === "/api/uta/providers/preflight" && request.method === "POST") {
+    let body = "";
+    request.on("data", (chunk) => { body += chunk; });
+    request.on("end", () => {
+      const payload = parseJsonBody(body) || {};
+      sendJson(response, 200, app.runUtaProviderPreflight(payload));
+    });
+    return;
+  }
+
   if (pathname === "/api/uta/history" && request.method === "GET") {
     sendJson(response, 200, app.getUtaHistory({
       ticker: query.ticker || "",
