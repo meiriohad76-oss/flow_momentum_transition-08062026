@@ -69,9 +69,21 @@ type UtaTickerResult = {
     bias: string;
     setup_status: string;
     verdict: string;
+    trigger_model?: string;
     evidence_grade: string;
     anomaly_band: string;
     confidence: number;
+    trigger_summary?: {
+      primary_trigger?: string;
+      next_trigger_needed?: string;
+      trade_action?: string;
+    };
+    criteria?: Array<{
+      id: string;
+      label: string;
+      passed: boolean;
+      actual: string;
+    }>;
     pressure: {
       direction: string;
       net_notional_pressure: number;
@@ -97,6 +109,21 @@ type UtaTickerResult = {
       largest_print_notional?: number | null;
       largest_print_multiple?: number | null;
       trf_share?: number | null;
+    };
+    indicator_aliases?: {
+      A: null | Record<string, number | null | undefined>;
+      B: Record<string, number | null | undefined>;
+      C: Record<string, number | null | undefined>;
+    };
+    corroboration?: {
+      price_action_aligned?: boolean;
+      provider_alert_confirmed?: boolean;
+      options_flow_aligned?: boolean;
+      premarket_regular_elevated?: boolean;
+      news_catalyst_present?: boolean;
+      macro_regime_supports?: boolean;
+      independent_strong_count?: number;
+      note?: string;
     };
     trade_boundaries?: string[];
   };
@@ -488,25 +515,59 @@ function StatusStrip({ data }: { data: UtaTickerResult }) {
   );
 }
 
+function toneForTier(tier?: string) {
+  if (tier === "A") return "good";
+  if (tier === "B") return "warn";
+  if (tier === "C") return "neutral";
+  return "bad";
+}
+
+function TierBadge({ tier }: { tier?: string }) {
+  return <span className={`tier-badge tier-ring tier-${String(tier || "D").toLowerCase()}`}>{tier || "D"}</span>;
+}
+
+function DirectionTag({ direction }: { direction?: string }) {
+  const arrow = direction === "bullish" ? "↑" : direction === "bearish" ? "↓" : "↔";
+  return <span className={`dir-tag ${direction || "neutral"}`}>{arrow} {direction || "neutral"}</span>;
+}
+
+function BandTag({ band }: { band?: string }) {
+  return <span className={`band-tag ${String(band || "normal").toLowerCase()}`}>{band || "Normal"}</span>;
+}
+
 function IndicatorGrid({ data, portfolioMode = false }: { data: UtaTickerResult; portfolioMode?: boolean }) {
   const a = data.indicators.A;
+  const aliases = data.trade_analysis?.indicator_aliases;
+  const b = aliases?.B || {
+    volume: data.indicators.B.volume_zscore,
+    notional: data.indicators.B.notional_zscore,
+    focus: data.indicators.B.focus_notional_share_zscore,
+    pressure: data.indicators.B.net_notional_pressure_zscore
+  };
+  const c = aliases?.C || {
+    vr: data.indicators.C.volume_ratio,
+    nr: data.indicators.C.notional_ratio,
+    fshare: data.indicators.C.focus_notional_share,
+    fcount: data.indicators.C.focus_trade_count,
+    nnp: data.indicators.C.net_notional_pressure
+  };
   return (
-    <div className="indicator-grid">
-      <MetricTile
-        label={portfolioMode ? "A - relative to your portfolio today" : "A - universe percentile"}
-        value={a === null ? "N/A" : fmtPct(a.volume_percentile)}
-        detail={a === null ? "Single ticker mode" : String(a.scope_label || "Ranked context")}
-      />
-      <MetricTile
-        label="B - historical z-score"
-        value={`${fmtNumber(data.indicators.B.notional_zscore)} sigma`}
-        detail="Robust baseline"
-      />
-      <MetricTile
-        label="C - raw ordering metric"
-        value={fmtMoney(data.indicators.C.focus_notional)}
-        detail={`${fmtNumber(data.indicators.C.volume_ratio)}x volume`}
-      />
+    <div className="indicator-summary">
+      <article className="ind-chip b">
+        <span>B · vs own history</span>
+        <strong>{fmtNumber(b.notional, 2)}σ notional</strong>
+        <small>{fmtNumber(b.volume, 2)}σ vol · {fmtNumber(b.focus, 2)}σ focus · {fmtNumber(b.pressure, 2)}σ pressure</small>
+      </article>
+      <article className="ind-chip a">
+        <span>{portfolioMode ? "A - relative to your portfolio today" : "A - universe percentile"}</span>
+        <strong>{a === null ? "N/A" : fmtPct(a.volume_percentile)}</strong>
+        <small>{a === null ? "single-ticker mode by design" : String(a.scope_label || "peer ranked context")}</small>
+      </article>
+      <article className="ind-chip c">
+        <span>C · raw magnitude</span>
+        <strong>{fmtNumber(c.nr, 2)}x notional</strong>
+        <small>{fmtNumber(c.vr, 2)}x vol · {fmtPct(c.nnp)} pressure · {c.fcount ?? 0} focus prints</small>
+      </article>
     </div>
   );
 }
@@ -524,12 +585,12 @@ function TradeAnalysisPanel({ data }: { data: UtaTickerResult }) {
     return null;
   }
   return (
-    <section className={`panel trade-analysis ${analysis.bias || "neutral"}`}>
-      <SectionHeader title="Trade Analysis" meta="UTA supporting evidence" />
+    <section className={`panel trade-analysis ${analysis.bias || "neutral"}`} data-testid="trade-analysis">
+      <SectionHeader title="Trade Analysis" meta={analysis.trigger_model || "signed-flow criteria"} />
       <div className="trade-verdict-row">
         <div>
-          <span className="crumb">Bias</span>
-          <h2>{analysis.bias === "neutral" ? "No directional UTA setup" : `${analysis.bias.toUpperCase()} flow setup`}</h2>
+          <span className="crumb">Bias / setup verdict</span>
+          <h2>{analysis.bias === "neutral" ? "No directional UTA setup" : `${analysis.bias.toUpperCase()} signed-flow setup`}</h2>
           <p>{analysis.verdict}</p>
         </div>
         <div className="trade-verdict-tags">
@@ -537,7 +598,21 @@ function TradeAnalysisPanel({ data }: { data: UtaTickerResult }) {
           <Pill tone={analysis.setup_status === "review_candidate" ? "good" : analysis.setup_status === "watch_only" ? "warn" : "neutral"}>
             {analysis.setup_status.replaceAll("_", " ")}
           </Pill>
-          <Pill tone="neutral">{analysis.anomaly_band}</Pill>
+          <BandTag band={analysis.anomaly_band} />
+        </div>
+      </div>
+      <div className="trigger-strip">
+        <div>
+          <span>Primary trigger</span>
+          <b>{analysis.trigger_summary?.primary_trigger || "No trigger"}</b>
+        </div>
+        <div>
+          <span>Next required evidence</span>
+          <b>{analysis.trigger_summary?.next_trigger_needed || "N/A"}</b>
+        </div>
+        <div>
+          <span>Trade workflow effect</span>
+          <b>{(analysis.trigger_summary?.trade_action || "no_trade").replaceAll("_", " ")}</b>
         </div>
       </div>
       <div className="metric-grid four">
@@ -552,11 +627,43 @@ function TradeAnalysisPanel({ data }: { data: UtaTickerResult }) {
           <p>{analysis.pressure.interpretation}</p>
         </div>
         <div>
-          <h3>Boundaries</h3>
-          <ul>
-            {(analysis.trade_boundaries || []).slice(0, 4).map((item) => <li key={item}>{item}</li>)}
-          </ul>
+          <h3>Trigger criteria</h3>
+          <div className="criteria-list">
+            {(analysis.criteria || []).map((item) => (
+              <div className={`criteria ${item.passed ? "pass" : "fail"}`} key={item.id}>
+                <b>{item.passed ? "✓" : "×"}</b>
+                <span>{item.label}<small>{item.actual}</small></span>
+              </div>
+            ))}
+          </div>
         </div>
+      </div>
+    </section>
+  );
+}
+
+function BlufCard({ data, portfolioMode = false }: { data: UtaTickerResult; portfolioMode?: boolean }) {
+  const analysis = data.trade_analysis;
+  return (
+    <section className="panel bluf-card">
+      <div className="bluf-head">
+        <TierBadge tier={data.tier} />
+        <div>
+          <span className="crumb">{portfolioMode ? "Portfolio detail" : "Single ticker"} / BLUF</span>
+          <h1>{data.bluf.headline}</h1>
+          <div className="bluf-meta">
+            <DirectionTag direction={data.direction} />
+            <BandTag band={analysis?.anomaly_band} />
+            <Pill tone="neutral">Direction confidence {fmtPct(data.signing_confidence)}</Pill>
+          </div>
+        </div>
+      </div>
+      <IndicatorGrid data={data} portfolioMode={portfolioMode} />
+      <div className="bluf-grid">
+        <MetricTile label="What happened" value={data.bluf.what_happened} />
+        <MetricTile label="Why it matters" value={data.bluf.why_it_matters} />
+        <MetricTile label="What to check" value={data.bluf.what_to_check} />
+        <MetricTile label="Limitations" value={data.bluf.limitations} />
       </div>
     </section>
   );
@@ -620,7 +727,7 @@ function EvidenceCards({ cards }: { cards: EvidenceCard[] }) {
       <SectionHeader title="Evidence" meta={`${cards.length} cards`} />
       <div className="evidence-grid">
         {cards.map((card) => (
-          <article className="evidence-card" key={card.id}>
+          <article className={`evidence-card ${card.status}`} key={card.id}>
             <div>
               <Pill tone={card.status === "ready" ? "good" : card.status === "disabled" ? "neutral" : "warn"}>{card.status}</Pill>
               <h3>{card.title}</h3>
@@ -629,6 +736,63 @@ function EvidenceCards({ cards }: { cards: EvidenceCard[] }) {
             <p>{card.summary}</p>
           </article>
         ))}
+      </div>
+    </section>
+  );
+}
+
+function CorroborationPanel({ data }: { data: UtaTickerResult }) {
+  const corr = data.trade_analysis?.corroboration || {};
+  const rows = [
+    ["Price action aligned", corr.price_action_aligned, "Strong"],
+    ["Provider alert confirmed", corr.provider_alert_confirmed, "Strong"],
+    ["Options flow aligned", corr.options_flow_aligned, "Strong"],
+    ["Pre-market + regular elevated", corr.premarket_regular_elevated, "Moderate"],
+    ["News catalyst present", corr.news_catalyst_present, "Contextual"],
+    ["Macro regime supports", corr.macro_regime_supports, "Contextual"]
+  ] as const;
+  return (
+    <section className="panel">
+      <SectionHeader title="Corroboration" meta={`${corr.independent_strong_count || 0} strong confirmations`} />
+      <div className="corr-list">
+        {rows.map(([label, passed, level]) => (
+          <div className={`corr-row ${passed ? "on" : "off"}`} key={label}>
+            <span>{passed ? "✓" : "–"}</span>
+            <div>
+              <b>{label}</b>
+              <small>{level} independence</small>
+            </div>
+          </div>
+        ))}
+      </div>
+      <p>{corr.note || "Tier A requires at least one independent strong corroboration. Optional lanes never penalize when absent."}</p>
+    </section>
+  );
+}
+
+function ActionsPanel({
+  data,
+  onRefreshLane,
+  onRevalidate,
+  onWatchlist
+}: {
+  data: UtaTickerResult;
+  onRefreshLane?: (lane: LaneState) => void;
+  onRevalidate?: () => void;
+  onWatchlist?: () => void;
+}) {
+  const firstRefreshable = data.lane_states.find((lane) => lane.next_action) || data.lane_states[0];
+  return (
+    <section className="panel actions-panel">
+      <SectionHeader title="Actions" meta="human review controls" />
+      <button type="button" onClick={onRevalidate}>Revalidate ticker</button>
+      <button type="button" className="secondary" onClick={onWatchlist}>Add to watchlist</button>
+      <button type="button" className="secondary" onClick={() => firstRefreshable && onRefreshLane?.(firstRefreshable)}>
+        Refresh lane
+      </button>
+      <div className="action-note">
+        <b>Supporting evidence only</b>
+        <span>UTA cannot place trades or bypass risk/execution gates. Use Tier A/B as a review prompt, not an instruction.</span>
       </div>
     </section>
   );
@@ -649,6 +813,14 @@ function ExplainTier({ data }: { data: UtaTickerResult }) {
           </div>
         ))}
       </div>
+      {data.explain_tier.gap_to_next_tier?.length ? (
+        <div className="gap-box">
+          <b>Gap to next tier</b>
+          <ul>
+            {data.explain_tier.gap_to_next_tier.map((gap, index) => <li key={`${gap}-${index}`}>{String(gap)}</li>)}
+          </ul>
+        </div>
+      ) : null}
     </section>
   );
 }
@@ -728,46 +900,34 @@ function TickerDetail({
   return (
     <div className="detail-stack">
       <StatusStrip data={data} />
-      <section className="panel detail-hero">
-        <div className="ticker-head">
-          <div>
-            <span className="crumb">{portfolioMode ? "Portfolio detail" : "Single ticker"} / {data.sector || "UTA"}</span>
-            <h1>{data.ticker}</h1>
-            <p>{data.name || ""} {data.exchange ? `/ ${data.exchange}` : ""}</p>
-          </div>
-          <div className="tier-cluster">
-            <span className="tier-ring">Tier {data.tier}</span>
-            <Pill tone={data.direction === "bullish" ? "good" : data.direction === "bearish" ? "bad" : "neutral"}>
-              {data.direction}
-            </Pill>
-          </div>
+      <section className="ticker-title-row">
+        <div>
+          <span className="crumb">{data.sector || "UTA"} / {data.exchange || "market"}</span>
+          <h1>{data.ticker}</h1>
+          <p>{data.name || ""}</p>
         </div>
-        <h2>{data.bluf.headline}</h2>
-        <IndicatorGrid data={data} portfolioMode={portfolioMode} />
-        <div className="bluf-grid">
-          <MetricTile label="What happened" value={data.bluf.what_happened} />
-          <MetricTile label="Why it matters" value={data.bluf.why_it_matters} />
-          <MetricTile label="What to check" value={data.bluf.what_to_check} />
-          <MetricTile label="Limitations" value={data.bluf.limitations} />
-        </div>
-        <div className="action-row">
-          <button type="button" onClick={onRevalidate}>Revalidate</button>
-          <button type="button" className="secondary" onClick={onWatchlist}>Watchlist</button>
-          <span>Cycle {data.runtime_cycle?.run_id || data.cycle_id || "replay"}</span>
+        <div className="tier-cluster">
+          <TierBadge tier={data.tier} />
+          <DirectionTag direction={data.direction} />
+          <Pill tone={toneForTier(data.tier)}>Cycle {data.runtime_cycle?.run_id || data.cycle_id || "live"}</Pill>
         </div>
       </section>
-
-      <TradeAnalysisPanel data={data} />
-      <div className="two-column">
-        <EvidenceCards cards={data.evidence_cards || []} />
-        <LaneHealth lanes={data.lane_states || []} onRefresh={onRefreshLane} />
+      <BlufCard data={data} portfolioMode={portfolioMode} />
+      <div className="detail-layout">
+        <main className="detail-main">
+          <TradeAnalysisPanel data={data} />
+          <CycleHistory history={history} />
+          <EvidenceCards cards={data.evidence_cards || []} />
+          <RawPrints prints={prints} />
+        </main>
+        <aside className="detail-side">
+          <CorroborationPanel data={data} />
+          <ActionsPanel data={data} onRefreshLane={onRefreshLane} onRevalidate={onRevalidate} onWatchlist={onWatchlist} />
+          <ExplainTier data={data} />
+          <LaneHealth lanes={data.lane_states || []} onRefresh={onRefreshLane} />
+          <DataProvenance data={data} />
+        </aside>
       </div>
-      <DataProvenance data={data} />
-      <div className="two-column">
-        <ExplainTier data={data} />
-        <CycleHistory history={history} />
-      </div>
-      <RawPrints prints={prints} />
     </div>
   );
 }

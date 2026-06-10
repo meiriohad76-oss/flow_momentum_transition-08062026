@@ -326,7 +326,7 @@ export function signTradePrints(normalizedResult = {}, priceContext = {}) {
   const netNotionalPressure = totalNotional > 0 ? signedNotional / totalNotional : null;
   const netVolumePressure = totalVolume > 0 ? signedVolume / totalVolume : null;
   const direction =
-    Number(netNotionalPressure) > 0.15 ? "bullish" : Number(netNotionalPressure) < -0.15 ? "bearish" : "neutral";
+    Number(netNotionalPressure) >= 0.6 ? "bullish" : Number(netNotionalPressure) <= -0.6 ? "bearish" : "neutral";
 
   return {
     prints,
@@ -473,38 +473,73 @@ export function classifyTier({ mode = "single_ticker", indicators = {}, laneStat
     ["stale", "partial", "unavailable"].includes(String(lane.state || "").toLowerCase()) &&
     String(lane.tier_effect || "").toLowerCase() === "cap_at_c"
   );
-  const bValues = Object.values(indicators.B || {}).map(Number).filter(Number.isFinite);
+  const b = indicators.B || {};
+  const bValues = Object.values(b).map(Number).filter(Number.isFinite);
   const c = indicators.C || {};
   const maxB = bValues.length ? Math.max(...bValues) : null;
   const direction = signing.direction || "undetermined";
-  const directionConsistent = ["bullish", "bearish"].includes(direction) && Math.abs(Number(c.net_notional_pressure || 0)) >= 0.25;
+  const signedPressure = Number(c.net_notional_pressure ?? signing.net_notional_pressure ?? 0);
+  const signingConfidence = Number(signing.signing_confidence || 0);
+  const directionPresent = ["bullish", "bearish"].includes(direction) && Math.abs(signedPressure) >= 0.6 && signingConfidence >= 0.5;
+  const blockPressureSameSide =
+    !Number.isFinite(Number(c.net_volume_pressure)) ||
+    Number(c.net_volume_pressure || 0) === 0 ||
+    Math.sign(Number(c.net_volume_pressure || 0)) === Math.sign(signedPressure);
+  const directionConsistent = directionPresent && blockPressureSameSide;
+  const bCoreValues = [
+    Number(b.volume_zscore),
+    Number(b.notional_zscore),
+    Number(b.focus_notional_share_zscore),
+    Math.abs(Number(b.net_notional_pressure_zscore))
+  ].filter(Number.isFinite);
+  const bExtremeCount = bCoreValues.filter((value) => value >= 2.5).length;
+  const bElevatedCount = bCoreValues.filter((value) => value >= 1.5).length;
+  const cActivityDetected =
+    Number(c.notional_ratio || 0) >= 1.5 ||
+    Number(c.volume_ratio || 0) >= 1.5 ||
+    Number(c.focus_notional_share || 0) >= 0.1 ||
+    Number(c.focus_trade_count || 0) >= 1 ||
+    Math.abs(signedPressure) >= 0.35;
   const cExtreme =
-    Number(c.notional_ratio || 0) >= 5 ||
+    Number(c.notional_ratio || 0) >= 3 ||
+    Number(c.volume_ratio || 0) >= 3 ||
     Number(c.focus_notional_share || 0) >= 0.25 ||
-    Number(c.focus_trade_count || 0) >= 2;
-  const bExtreme = Number(maxB) >= 2.5;
-  const bElevated = Number(maxB) >= 1.5;
+    Number(c.focus_trade_count || 0) >= 2 ||
+    Math.abs(signedPressure) >= 0.6;
+  const bExtreme = bExtremeCount >= 2;
+  const bElevated = bElevatedCount >= 1;
+  const a = indicators.A || null;
+  const aValues = a ? [a.volume_percentile, a.focus_notional_share_percentile, a.net_notional_pressure_percentile].map(Number).filter(Number.isFinite) : [];
+  const aExtreme = mode === "single_ticker" ? true : aValues.filter((value) => value >= 0.85).length >= 2;
+  const aElevated = mode === "single_ticker" ? true : aValues.filter((value) => value >= 0.7).length >= 1;
   const corroborationCount = Number(corroboration.independent_confirmation_count || 0);
   const hasCorroboration = corroborationCount >= 1 || Boolean(corroboration.provider_alert_confirmed);
 
   let tier = "D";
+  let state = "suppressed";
   if (requiredProblem || staleSuppressingProblem || !bValues.length || Object.keys(c).length === 0) {
     tier = "D";
-  } else if (bExtreme && cExtreme && directionConsistent && hasCorroboration) {
+    state = requiredProblem || staleSuppressingProblem ? "required_lane_not_ready" : "insufficient_indicators";
+  } else if (bExtreme && aExtreme && cExtreme && directionConsistent && hasCorroboration) {
     tier = "A";
-  } else if (bExtreme && cExtreme && directionConsistent) {
+    state = "actionable";
+  } else if (bElevated && aElevated && directionPresent) {
     tier = "B";
-  } else if (bElevated || cExtreme) {
+    state = "review";
+  } else if (cActivityDetected || bElevated || cExtreme) {
     tier = "C";
+    state = directionPresent ? "watch" : "context_only";
   }
   if (capProblem) {
     tier = capTier(tier, "C");
+    state = "capped_partial_coverage";
   }
 
   const verdict = `Tier ${tier}`;
   return {
     tier,
     direction,
+    classification_state: state,
     capped: Boolean(capProblem && tier === "C"),
     suppressed: tier === "D" && Boolean(requiredProblem || staleSuppressingProblem),
     explain_tier: {
@@ -513,26 +548,38 @@ export function classifyTier({ mode = "single_ticker", indicators = {}, laneStat
       verdict,
       rules: [
         {
-          id: "b_extreme",
-          label: "B >= 2.5 sigma on volume, notional, focus, or pressure",
+          id: "b_actionable_gate",
+          label: "Tier A gate: B >= 2.5 sigma on at least two core components",
           passed: bExtreme,
-          actual: Number.isFinite(maxB) ? `${roundNumber(maxB, 2)} sigma max` : "No B values"
+          actual: Number.isFinite(maxB) ? `${bExtremeCount} components; ${roundNumber(maxB, 2)} sigma max` : "No B values"
         },
         {
-          id: "c_extreme",
-          label: "C raw metrics show extreme volume, focus prints, or pressure",
+          id: "b_review_gate",
+          label: "Tier B gate: B >= 1.5 sigma on at least one component",
+          passed: bElevated,
+          actual: `${bElevatedCount} components`
+        },
+        {
+          id: "a_peer_gate",
+          label: mode === "single_ticker" ? "A peer percentile skipped in single ticker mode" : "A peer percentile clears the portfolio/scan gate",
+          passed: mode === "single_ticker" ? true : aElevated,
+          actual: mode === "single_ticker" ? "A = N/A by design" : `${aValues.filter((value) => value >= 0.7).length} components >= 70th percentile`
+        },
+        {
+          id: "c_activity_gate",
+          label: "C raw metrics show activity magnitude",
           passed: cExtreme,
-          actual: `${roundNumber(c.notional_ratio, 2) ?? "N/A"}x notional, ${c.focus_trade_count ?? 0} focus prints`
+          actual: `${roundNumber(c.notional_ratio, 2) ?? "N/A"}x notional, ${roundNumber(c.volume_ratio, 2) ?? "N/A"}x volume, ${c.focus_trade_count ?? 0} focus prints`
         },
         {
-          id: "direction_consistent",
-          label: "Directional pressure is consistent",
+          id: "direction_signed_flow_gate",
+          label: "Direction from signed flow clears the +/-60% gate with adequate confidence",
           passed: directionConsistent,
-          actual: `${roundNumber(Number(c.net_notional_pressure || 0) * 100, 1)}% signed notional pressure`
+          actual: `${roundNumber(signedPressure * 100, 1)}% signed notional pressure; ${roundNumber(signingConfidence * 100, 0)}% signing confidence`
         },
         {
           id: "independent_corroboration",
-          label: "At least one independent corroboration",
+          label: "Tier A requires at least one independent strong corroboration",
           passed: hasCorroboration,
           actual: `${corroborationCount} confirmations`
         },
@@ -547,10 +594,11 @@ export function classifyTier({ mode = "single_ticker", indicators = {}, laneStat
         tier === "A"
           ? []
           : [
-              !bExtreme ? "Increase B anomaly above the 2.5 sigma gate." : null,
-              !cExtreme ? "Add stronger raw C evidence." : null,
-              !directionConsistent ? "Improve signed-flow directional confidence." : null,
-              !hasCorroboration ? "Add independent corroboration." : null
+              !bExtreme ? "Needs B >= 2.5 sigma on at least two core components for Tier A." : null,
+              mode !== "single_ticker" && !aExtreme ? "Needs A >= 85th percentile on at least two peer components for Tier A." : null,
+              !cExtreme ? "Needs stronger raw C magnitude: notional/volume/focus/pressure." : null,
+              !directionConsistent ? "Needs signed-flow direction >= 60% with adequate confidence." : null,
+              !hasCorroboration ? "Needs independent strong corroboration for Tier A." : null
             ].filter(Boolean)
     }
   };
@@ -1392,7 +1440,7 @@ function bandFromMetrics(indicators = {}) {
   return "Normal";
 }
 
-function buildTradeAnalysis({ ticker, classifier, indicators, signing, blocks, baseline, inputs, latestBar }) {
+function buildTradeAnalysis({ ticker, classifier, indicators, signing, blocks, baseline, inputs, latestBar, corroboration = {} }) {
   const c = indicators.C || {};
   const b = indicators.B || {};
   const direction = classifier.direction || signing.direction || "undetermined";
@@ -1400,8 +1448,70 @@ function buildTradeAnalysis({ ticker, classifier, indicators, signing, blocks, b
   const absPressure = Math.abs(pressure);
   const confidence = Number(signing.signing_confidence || 0);
   const ready = baseline?.state === "ready" && inputs.trades.length > 0;
-  const directional = ["bullish", "bearish"].includes(direction) && absPressure >= 0.15 && confidence >= 0.45;
+  const directional = ["bullish", "bearish"].includes(direction) && absPressure >= 0.6 && confidence >= 0.5;
   const tierRankValue = tierRank(classifier.tier);
+  const maxB = Math.max(
+    Number(b.volume_zscore || 0),
+    Number(b.notional_zscore || 0),
+    Number(b.focus_notional_share_zscore || 0),
+    Math.abs(Number(b.net_notional_pressure_zscore || 0))
+  );
+  const bActionableCount = [
+    Number(b.volume_zscore),
+    Number(b.notional_zscore),
+    Number(b.focus_notional_share_zscore),
+    Math.abs(Number(b.net_notional_pressure_zscore))
+  ].filter((value) => Number.isFinite(value) && value >= 2.5).length;
+  const bReviewCount = [
+    Number(b.volume_zscore),
+    Number(b.notional_zscore),
+    Number(b.focus_notional_share_zscore),
+    Math.abs(Number(b.net_notional_pressure_zscore))
+  ].filter((value) => Number.isFinite(value) && value >= 1.5).length;
+  const notionalRatio = Number(c.notional_ratio || 0);
+  const volumeRatio = Number(c.volume_ratio || 0);
+  const focusCount = Number(c.focus_trade_count || 0);
+  const focusShare = Number(c.focus_notional_share || 0);
+  const totalNotional = Number(c.total_notional || 0);
+  const focusNotional = Number(c.focus_notional || 0);
+  const criteria = [
+    {
+      id: "signed_pressure_60",
+      label: "Signed pressure on one side >= 60%",
+      passed: directional,
+      actual: `${roundNumber(pressure * 100, 1)}% ${directionPhrase(direction)}`
+    },
+    {
+      id: "b_review_15",
+      label: "B anomaly >= 1.5 sigma for review",
+      passed: bReviewCount >= 1,
+      actual: `${bReviewCount} components; max ${roundNumber(maxB, 2)} sigma`
+    },
+    {
+      id: "b_actionable_25",
+      label: "B anomaly >= 2.5 sigma on 2+ components for Tier A",
+      passed: bActionableCount >= 2,
+      actual: `${bActionableCount} components`
+    },
+    {
+      id: "notional_15",
+      label: "Notional >= 1.5x own median",
+      passed: notionalRatio >= 1.5,
+      actual: `${roundNumber(notionalRatio, 2)}x`
+    },
+    {
+      id: "focus_or_volume",
+      label: "Raw C confirms activity: volume, focus prints, or block share",
+      passed: volumeRatio >= 1.5 || focusCount >= 1 || focusShare >= 0.1,
+      actual: `${roundNumber(volumeRatio, 2)}x volume; ${focusCount} focus prints; ${roundNumber(focusShare * 100, 1)}% focus share`
+    },
+    {
+      id: "required_lanes",
+      label: "Required lanes ready; optional lanes never penalize",
+      passed: ready,
+      actual: ready ? "Baseline and live trade prints available" : "Required evidence is unavailable"
+    }
+  ];
   const setupStatus = !ready
     ? "blocked"
     : directional && tierRankValue >= tierRank("B")
@@ -1410,12 +1520,6 @@ function buildTradeAnalysis({ ticker, classifier, indicators, signing, blocks, b
         ? "watch_only"
         : "no_directional_setup";
   const bias = directional ? direction : "neutral";
-  const volumeRatio = Number(c.volume_ratio || 0);
-  const notionalRatio = Number(c.notional_ratio || 0);
-  const focusCount = Number(c.focus_trade_count || 0);
-  const focusShare = Number(c.focus_notional_share || 0);
-  const totalNotional = Number(c.total_notional || 0);
-  const focusNotional = Number(c.focus_notional || 0);
   const latestClose = Number(latestBar?.close || 0);
   const setupCopy = {
     blocked: "Do not analyze as a trade setup yet. Required live evidence is missing or below threshold.",
@@ -1431,9 +1535,18 @@ function buildTradeAnalysis({ ticker, classifier, indicators, signing, blocks, b
     bias,
     setup_status: setupStatus,
     verdict: setupCopy,
+    trigger_model: "signed_flow_plus_abc_gates_v2",
     evidence_grade: classifier.tier,
     anomaly_band: bandFromMetrics(indicators),
     confidence: roundNumber(confidence, 3),
+    trigger_summary: {
+      primary_trigger: directional ? `${direction} signed-flow pressure >= 60%` : "No signed-flow trigger",
+      next_trigger_needed: directional
+        ? bReviewCount >= 1 ? "Confirm with price/risk/catalyst before trade review." : "Needs B >= 1.5 sigma to become reviewable."
+        : "Needs signed pressure >= 60% and signing confidence >= 50%.",
+      trade_action: setupStatus === "review_candidate" ? "human_review_candidate" : setupStatus === "watch_only" ? "watch_only" : "no_trade"
+    },
+    criteria,
     pressure: {
       direction,
       net_notional_pressure: roundNumber(pressure, 3),
@@ -1448,6 +1561,9 @@ function buildTradeAnalysis({ ticker, classifier, indicators, signing, blocks, b
       notional_ratio: roundNumber(notionalRatio, 3),
       volume_zscore: roundNumber(b.volume_zscore, 2),
       notional_zscore: roundNumber(b.notional_zscore, 2),
+      focus_zscore: roundNumber(b.focus_notional_share_zscore, 2),
+      pressure_zscore: roundNumber(b.net_notional_pressure_zscore, 2),
+      max_b_zscore: roundNumber(maxB, 2),
       total_notional: roundNumber(totalNotional, 2),
       analyzed_prints: inputs.trades.length,
       baseline_sessions: baseline?.session_count || 0
@@ -1459,6 +1575,41 @@ function buildTradeAnalysis({ ticker, classifier, indicators, signing, blocks, b
       largest_print_notional: roundNumber(c.largest_print_notional, 2),
       largest_print_multiple: roundNumber(c.largest_print_multiple, 2),
       trf_share: roundNumber(blocks.trf_share, 3)
+    },
+    indicator_aliases: {
+      A: null,
+      B: {
+        volume: roundNumber(b.volume_zscore, 2),
+        notional: roundNumber(b.notional_zscore, 2),
+        focus: roundNumber(b.focus_notional_share_zscore, 2),
+        pressure: roundNumber(b.net_notional_pressure_zscore, 2),
+        premarket: null
+      },
+      C: {
+        vr: roundNumber(volumeRatio, 2),
+        nr: roundNumber(notionalRatio, 2),
+        cr: null,
+        fshare: roundNumber(focusShare, 3),
+        fcount: focusCount,
+        lpm: roundNumber(c.largest_print_multiple, 2),
+        nnp: roundNumber(pressure, 3),
+        nvp: roundNumber(signing.net_volume_pressure, 3),
+        fnotional: roundNumber(focusNotional, 2),
+        total: roundNumber(totalNotional, 2),
+        largest: roundNumber(c.largest_print_notional, 2)
+      }
+    },
+    corroboration: {
+      price_action_aligned: Boolean(corroboration.price_action_aligned),
+      provider_alert_confirmed: Boolean(corroboration.provider_alert_confirmed),
+      options_flow_aligned: Boolean(corroboration.options_flow_aligned),
+      premarket_regular_elevated: Boolean(corroboration.premarket_regular_elevated || corroboration.pre_and_regular_both_elevated),
+      news_catalyst_present: Boolean(corroboration.news_catalyst_present),
+      macro_regime_supports: Boolean(corroboration.macro_regime_supports),
+      independent_strong_count: Number(corroboration.independent_confirmation_count || 0),
+      note: Number(corroboration.independent_confirmation_count || 0) > 0
+        ? "Strong corroboration is present and is shown because it can support Tier A."
+        : "Live Massive v1 has required bars/prints only. Optional corroboration lanes render as disabled and never penalize."
     },
     trade_boundaries: [
       "UTA is supporting evidence only; it is not a buy/sell instruction.",
@@ -1637,46 +1788,67 @@ async function buildLiveManualPayload(ticker, context = {}) {
     trade_analysis: interpretation.trade,
     evidence_cards: [
       {
-        id: "live_volume",
-        title: "Volume / Notional Anomaly",
+        id: "volume_anomaly",
+        title: "Volume Anomaly",
         status: baseline.state === "ready" ? "ready" : "unavailable",
-        headline_metric: `${roundNumber(indicators.C.notional_ratio, 2) ?? "N/A"}x notional`,
-        summary: `${baseline.session_count} baseline sessions. Volume ${roundNumber(indicators.C.volume_ratio, 2) ?? "N/A"}x, notional ${roundNumber(indicators.C.notional_ratio, 2) ?? "N/A"}x; B notional ${roundNumber(indicators.B.notional_zscore, 2) ?? "N/A"} sigma.`
+        headline_metric: `${roundNumber(indicators.C.volume_ratio, 2) ?? "N/A"}x volume`,
+        summary: `Session volume is ${roundNumber(indicators.C.volume_ratio, 2) ?? "N/A"}x the 20-session median; notional is ${roundNumber(indicators.C.notional_ratio, 2) ?? "N/A"}x. B volume ${roundNumber(indicators.B.volume_zscore, 2) ?? "N/A"} sigma.`
       },
       {
-        id: "live_trade_prints",
-        title: "Trade Print Sample",
-        status: inputs.trades.length ? "ready" : "unavailable",
-        headline_metric: `$${Math.round((signing.total_notional || 0) / 1_000_000)}M`,
-        summary: `${normalized.summary.eligible_prints} eligible prints after condition-code policy. Prints drive signed pressure and focus evidence; daily bars drive volume/notional baseline.`
+        id: "block_off_exchange",
+        title: "Block / Off-Exchange Activity",
+        status: blocks.focus_trade_count > 0 ? "ready" : "unavailable",
+        headline_metric: `${blocks.focus_trade_count} focus prints`,
+        summary: `${formatUsd(blocks.focus_notional)} focus notional, ${roundNumber((blocks.focus_notional_share || 0) * 100, 1)}% of analyzed notional, TRF/off-exchange share ${roundNumber((blocks.trf_share || 0) * 100, 1)}%.`
       },
       {
-        id: "signed_flow",
-        title: "Signed Flow",
+        id: "directional_pressure",
+        title: "Directional Pressure",
         status: signing.total_notional > 0 ? "ready" : "unavailable",
         headline_metric: `${roundNumber((signing.net_notional_pressure || 0) * 100, 1)}%`,
-        summary: `${directionPhrase(signing.direction)} from quote/tick signing. Confidence ${roundNumber(signing.signing_confidence * 100, 0)}%. Direction is never inferred from price.`
+        summary: `${directionPhrase(signing.direction)} from quote/tick signing. Confidence ${roundNumber(signing.signing_confidence * 100, 0)}%. Direction requires +/-60% signed pressure and is never inferred from price.`
       },
       {
-        id: "block_flow",
-        title: "Block / Off-Exchange Focus",
-        status: blocks.focus_trade_count > 0 ? "ready" : "unavailable",
-        headline_metric: `${blocks.focus_trade_count} prints`,
-        summary: `${formatUsd(blocks.focus_notional)} focus notional, ${roundNumber((blocks.focus_notional_share || 0) * 100, 1)}% share, largest print ${formatUsd(blocks.largest_print_notional)}.`
+        id: "premarket_activity",
+        title: "Pre-Market Activity",
+        status: "disabled_optional",
+        headline_metric: "optional lane",
+        summary: "Pre-market lane is not enabled in this Massive-only slice. It is visible for auditability and never penalizes the tier."
       },
       {
-        id: "trade_readiness",
-        title: "Trade Readiness",
-        status: interpretation.trade.setup_status === "review_candidate" ? "ready" : "disabled",
-        headline_metric: interpretation.trade.setup_status.replaceAll("_", " "),
-        summary: interpretation.trade.verdict
+        id: "market_flow_trend",
+        title: "Market Flow Trend",
+        status: signing.total_notional > 0 ? "ready" : "unavailable",
+        headline_metric: signing.direction === "bullish" ? "Building" : signing.direction === "bearish" ? "Fading" : "Neutral",
+        summary: `Current signed-flow pressure is ${roundNumber((signing.net_notional_pressure || 0) * 100, 1)}%. Trend is interpreted from signed prints, not from price movement.`
       },
       {
-        id: "boundaries",
-        title: "Risk / Interpretation Boundaries",
+        id: "confirmed_alerts",
+        title: "Confirmed Alerts",
+        status: "disabled_optional",
+        headline_metric: "none",
+        summary: "No confirmed provider alert lane is enabled. Strong alerts can corroborate Tier A when present, but absence does not lower the tier."
+      },
+      {
+        id: "options_flow",
+        title: "Options Flow",
+        status: "disabled_optional",
+        headline_metric: "optional lane",
+        summary: "Options flow is not enabled in this Massive-only slice. Aligned options can corroborate, but missing options never penalize."
+      },
+      {
+        id: "macro_context",
+        title: "Macro Context",
+        status: "disabled_optional",
+        headline_metric: "context only",
+        summary: "Macro context is informational only and cannot create or elevate a UTA tier by itself."
+      },
+      {
+        id: "data_health",
+        title: "Data Health",
         status: "ready",
-        headline_metric: "supporting evidence",
-        summary: interpretation.trade.trade_boundaries.join(" ")
+        headline_metric: `${normalized.summary.eligible_prints} eligible prints`,
+        summary: `${normalized.summary.eligible_prints} eligible prints after condition-code policy; ${normalized.summary.excluded_prints || 0} excluded. Required lane status and coverage are shown below.`
       }
     ],
     explain_tier: classifier.explain_tier,
@@ -1874,6 +2046,20 @@ function buildReplayPayload(fixture, context) {
   const analysis = analyzeReplayFixture(fixture, context);
   const basePayload = clone(fixture);
   delete basePayload.engine_inputs;
+  const replayTradeAnalysis = buildTradeAnalysis({
+    ticker: fixture.ticker,
+    classifier: analysis.classifier,
+    indicators: analysis.indicators,
+    signing: analysis.signing,
+    blocks: analysis.blocks,
+    baseline: analysis.baseline,
+    inputs: {
+      trades: analysis.signing.prints || [],
+      bars: fixture.engine_inputs?.historical_sessions || []
+    },
+    latestBar: fixture.engine_inputs?.price_context || null,
+    corroboration: fixture.corroboration || {}
+  });
   const payload = {
     ...basePayload,
     generated_at: analysis.clock.iso(),
@@ -1883,6 +2069,76 @@ function buildReplayPayload(fixture, context) {
     indicators: analysis.indicators,
     lane_states: analysis.lane_states,
     explain_tier: analysis.classifier.explain_tier,
+    trade_analysis: replayTradeAnalysis,
+    evidence_cards: [
+      {
+        id: "volume_anomaly",
+        title: "Volume Anomaly",
+        status: analysis.baseline.state === "ready" ? "ready" : "unavailable",
+        headline_metric: `${roundNumber(analysis.indicators.C.volume_ratio, 2) ?? "N/A"}x volume`,
+        summary: `Volume is ${roundNumber(analysis.indicators.C.volume_ratio, 2) ?? "N/A"}x baseline; notional is ${roundNumber(analysis.indicators.C.notional_ratio, 2) ?? "N/A"}x baseline.`
+      },
+      {
+        id: "block_off_exchange",
+        title: "Block / Off-Exchange Activity",
+        status: analysis.blocks.focus_trade_count > 0 ? "ready" : "unavailable",
+        headline_metric: `${analysis.blocks.focus_trade_count} focus prints`,
+        summary: `${formatUsd(analysis.blocks.focus_notional)} focus notional, ${roundNumber((analysis.blocks.focus_notional_share || 0) * 100, 1)}% of analyzed notional.`
+      },
+      {
+        id: "directional_pressure",
+        title: "Directional Pressure",
+        status: analysis.signing.total_notional > 0 ? "ready" : "unavailable",
+        headline_metric: `${roundNumber((analysis.signing.net_notional_pressure || 0) * 100, 1)}%`,
+        summary: `${directionPhrase(analysis.signing.direction)} from signed prints. Direction requires +/-60% signed pressure and is never inferred from price.`
+      },
+      {
+        id: "premarket_activity",
+        title: "Pre-Market Activity",
+        status: fixture.corroboration?.pre_and_regular_both_elevated ? "ready" : "disabled_optional",
+        headline_metric: fixture.corroboration?.pre_and_regular_both_elevated ? "elevated" : "optional lane",
+        summary: fixture.corroboration?.pre_and_regular_both_elevated
+          ? "Replay evidence includes elevated pre-market and regular-session activity."
+          : "Pre-market lane is optional and never penalizes when absent."
+      },
+      {
+        id: "market_flow_trend",
+        title: "Market Flow Trend",
+        status: "ready",
+        headline_metric: analysis.signing.direction === "bullish" ? "Building" : analysis.signing.direction === "bearish" ? "Fading" : "Neutral",
+        summary: `Signed-flow pressure is ${roundNumber((analysis.signing.net_notional_pressure || 0) * 100, 1)}% in this replay cycle.`
+      },
+      {
+        id: "confirmed_alerts",
+        title: "Confirmed Alerts",
+        status: fixture.corroboration?.provider_alert_confirmed ? "ready" : "disabled_optional",
+        headline_metric: fixture.corroboration?.provider_alert_confirmed ? "confirmed" : "none",
+        summary: fixture.corroboration?.provider_alert_confirmed
+          ? "Replay fixture includes a confirmed provider alert, counted as strong corroboration."
+          : "No confirmed alert lane is enabled; absence does not lower the tier."
+      },
+      {
+        id: "options_flow",
+        title: "Options Flow",
+        status: fixture.corroboration?.options_flow_aligned ? "ready" : "disabled_optional",
+        headline_metric: fixture.corroboration?.options_flow_aligned ? "aligned" : "optional lane",
+        summary: "Options flow is optional: aligned evidence can corroborate, missing evidence never penalizes."
+      },
+      {
+        id: "macro_context",
+        title: "Macro Context",
+        status: fixture.corroboration?.macro_regime_supports ? "ready" : "disabled_optional",
+        headline_metric: fixture.corroboration?.macro_regime_supports ? "supports" : "context only",
+        summary: "Macro context informs interpretation only and cannot create a UTA tier by itself."
+      },
+      {
+        id: "data_health",
+        title: "Data Health",
+        status: "ready",
+        headline_metric: `${analysis.normalized.summary.eligible_prints} eligible prints`,
+        summary: `${analysis.normalized.summary.eligible_prints} eligible prints after condition-code policy; required lanes are shown in lane health.`
+      }
+    ],
     raw_prints: {
       ticker: fixture.ticker,
       policy_version: analysis.normalized.policy_version,
