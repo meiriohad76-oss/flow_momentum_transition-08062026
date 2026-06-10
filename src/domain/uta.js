@@ -1407,6 +1407,7 @@ function liveScanRowFromSummary(summary, direction = "bullish", label = "Prelimi
     C_screen: roundNumber(cScreen, 3),
     pass2_status: "pending",
     label,
+    scan_reason: `Activity screen: max B ${roundNumber(bScore, 2)} sigma; raw C ${roundNumber(cScreen, 2)}x. Direction is unresolved until pass 2 trade-print signing.`,
     latest_bar_date: summary.latest?.date || null,
     data_state: "live_preliminary",
     preliminary_direction: direction,
@@ -2863,9 +2864,28 @@ export function createUtaService({ config, store } = {}) {
     const results = [];
     for (const ticker of shortlist) {
       const analysis = await getLiveSingleAnalysis(ticker);
+      const trade = analysis.payload?.trade_analysis || {};
+      const trigger = trade.trigger_summary || {};
+      const activity = trade.activity || {};
+      const pressure = trade.pressure || {};
+      const setupStatus = trade.setup_status || (analysis.status === 200 ? "unknown" : "blocked");
+      const tradeAction = trigger.trade_action || (analysis.status === 200 ? "no_trade" : "blocked");
       results.push({
         ticker,
-        status: analysis.status === 200 ? "resolved" : "blocked",
+        status: analysis.status === 200 ? setupStatus : "blocked",
+        pass2_status: analysis.status === 200 ? "resolved" : "blocked",
+        setup_status: setupStatus,
+        bias: trade.bias || analysis.payload?.direction || "undetermined",
+        trade_action: tradeAction,
+        primary_trigger: trigger.primary_trigger || (analysis.status === 200 ? "No trigger" : "Live analysis unavailable"),
+        next_trigger_needed: trigger.next_trigger_needed || (analysis.status === 200 ? "Review evidence detail." : "Restore live provider data."),
+        anomaly_band: trade.anomaly_band || null,
+        evidence_grade: trade.evidence_grade || analysis.payload?.tier || null,
+        signed_pressure: pressure.net_notional_pressure ?? analysis.payload?.indicators?.C?.net_notional_pressure ?? null,
+        signing_confidence: pressure.signing_confidence ?? analysis.payload?.signing_confidence ?? null,
+        volume_ratio: activity.volume_ratio ?? analysis.payload?.indicators?.C?.volume_ratio ?? null,
+        notional_ratio: activity.notional_ratio ?? analysis.payload?.indicators?.C?.notional_ratio ?? null,
+        focus_trade_count: trade.block_flow?.focus_trade_count ?? analysis.payload?.indicators?.C?.focus_trade_count ?? null,
         result: analysis.status === 200 ? analysis.payload : null,
         error: analysis.status === 200 ? null : analysis.payload?.detail || analysis.payload?.error || "Live analysis unavailable"
       });

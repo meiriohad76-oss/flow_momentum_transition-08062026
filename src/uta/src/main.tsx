@@ -198,7 +198,20 @@ type ScanRow = {
   C_screen?: number;
   pass2_status?: string;
   label?: string;
+  scan_reason?: string;
   status?: string;
+  setup_status?: string;
+  bias?: string;
+  trade_action?: string;
+  primary_trigger?: string;
+  next_trigger_needed?: string;
+  anomaly_band?: string;
+  evidence_grade?: string;
+  signed_pressure?: number | null;
+  signing_confidence?: number | null;
+  volume_ratio?: number | null;
+  notional_ratio?: number | null;
+  focus_trade_count?: number | null;
   result?: UtaTickerResult;
 };
 
@@ -382,6 +395,18 @@ function tickerList(value: string) {
 
 function tierRank(tier?: string) {
   return { A: 4, B: 3, C: 2, D: 1 }[String(tier || "D").toUpperCase() as "A" | "B" | "C" | "D"] || 0;
+}
+
+function setupTone(status?: string) {
+  if (status === "review_candidate") return "good";
+  if (status === "watch_only") return "warn";
+  if (status === "blocked") return "bad";
+  if (status === "no_directional_setup") return "neutral";
+  return "neutral";
+}
+
+function setupLabel(status?: string) {
+  return String(status || "resolved").replaceAll("_", " ");
 }
 
 function ruleMatches(rule: UtaRule, result?: UtaTickerResult | null) {
@@ -1249,11 +1274,12 @@ function ScanMode({
               <div className="compact-row" key={row.ticker}>
                 <div>
                   <b>{row.ticker}</b>
-                  <span>{row.label || "Preliminary - pass 2 pending"}</span>
+                  <span>{row.scan_reason || row.label || "Preliminary activity screen - pass 2 resolves signed-flow evidence"}</span>
                 </div>
                 <div className="row-metrics">
                   <Pill tone="warn">preliminary</Pill>
                   <span>{row.preliminary_tier || "n/a"}</span>
+                  {row.C_screen !== undefined ? <span>{fmtNumber(row.C_screen, 2)}x C</span> : null}
                 </div>
               </div>
             ))}
@@ -1268,11 +1294,18 @@ function ScanMode({
               <div className="compact-row clickable-row" key={row.ticker} onClick={() => row.result && onInspect(row.result)}>
                 <div>
                   <b>{row.ticker}</b>
-                  <span>{row.status || row.pass2_status || "resolved"}</span>
+                  <span>
+                    {row.result
+                      ? `${setupLabel(row.setup_status)} / ${row.bias || row.result.direction} / ${row.primary_trigger || "No trigger"}`
+                      : row.error || row.status || row.pass2_status || "blocked"}
+                  </span>
+                  {row.next_trigger_needed ? <small>{row.next_trigger_needed}</small> : null}
                 </div>
                 <div className="row-metrics">
-                  <Pill tone="good">resolved</Pill>
+                  <Pill tone={setupTone(row.setup_status)}>{setupLabel(row.setup_status)}</Pill>
                   <span>{row.result ? `Tier ${row.result.tier}` : "n/a"}</span>
+                  {row.signed_pressure !== undefined && row.signed_pressure !== null ? <span>{fmtPct(row.signed_pressure)} pressure</span> : null}
+                  {row.signing_confidence !== undefined && row.signing_confidence !== null ? <span>{fmtPct(row.signing_confidence)} conf</span> : null}
                 </div>
               </div>
             ))}
