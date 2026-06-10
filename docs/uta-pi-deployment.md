@@ -58,6 +58,15 @@ Before starting the service, update:
 - `DATABASE_PATH`
 - Cloudflare hostname
 
+Provider secrets can be kept outside git in `/etc/flow-momentum-uta.env`:
+
+```text
+MASSIVE_API_KEY=...
+UTA_PRIMARY_PROVIDER=massive
+TRADE_PRINTS_PROVIDER=massive
+MARKET_DATA_PROVIDER=massive
+```
+
 ## Cloudflare Smoke
 
 After the tunnel is configured:

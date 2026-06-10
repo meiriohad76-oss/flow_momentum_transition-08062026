@@ -14,6 +14,7 @@ Environment=PORT=3000
 Environment=DATABASE_ENABLED=true
 Environment=DATABASE_PROVIDER=sqlite
 Environment=DATABASE_PATH=/mnt/uta-ssd/sentiment-analyst.sqlite
+EnvironmentFile=-/etc/flow-momentum-uta.env
 Environment=API_SAVER_MODE=true
 Environment=PI_PERFORMANCE_MODE=true
 Environment=DASHBOARD_MUTATIONS_ENABLED=false
