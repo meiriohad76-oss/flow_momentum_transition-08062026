@@ -743,8 +743,8 @@ function buildProviderReadiness(config = {}, registry = []) {
       enabled: Boolean(config.tradePrintsEnabled),
       credential: tradePrintCredential,
       fallback_state: "unavailable",
-      operator_copy_ready: "Live trade-print adapter is configured; keep polling manual until replay/live parity is validated.",
-      operator_copy_missing: "Live trade-print adapter is not configured; required flow lanes remain replay-backed or unavailable and no live signal is fabricated."
+      operator_copy_ready: "Live trade-print adapter is configured; keep polling manual until validation is accepted.",
+      operator_copy_missing: "Live trade-print adapter is not configured; required flow lanes remain unavailable and no synthetic signal is fabricated."
     },
     {
       lane_id: "massive_premarket_trade_slices",
@@ -864,7 +864,7 @@ function buildProviderReadiness(config = {}, registry = []) {
       optional_corroboration_only: Boolean(spec.optional_corroboration_only || !lane.required),
       operator_copy: configured ? spec.operator_copy_ready : spec.operator_copy_missing,
       next_action: configured
-        ? { action: "manual_revalidate", label: "Run manual replay/live parity check" }
+        ? { action: "manual_revalidate", label: "Run manual live provider check" }
         : { action: "configure_provider", label: `Configure ${spec.provider_family}` }
     };
   });
@@ -875,8 +875,7 @@ function buildProviderReadiness(config = {}, registry = []) {
     schema_version: "uta.provider_status.v1",
     generated_at: nowIso(),
     source: "docs/uta-provider-adapter-matrix.md",
-    mode: "replay_first",
-    replay_available: false,
+    mode: "live_only",
     live_ready: required.every((lane) => lane.configured),
     live_trade_prints_configured: Boolean(config.tradePrintsApiKey),
     summary: {
@@ -890,7 +889,7 @@ function buildProviderReadiness(config = {}, registry = []) {
     },
     provider_lanes: providerLanes,
     safeguards: [
-      "Replay remains the source of truth until live-provider parity checks pass.",
+      "Live providers are the only source for UTA signal results.",
       "Provider failures become lane states; they do not create synthetic live signals.",
       "Optional corroboration lanes never penalize UTA tiers.",
       "No paper-trading effect is enabled by provider readiness."
@@ -2267,31 +2266,46 @@ export function createUtaService({ config, store } = {}) {
   async function buildCycle({ mode, tickers = ["AVGO"], query = {}, body = {}, reason = "manual" } = {}) {
     const startedAt = nowIso();
     const cycleId = `uta-${mode || "cycle"}-${stableCycleStamp(startedAt)}`;
-    const sourceMode = String(body.source || query.source || "replay").trim().toLowerCase();
+    const sourceMode = String(body.source || query.source || "live").trim().toLowerCase();
+    if (sourceMode === "replay") {
+      return {
+        status: 400,
+        payload: {
+          ok: false,
+          error: "uta_replay_disabled",
+          detail: "UTA replay mode is disabled. Configure live providers and run live analysis.",
+          source_mode: "live_only"
+        },
+        cycle: {
+          run_id: cycleId,
+          mode,
+          reason,
+          status: "rejected",
+          started_at: startedAt,
+          completed_at: nowIso(),
+          error: "uta_replay_disabled",
+          tickers
+        }
+      };
+    }
     let result;
     const events = [];
     try {
       if (mode === "single") {
         const ticker = tickers[0] || body.ticker || query.ticker || "AVGO";
-        const single = sourceMode === "live" || sourceMode === "live_manual"
-          ? await getLiveSingleAnalysis(ticker)
-          : getSingleAnalysis(ticker);
+        const single = await getLiveSingleAnalysis(ticker);
         result = { status: single.status, payload: { ...single.payload, cycle_id: cycleId } };
         rememberSignal(result.payload, { mode: "single_ticker", replayMode: result.payload?.data_state !== "live_manual" });
         events.push({ type: "uta_signal_result", payload: result.payload });
       } else if (mode === "portfolio") {
-        const portfolio = sourceMode === "live" || sourceMode === "live_manual"
-          ? await getLivePortfolioAnalysis({ ...body, tickers })
-          : getPortfolioAnalysis({ ...body, tickers });
+        const portfolio = await getLivePortfolioAnalysis({ ...body, tickers });
         result = { status: 200, payload: { ...portfolio, cycle_id: cycleId } };
         for (const row of result.payload.results || []) {
           rememberSignal({ ...row, cycle_id: cycleId }, { mode: "portfolio", replayMode: row.data_state !== "live_manual" });
         }
         events.push({ type: "uta_signal_result", payload: result.payload });
       } else if (mode === "scan_pass2") {
-        const scan = sourceMode === "live" || sourceMode === "live_manual"
-          ? await runLiveScanPass2(body)
-          : runScanPass2(body);
+        const scan = await runLiveScanPass2(body);
         result = { status: 200, payload: { ...scan, cycle_id: cycleId } };
         for (const row of scan.results || []) {
           if (row.result) {
@@ -2300,9 +2314,7 @@ export function createUtaService({ config, store } = {}) {
         }
         events.push({ type: "uta_scan_progress", payload: result.payload });
       } else {
-        const scan = sourceMode === "live" || sourceMode === "live_manual"
-          ? await getLiveScan(query)
-          : getScan(query);
+        const scan = await getLiveScan(query);
         result = { status: 200, payload: { ...scan, cycle_id: cycleId } };
         events.push({ type: "uta_scan_progress", payload: result.payload });
       }
@@ -2337,7 +2349,7 @@ export function createUtaService({ config, store } = {}) {
       if (store?.health?.liveSources) {
         store.health.liveSources.uta = {
           status: "ready",
-          provider: result.payload?.data_state === "live_manual" ? "massive_live_manual" : "replay_first_node",
+          provider: result.payload?.data_state === "live_manual" ? "massive_live_manual" : "live_only",
           last_success_at: completedAt,
           last_poll_at: completedAt,
           mode,
@@ -2372,7 +2384,7 @@ export function createUtaService({ config, store } = {}) {
       if (store?.health?.liveSources) {
         store.health.liveSources.uta = {
           status: "error",
-          provider: "replay_first_node",
+          provider: "live_only",
           last_poll_at: failed.completed_at,
           last_error: error.message,
           mode,
@@ -2502,7 +2514,7 @@ export function createUtaService({ config, store } = {}) {
           freshness_seconds: null,
           freshness_sla_seconds: lane.freshness_sla_seconds,
           operator_copy: lane.required
-            ? `${lane.label} is unavailable in the replay slice. No live signal is fabricated.`
+            ? `${lane.label} is unavailable from live providers. No synthetic signal is fabricated.`
             : `${lane.label} is optional or disabled and does not penalize tiers.`,
           next_action: { label: `Refresh ${lane.label}`, route: lane.refresh_route },
           provider_status
@@ -2520,12 +2532,12 @@ export function createUtaService({ config, store } = {}) {
     const payload = {
       ok: true,
       refreshed: false,
-      mode: "replay",
-      message: "Replay lanes are deterministic; refresh reports current fixture state.",
+      mode: "live_only",
+      message: "Lane refresh is manual; configure the live provider before expecting fresh data.",
       lane
     };
     rememberLaneStates(states.lanes, states.generated_at);
-    rememberAudit("lane_refresh_requested", { lane_id: laneId, refreshed: false, mode: "replay" });
+    rememberAudit("lane_refresh_requested", { lane_id: laneId, refreshed: false, mode: "live_only" });
     emit("uta_lane_state", payload);
     return { status: 200, payload };
   }
@@ -2926,7 +2938,7 @@ export function createUtaService({ config, store } = {}) {
     return {
       schema_version: "uta.runtime_status.v1",
       generated_at: nowIso(),
-      mode: "replay_first",
+      mode: "live_only",
       provider_status: getProviderStatus(),
       scheduler: clone(state.scheduler),
       last_cycle: clone(state.lastCycle),
@@ -2943,8 +2955,8 @@ export function createUtaService({ config, store } = {}) {
         storage: config.databaseEnabled ? config.databaseProvider : config.lightweightStateEnabled ? "lightweight_json" : "memory"
       },
       next_actions: [
-        { action: "run_single", label: "Run replay-backed single ticker cycle", safe: true },
-        { action: "run_scan_pass1", label: "Run replay-backed scan pass 1", safe: true },
+        { action: "run_single", label: "Run live single ticker cycle", safe: true },
+        { action: "run_scan_pass1", label: "Run live scan pass 1", safe: true },
         { action: "run_scan_pass2", label: "Resolve scan pass 2", safe: true }
       ]
     };
@@ -2990,10 +3002,7 @@ export function createUtaService({ config, store } = {}) {
   }
 
   function getProviderStatus() {
-    return {
-      ...buildProviderReadiness(config, getLaneRegistry().lanes),
-      replay_available: existsSync(paths.single)
-    };
+    return buildProviderReadiness(config, getLaneRegistry().lanes);
   }
 
   async function runProviderPreflight(payload = {}) {

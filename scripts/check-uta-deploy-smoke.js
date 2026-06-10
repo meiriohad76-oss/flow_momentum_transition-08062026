@@ -93,17 +93,19 @@ try {
   const intervalMs = numberArg("--interval-ms", Number(process.env.UTA_DEPLOY_SMOKE_INTERVAL_MS || 2500));
   const health = await waitForHealth(baseUrl, { timeoutMs: waitMs, intervalMs });
   const runtime = await jsonGet(baseUrl, "/api/uta/runtime");
-  const single = await jsonGet(baseUrl, "/api/uta/single?ticker=AVGO");
+  const single = await jsonGet(baseUrl, "/api/uta/single?ticker=ORCL&source=live");
   const html = await requestText(`${baseUrl}/uta`);
   const stream = await requestText(`${baseUrl}/api/uta/stream`, { timeoutMs: 4000, stream: true });
 
   assert(health.status === "green", "Health endpoint is not green.", health);
   assert(runtime.schema_version === "uta.runtime_status.v1", "UTA runtime schema mismatch.", runtime);
-  assert(runtime.mode === "replay_first", "UTA runtime should remain replay_first until live providers are configured.", runtime);
+  assert(runtime.mode === "live_only", "UTA runtime must be live_only.", runtime);
   assert(runtime.scheduler?.mode === "manual", "UTA scheduler should default to manual mode.", runtime.scheduler);
   assert(runtime.lane_pressure?.required_not_ready === 0, "Required UTA lanes are not ready.", runtime.lane_pressure);
   assert(single.schema_version === "uta.ticker_result.v1", "UTA single payload schema mismatch.", single);
-  assert(single.ticker === "AVGO" && single.tier === "A", "UTA single replay fixture did not return AVGO Tier A.", single);
+  assert(single.ticker === "ORCL", "UTA live single returned the wrong ticker.", single);
+  assert(single.data_state === "live_manual", "UTA deploy smoke requires a live provider-backed single result.", single);
+  assert(["A", "B", "C", "D"].includes(single.tier), "UTA live single returned an invalid tier.", single);
   assert(single.calculation_metadata?.direction_source === "signed_flow", "UTA single must disclose signed-flow direction.", single);
   assert(html.status === 200 && html.body.includes("Unusual Trading Activity Agent"), "/uta HTML did not render expected shell.", html);
   assert(stream.status === 200 && /uta connected|uta_snapshot/.test(stream.body), "UTA SSE stream did not send an initial frame.", stream);
@@ -118,6 +120,7 @@ try {
     required_lanes_not_ready: runtime.lane_pressure.required_not_ready,
     single_ticker: single.ticker,
     single_tier: single.tier,
+    single_data_state: single.data_state,
     sse_initial_frame: /uta connected|uta_snapshot/.test(stream.body)
   }, null, 2));
 } catch (error) {

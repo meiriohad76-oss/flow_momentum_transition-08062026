@@ -23,9 +23,9 @@ Run locally before copying to the Pi:
 ```powershell
 npm run build:uta
 npm run check:uta-pi-profile
-npm run check:uta-historical-replay
 npm run check:uta-calibration
 npm run check:uta-trading-integration
+npm run check:uta-provider-preflight
 npm run check:uta-deploy-smoke -- --base-url http://127.0.0.1:3000
 ```
 
@@ -108,7 +108,7 @@ Do not treat an unmounted `/mnt/uta-ssd` directory as production storage.
 
 UTA remains supporting evidence only. Do not enable paper-trading effects until:
 
-- historical replay report is accepted
+- live provider preflight is accepted
 - calibration audit is accepted
 - Pi deployment smoke passes
 - risk and execution checks prove UTA cannot bypass guards

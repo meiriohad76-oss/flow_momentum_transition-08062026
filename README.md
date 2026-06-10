@@ -36,7 +36,7 @@ Then open `http://127.0.0.1:3000`.
 
 For the new fundamentals view, open `http://127.0.0.1:3000/fundamentals.html`.
 
-For the Unusual Trading Activity replay slice, open `http://127.0.0.1:3000/uta`.
+For the Unusual Trading Activity live scanner, open `http://127.0.0.1:3000/uta`.
 
 During UTA frontend work, edit the React/Vite source under `src/uta/`, then run:
 
@@ -50,10 +50,11 @@ UTA verification commands:
 
 ```bash
 npm run check:uta-contracts
-npm run check:uta-replay
 npm run check:uta-engine
 npm run check:uta-api
 npm run check:uta-ui
+npm run check:uta-ux-parity
+npm run check:uta-provider-preflight
 npm run check:uta-pi-profile
 ```
 

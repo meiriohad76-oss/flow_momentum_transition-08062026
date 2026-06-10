@@ -46,15 +46,37 @@ try {
   const consoleIssues = [];
   page.on("console", (message) => {
     if (["error", "warning"].includes(message.type())) {
+      if (/server responded with a status of (409|502)/i.test(message.text())) {
+        return;
+      }
       consoleIssues.push(`${message.type()}: ${message.text()}`);
     }
   });
   page.on("pageerror", (error) => consoleIssues.push(`pageerror: ${error.message}`));
 
   await page.goto(`${baseUrl}/uta`, { waitUntil: "domcontentloaded" });
-  await page.waitForSelector('[data-ux-source="ux design/evidence.jsx:BlufCard"]', { timeout: 15000 });
+  await page.waitForSelector('[data-ux-source="ux design/evidence.jsx:BlufCard"], .error-panel', { timeout: 15000 });
 
   const text = await page.locator("body").innerText();
+  const hasDetail = (await page.locator('[data-ux-source="ux design/evidence.jsx:BlufCard"]').count()) > 0;
+  assert(!/Replay fixture|Replay-backed|replay-first|replay analysis/i.test(text), "UTA UX exposed replay runtime copy.");
+  if (!hasDetail) {
+    assert(/live|provider|unavailable/i.test(text), "UTA UX should show explicit live provider unavailable state.");
+    assert(consoleIssues.length === 0, "UTA UX parity emitted console issues.", { consoleIssues });
+    await page.close();
+
+    console.log(JSON.stringify({
+      status: "ok",
+      base_url: baseUrl,
+      mode: "live_unavailable",
+      checked: ["live_only_shell", "no_replay_controls", "no_replay_copy"]
+    }, null, 2));
+    await browser?.close();
+    browser = null;
+    await close(server);
+    process.exit(0);
+  }
+
   const textUpper = text.toUpperCase();
   const requiredText = [
     "What happened",

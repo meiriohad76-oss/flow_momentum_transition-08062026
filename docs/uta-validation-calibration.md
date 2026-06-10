@@ -1,63 +1,52 @@
-# UTA Validation And Calibration
+# UTA Live Validation And Calibration
 
 This document defines the v1 validation gate for the Unusual Trading Activity Agent.
 
 ## Scope
 
-The first validation phase is deterministic and replay-only. It does not enable paper trading, live execution, risk overrides, or buy/sell instructions.
+UTA v1 uses live provider data only. The dashboard and API must not expose a replay mode, silently fall back to fixtures, or produce synthetic signal results when live providers are missing.
 
 Validation inputs:
 
-- `data/uta/replay/historical-evaluation.json`
+- Massive/Polygon-compatible provider credentials in the Pi environment
 - `src/domain/uta-validation.js`
-- `npm run check:uta-historical-replay`
+- `npm run check:uta-provider-preflight`
 - `npm run check:uta-calibration`
 - `npm run check:uta-trading-integration`
+- `npm run check:uta-deploy-smoke`
 
-## Historical Replay Report
+## Live Provider Preflight
 
-`check:uta-historical-replay` evaluates forward returns at:
+`check:uta-provider-preflight` verifies:
 
-- 30 minutes
-- 1 hour
-- 1 day
-- 5 days
+- required trade-print and bar lanes report configured provider state without exposing secrets
+- provider failures become lane states, not fake signals
+- optional corroboration lanes remain non-penalizing
+- historical signal rows are not mutated by readiness checks
+- trading effect remains `none`
 
-The report groups results by:
+Manual live probes may be used for a small ticker sample before a deployment is accepted.
 
-- tier
-- direction
-- liquidity bucket
-
-It also reports:
-
-- actionable row count, excluding Tier D
-- top-decile precision using `C.notional_ratio`
-- 1-day false positive rate
-- lane SLA pass rate
-
-The rank metric is a raw C metric, not a composite score.
-
-## Bias And Calibration Audit
+## Calibration Audit
 
 `check:uta-calibration` verifies:
 
 - no-look-ahead baseline windows
 - B-score stability by tier
 - lane SLA failures remain visible
-- false positive rate is inside the fixture gate
-- top-decile precision is inside the fixture gate
+- false positive controls remain inside the accepted gate
+- top-decile precision remains inside the accepted gate
 - tier averages are monotonic across A, B, and C
 - Benjamini-Hochberg FDR correction rows are produced
 - paper-trading effects remain blocked
 
-The check also creates an intentional look-ahead mutation and requires the audit to catch it.
+Any threshold change must include before/after metrics from live or accepted historical market data.
 
 ## Trading Gate
 
 UTA evidence may not affect paper-trading behavior until all of these are accepted:
 
-- historical replay report
+- live provider preflight
 - calibration audit
 - Pi deployment smoke
 - human review of validation metrics

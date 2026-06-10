@@ -39,8 +39,6 @@
     "check:uta-api": "node scripts/check-uta-api.js",
     "check:uta-ui": "node scripts/check-uta-ui.js",
     "check:uta-ux-parity": "node scripts/check-uta-ux-parity.js",
-    "check:uta-replay": "node scripts/check-uta-replay.js",
-    "check:uta-historical-replay": "node scripts/check-uta-historical-replay.js",
     "check:uta-calibration": "node scripts/check-uta-calibration.js",
     "check:uta-trading-integration": "node scripts/check-uta-trading-integration.js",
     "check:uta-provider-preflight": "node scripts/check-uta-provider-preflight.js",

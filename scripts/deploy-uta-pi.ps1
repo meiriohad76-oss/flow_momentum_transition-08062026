@@ -57,7 +57,6 @@ npm --version
 $(if ($SkipNpmCi) { "echo 'Skipping npm ci by request'" } else { "npm ci" })
 npm run build:uta
 npm run check:uta-pi-profile
-npm run check:uta-historical-replay
 npm run check:uta-calibration
 npm run check:uta-trading-integration
 DATABASE_DIR="$DatabaseDir"

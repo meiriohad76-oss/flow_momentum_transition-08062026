@@ -272,7 +272,6 @@ type ProviderStatus = {
   schema_version: string;
   generated_at: string;
   mode: string;
-  replay_available: boolean;
   live_ready: boolean;
   summary: {
     required_configured: number;
@@ -336,7 +335,7 @@ type LoadState<T> =
   | { status: "ready"; data: T; message?: string };
 
 type Mode = "single" | "portfolio" | "scan" | "alerts" | "runtime";
-type SourceMode = "replay" | "live";
+const LIVE_SOURCE_MODE = "live";
 
 const DEFAULT_PORTFOLIO = ["AVGO", "NVDA", "MSFT"];
 const SAFE_TICKER_PATTERN = /^[A-Z0-9][A-Z0-9.-]{0,15}$/;
@@ -497,20 +496,17 @@ function MetricTile({ label, value, detail }: { label: string; value: React.Reac
 
 function StatusStrip({ data }: { data: UtaTickerResult }) {
   const warnings = invariantWarnings(data);
-  const replayBacked = data.calculation_metadata.source_mode === "replay" || data.data_state === "replay";
   return (
     <section className={`status-strip ${warnings.length ? "error" : "ok"}`}>
       <div>
-        <strong>{warnings.length ? "Invariant warning" : replayBacked ? "Replay-backed analysis" : "Live analysis"}</strong>
+        <strong>{warnings.length ? "Invariant warning" : "Live analysis"}</strong>
         <span>
           {warnings.length
             ? warnings.join(" ")
-            : replayBacked
-              ? `Displayed tier/evidence comes from the replay engine. Direction source: ${data.calculation_metadata.direction_source}. Massive provider readiness is shown in Runtime and does not yet replace these calculations.`
-              : `Loaded ${data.ticker} from ${data.calculation_metadata.source_mode}. Direction source: ${data.calculation_metadata.direction_source}.`}
+            : `Loaded ${data.ticker} from ${data.calculation_metadata.source_mode || data.data_state}. Direction source: ${data.calculation_metadata.direction_source}.`}
         </span>
       </div>
-      <Pill tone={data.data_state === "replay" ? "warn" : "good"}>{data.data_state}</Pill>
+      <Pill tone={data.data_state === "live_unavailable" ? "warn" : "good"}>{data.data_state}</Pill>
     </section>
   );
 }
@@ -722,17 +718,17 @@ function DataProvenance({ data }: { data: UtaTickerResult }) {
   const live = data.data_state === "live_manual";
   return (
     <section className="panel">
-      <SectionHeader title="Data Provenance" meta={live ? "Massive live manual" : "Replay fixture"} />
+      <SectionHeader title="Data Provenance" meta={live ? "Massive live manual" : "Live provider state"} />
       <div className="metric-grid four">
-        <MetricTile label="Source mode" value={data.calculation_metadata.source_mode || data.data_state} detail={live ? "manual provider pull" : "deterministic fixture"} />
-        <MetricTile label="Provider" value={data.calculation_metadata.provider || diagnostics.provider || "replay"} detail={data.calculation_metadata.prints_source || "fixture"} />
-        <MetricTile label="Bars" value={data.calculation_metadata.latest_bar_date || data.calculation_metadata.replay_clock || "N/A"} detail={data.calculation_metadata.bars_source || `${diagnostics.baseline?.session_count ?? "N/A"} baseline sessions`} />
+        <MetricTile label="Source mode" value={data.calculation_metadata.source_mode || data.data_state} detail={live ? "manual provider pull" : "provider unavailable"} />
+        <MetricTile label="Provider" value={data.calculation_metadata.provider || diagnostics.provider || "massive"} detail={data.calculation_metadata.prints_source || "live provider"} />
+        <MetricTile label="Bars" value={data.calculation_metadata.latest_bar_date || data.calculation_metadata.live_clock || "N/A"} detail={data.calculation_metadata.bars_source || `${diagnostics.baseline?.session_count ?? "N/A"} baseline sessions`} />
         <MetricTile label="Print sample" value={printSample.eligible_prints ?? data.raw_prints?.prints?.length ?? "N/A"} detail={fmtMoney(printSample.total_notional)} />
       </div>
       <p>
         {live
           ? "Live manual mode uses Massive daily bars for volume/notional baselines and recent Massive prints for signed flow, focus prints, and raw-print evidence."
-          : "Replay mode uses deterministic fixture data and is kept separate from live provider readiness."}
+          : "Live provider data is required. Missing providers produce explicit unavailable lane states and no synthetic signal."}
       </p>
     </section>
   );
@@ -1101,18 +1097,14 @@ function TickerDetail({
 function SingleMode({
   data,
   history,
-  sourceMode,
   onAnalyze,
-  onSourceModeChange,
   onRefreshLane,
   onRevalidate,
   onWatchlist
 }: {
   data: LoadState<UtaTickerResult>;
   history: HistoryResult | null;
-  sourceMode: SourceMode;
-  onAnalyze: (ticker: string, sourceMode: SourceMode) => void;
-  onSourceModeChange: (sourceMode: SourceMode) => void;
+  onAnalyze: (ticker: string) => void;
   onRefreshLane: (lane: LaneState) => void;
   onRevalidate: () => void;
   onWatchlist: () => void;
@@ -1122,19 +1114,10 @@ function SingleMode({
     <section className="mode-stack">
       <form className="command-bar" onSubmit={(event: FormEvent<HTMLFormElement>) => {
         event.preventDefault();
-        onAnalyze(ticker.trim().toUpperCase() || "AVGO", sourceMode);
+        onAnalyze(ticker.trim().toUpperCase() || "AVGO");
       }}>
         <label htmlFor="single-ticker">Ticker</label>
         <input id="single-ticker" value={ticker} onChange={(event) => setTicker(event.target.value)} autoComplete="off" />
-        <label htmlFor="single-source">Source</label>
-        <select
-          id="single-source"
-          value={sourceMode}
-          onChange={(event) => onSourceModeChange(event.target.value as SourceMode)}
-        >
-          <option value="replay">Replay fixture</option>
-          <option value="live">Live manual Massive</option>
-        </select>
         <button type="submit">Analyze</button>
       </form>
       {data.status === "loading" ? <section className="panel muted-panel">{data.message}</section> : null}
@@ -1154,15 +1137,11 @@ function SingleMode({
 
 function PortfolioMode({
   portfolio,
-  sourceMode,
   onRun,
-  onSourceModeChange,
   onInspect
 }: {
   portfolio: LoadState<PortfolioResult>;
-  sourceMode: SourceMode;
-  onRun: (tickers: string[], sourceMode: SourceMode) => void;
-  onSourceModeChange: (sourceMode: SourceMode) => void;
+  onRun: (tickers: string[]) => void;
   onInspect: (result: UtaTickerResult) => void;
 }) {
   const [value, setValue] = useState(DEFAULT_PORTFOLIO.join(", "));
@@ -1171,15 +1150,10 @@ function PortfolioMode({
     <section className="mode-stack">
       <form className="command-bar" onSubmit={(event) => {
         event.preventDefault();
-        onRun(tickerList(value), sourceMode);
+        onRun(tickerList(value));
       }}>
         <label htmlFor="portfolio-tickers">Portfolio</label>
         <input id="portfolio-tickers" className="wide-input" value={value} onChange={(event) => setValue(event.target.value)} />
-        <label htmlFor="portfolio-source">Source</label>
-        <select id="portfolio-source" value={sourceMode} onChange={(event) => onSourceModeChange(event.target.value as SourceMode)}>
-          <option value="replay">Replay fixture</option>
-          <option value="live">Live manual Massive</option>
-        </select>
         <button type="submit">Rank</button>
       </form>
       <section className="panel">
@@ -1222,17 +1196,13 @@ function PortfolioMode({
 function ScanMode({
   scan,
   pass2,
-  sourceMode,
   onPass1,
-  onSourceModeChange,
   onPass2,
   onInspect
 }: {
   scan: LoadState<ScanResult>;
   pass2: LoadState<ScanResult>;
-  sourceMode: SourceMode;
-  onPass1: (direction: string, sourceMode: SourceMode, tickers: string[]) => void;
-  onSourceModeChange: (sourceMode: SourceMode) => void;
+  onPass1: (direction: string, tickers: string[]) => void;
   onPass2: () => void;
   onInspect: (result: UtaTickerResult) => void;
 }) {
@@ -1244,17 +1214,12 @@ function ScanMode({
     <section className="mode-stack">
       <form className="command-bar" onSubmit={(event) => {
         event.preventDefault();
-        onPass1(direction, sourceMode, tickerList(tickers));
+        onPass1(direction, tickerList(tickers));
       }}>
         <label htmlFor="scan-direction">Direction</label>
         <select id="scan-direction" value={direction} onChange={(event) => setDirection(event.target.value)}>
           <option value="bullish">Bullish</option>
           <option value="bearish">Bearish</option>
-        </select>
-        <label htmlFor="scan-source">Source</label>
-        <select id="scan-source" value={sourceMode} onChange={(event) => onSourceModeChange(event.target.value as SourceMode)}>
-          <option value="replay">Replay fixture</option>
-          <option value="live">Live manual Massive</option>
         </select>
         <input
           id="scan-tickers"
@@ -1493,21 +1458,21 @@ function RuntimeMode({
     <section className="mode-stack">
       <section className={`status-strip ${liveReady ? "ok" : "error"}`}>
         <div>
-          <strong>{liveReady ? "Live providers ready" : "Replay-first mode"}</strong>
+          <strong>{liveReady ? "Live providers ready" : "Live providers gated"}</strong>
           <span>
             {liveReady
-              ? "Massive-required lanes are configured for manual validation. Tier calculations remain replay-backed until the live UTA analysis gate is implemented."
-              : "The dashboard is not yet a live Massive signal engine. Configure all required providers, then run manual live parity before promoting live results."}
+              ? "Massive-required lanes are configured. Live UTA analysis uses provider data and does not fall back to fixtures."
+              : "Configure all required providers before live UTA can produce signal results. Missing providers create unavailable lane states."}
           </span>
         </div>
-        <Pill tone={liveReady ? "good" : "warn"}>{providerStatus?.mode || "replay_first"}</Pill>
+        <Pill tone={liveReady ? "good" : "warn"}>{providerStatus?.mode || "live_only"}</Pill>
       </section>
       <div className="runtime-grid">
         <section className="panel">
           <SectionHeader title="Runtime" meta={status?.mode || runtime.status} />
           <div className="metric-grid four">
             <MetricTile label="Signals" value={status?.signal_result_count ?? "N/A"} />
-            <MetricTile label="Replay runs" value={status?.replay_run_count ?? "N/A"} />
+            <MetricTile label="Cycle runs" value={status?.replay_run_count ?? "N/A"} />
             <MetricTile label="Required not ready" value={status?.lane_pressure.required_not_ready ?? "N/A"} />
             <MetricTile label="Storage" value={status?.pi_policy.storage || "N/A"} />
           </div>
@@ -1606,9 +1571,6 @@ function RuntimeMode({
 function App() {
   const [mode, setMode] = useState<Mode>("single");
   const [activeTicker, setActiveTicker] = useState("AVGO");
-  const [singleSourceMode, setSingleSourceMode] = useState<SourceMode>("replay");
-  const [portfolioSourceMode, setPortfolioSourceMode] = useState<SourceMode>("replay");
-  const [scanSourceMode, setScanSourceMode] = useState<SourceMode>("replay");
   const [single, setSingle] = useState<LoadState<UtaTickerResult>>({ status: "idle" });
   const [portfolio, setPortfolio] = useState<LoadState<PortfolioResult>>({ status: "idle" });
   const [scan, setScan] = useState<LoadState<ScanResult>>({ status: "idle" });
@@ -1623,16 +1585,15 @@ function App() {
   const activeData = single.data;
   const watchlistCount = userState?.state.watchlist?.length || 0;
 
-  async function loadSingle(ticker = activeTicker, sourceMode = singleSourceMode) {
+  async function loadSingle(ticker = activeTicker) {
     const normalized = ticker.trim().toUpperCase() || "AVGO";
     setActiveTicker(normalized);
-    setSingleSourceMode(sourceMode);
     if (!SAFE_TICKER_PATTERN.test(normalized)) {
       setSingle({ status: "error", data: single.data, message: `Invalid ticker symbol: ${normalized}` });
       return;
     }
-    setSingle((current) => ({ status: "loading", data: current.data, message: `Loading ${normalized} from ${sourceMode}...` }));
-    const data = await apiGet<UtaTickerResult>(`/api/uta/single?ticker=${encodeURIComponent(normalized)}&source=${encodeURIComponent(sourceMode)}`);
+    setSingle((current) => ({ status: "loading", data: current.data, message: `Loading ${normalized} from live providers...` }));
+    const data = await apiGet<UtaTickerResult>(`/api/uta/single?ticker=${encodeURIComponent(normalized)}&source=${LIVE_SOURCE_MODE}`);
     setSingle({ status: "ready", data });
     const nextHistory = await apiGet<HistoryResult>(`/api/uta/history?ticker=${encodeURIComponent(normalized)}&limit=20`);
     setHistory(nextHistory);
@@ -1655,22 +1616,20 @@ function App() {
     setUserState(stateData);
   }
 
-  async function runPortfolio(tickers = DEFAULT_PORTFOLIO, sourceMode = portfolioSourceMode) {
-    setPortfolioSourceMode(sourceMode);
-    setPortfolio((current) => ({ status: "loading", data: current.data, message: `Ranking portfolio from ${sourceMode}...` }));
-    const data = await apiPost<PortfolioResult>("/api/uta/portfolio", { tickers, source: sourceMode });
+  async function runPortfolio(tickers = DEFAULT_PORTFOLIO) {
+    setPortfolio((current) => ({ status: "loading", data: current.data, message: "Ranking portfolio from live providers..." }));
+    const data = await apiPost<PortfolioResult>("/api/uta/portfolio", { tickers, source: LIVE_SOURCE_MODE });
     setPortfolio({ status: "ready", data });
     await loadRuntime();
   }
 
-  async function runScan(direction = "bullish", sourceMode = scanSourceMode, tickers = DEFAULT_PORTFOLIO) {
-    setScanSourceMode(sourceMode);
-    setScan((current) => ({ status: "loading", data: current.data, message: `Running ${sourceMode} pass 1...` }));
+  async function runScan(direction = "bullish", tickers = DEFAULT_PORTFOLIO) {
+    setScan((current) => ({ status: "loading", data: current.data, message: "Running live pass 1..." }));
     const params = new URLSearchParams({
       universe: "sp500",
       direction,
       pass: "1",
-      source: sourceMode,
+      source: LIVE_SOURCE_MODE,
       tickers: tickers.join(",")
     });
     const data = await apiGet<ScanResult>(`/api/uta/scan?${params.toString()}`);
@@ -1681,10 +1640,10 @@ function App() {
 
   async function runPass2() {
     const shortlist = (scan.data?.results || []).map((row) => row.ticker);
-    setPass2((current) => ({ status: "loading", data: current.data, message: `Resolving ${scanSourceMode} pass 2...` }));
+    setPass2((current) => ({ status: "loading", data: current.data, message: "Resolving live pass 2..." }));
     const data = await apiPost<ScanResult>("/api/uta/scan/pass2", {
       shortlist: shortlist.length ? shortlist : ["AVGO"],
-      source: scanSourceMode,
+      source: LIVE_SOURCE_MODE,
       direction: scan.data?.direction_filter || "bullish"
     });
     setPass2({ status: "ready", data });
@@ -1693,12 +1652,12 @@ function App() {
 
   async function refreshLane(lane: LaneState) {
     await apiPost(`/api/uta/lanes/${encodeURIComponent(lane.lane_id)}/refresh`, {});
-    await loadSingle(activeTicker, singleSourceMode);
+    await loadSingle(activeTicker);
   }
 
   async function revalidateActive() {
-    setSingle((current) => ({ status: "loading", data: current.data, message: `Revalidating ${activeTicker} from ${singleSourceMode}...` }));
-    const data = await apiPost<UtaTickerResult>("/api/uta/revalidate", { ticker: activeTicker, source: singleSourceMode });
+    setSingle((current) => ({ status: "loading", data: current.data, message: `Revalidating ${activeTicker} from live providers...` }));
+    const data = await apiPost<UtaTickerResult>("/api/uta/revalidate", { ticker: activeTicker, source: LIVE_SOURCE_MODE });
     setSingle({ status: "ready", data });
     await loadRuntime();
   }
@@ -1751,9 +1710,7 @@ function App() {
       return (
         <PortfolioMode
           portfolio={portfolio}
-          sourceMode={portfolioSourceMode}
-          onRun={(tickers, sourceMode) => runPortfolio(tickers, sourceMode).catch((error) => setPortfolio({ status: "error", data: portfolio.data, message: error.message }))}
-          onSourceModeChange={setPortfolioSourceMode}
+          onRun={(tickers) => runPortfolio(tickers).catch((error) => setPortfolio({ status: "error", data: portfolio.data, message: error.message }))}
           onInspect={(result) => {
             setSingle({ status: "ready", data: result });
             setActiveTicker(result.ticker);
@@ -1767,9 +1724,7 @@ function App() {
         <ScanMode
           scan={scan}
           pass2={pass2}
-          sourceMode={scanSourceMode}
-          onPass1={(direction, sourceMode, tickers) => runScan(direction, sourceMode, tickers).catch((error) => setScan({ status: "error", data: scan.data, message: error.message }))}
-          onSourceModeChange={setScanSourceMode}
+          onPass1={(direction, tickers) => runScan(direction, tickers).catch((error) => setScan({ status: "error", data: scan.data, message: error.message }))}
           onPass2={() => runPass2().catch((error) => setPass2({ status: "error", message: error.message }))}
           onInspect={(result) => {
             setSingle({ status: "ready", data: result });
@@ -1808,9 +1763,7 @@ function App() {
       <SingleMode
         data={single}
         history={history}
-        sourceMode={singleSourceMode}
-        onAnalyze={(ticker, sourceMode) => loadSingle(ticker, sourceMode).catch((error) => setSingle({ status: "error", data: single.data, message: error.message }))}
-        onSourceModeChange={setSingleSourceMode}
+        onAnalyze={(ticker) => loadSingle(ticker).catch((error) => setSingle({ status: "error", data: single.data, message: error.message }))}
         onRefreshLane={(lane) => refreshLane(lane).catch((error) => setSingle({ status: "error", data: single.data, message: error.message }))}
         onRevalidate={() => revalidateActive().catch((error) => setSingle({ status: "error", data: single.data, message: error.message }))}
         onWatchlist={() => toggleWatchlist().catch((error) => setRuntime({ status: "error", data: runtime.data, message: error.message }))}
@@ -1828,9 +1781,6 @@ function App() {
     history,
     stream,
     activeTicker,
-    singleSourceMode,
-    portfolioSourceMode,
-    scanSourceMode,
     userState
   ]);
 
@@ -1839,7 +1789,7 @@ function App() {
       <header className="uta-topbar">
         <div>
           <span className="crumb">
-            UTA / {providers.data?.live_ready ? "Massive ready, replay analysis" : "replay-first runtime"}
+            UTA / {providers.data?.live_ready ? "Massive live ready" : "live provider gated"}
           </span>
           <h1>Unusual Trading Activity Agent</h1>
         </div>

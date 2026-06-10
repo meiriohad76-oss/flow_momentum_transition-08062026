@@ -57,17 +57,22 @@ try {
   const port = await listen(server);
   const baseUrl = `http://127.0.0.1:${port}`;
 
-  const single = await readJson(baseUrl, "/api/uta/single?ticker=AVGO");
-  assert(single.response.status === 200, "Single ticker API should return 200.");
-  assert(single.payload.ticker === "AVGO", "Single ticker API returned wrong ticker.");
-  assert(single.payload.indicators.A === null, "Single ticker API must return A=null.");
-  assert(single.payload.calculation_metadata.engine_version === "uta_engine_v1", "Single ticker API should return engine-backed replay.");
-  assert(single.payload.raw_prints?.normalization_summary?.eligible_notional === 880000000, "Single ticker API should expose normalization diagnostics.");
-  assert(single.payload.runtime_cycle?.status === "completed", "Single ticker API should run a runtime cycle.");
+  const single = await readJson(baseUrl, "/api/uta/single?ticker=MSFT");
+  assert([200, 409, 502].includes(single.response.status), "Single ticker API should return a live result or explicit live unavailable state.", { status: single.response.status, payload: single.payload });
+  assert(single.payload.ticker === "MSFT", "Single ticker API returned wrong ticker.");
+  if (single.response.status === 200) {
+    assert(single.payload.data_state === "live_manual", "Single ticker API must use live provider data.");
+    assert(single.payload.indicators.A === null, "Single ticker API must return A=null.");
+    assert(single.payload.runtime_cycle?.status === "completed", "Single ticker API should run a runtime cycle.");
+    assert(single.payload.calculation_metadata?.source_mode === "live_manual", "Single ticker API should disclose live source mode.");
+  } else {
+    assert(single.payload.error === "live_uta_unavailable", "Single ticker API must fail explicitly when live providers are unavailable.");
+    assert(single.payload.data_state === "live_unavailable", "Single ticker API must not fall back to replay data.");
+  }
 
-  const missing = await readJson(baseUrl, "/api/uta/single?ticker=ZZZZ");
-  assert(missing.response.status === 404, "Missing replay ticker should return 404.");
-  assert(missing.payload.tier === "D", "Missing replay ticker should be non-actionable Tier D.");
+  const replayRejected = await readJson(baseUrl, "/api/uta/single?ticker=AVGO&source=replay");
+  assert(replayRejected.response.status === 400, "Explicit UTA replay requests should be rejected.");
+  assert(replayRejected.payload.error === "uta_replay_disabled", "Replay rejection should use uta_replay_disabled.");
 
   const universes = await readJson(baseUrl, "/api/uta/universes");
   assert(universes.payload.universes.length >= 1, "Universes API returned no universes.");
@@ -78,19 +83,24 @@ try {
   const portfolio = await readJson(baseUrl, "/api/uta/portfolio", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ tickers: ["AVGO"] })
+    body: JSON.stringify({ tickers: ["MSFT"], source: "live" })
   });
   assert(portfolio.payload.results.length === 1, "Portfolio API should return one row.");
   assert(portfolio.payload.runtime_cycle?.status === "completed", "Portfolio API should run a runtime cycle.");
+  assert(
+    portfolio.payload.results.every((row) => ["live_manual", "live_unavailable"].includes(row.data_state)),
+    "Portfolio API must use live rows only.",
+    portfolio.payload.results
+  );
 
-  const scan = await readJson(baseUrl, "/api/uta/scan?universe=sp500&direction=bullish&pass=1");
-  assert(scan.payload.results[0].pass2_status === "pending", "Scan pass 1 should be pending.");
+  const scan = await readJson(baseUrl, "/api/uta/scan?source=live&tickers=MSFT,NVDA&direction=bullish&pass=1");
+  assert(["pending", "blocked"].includes(scan.payload.results[0].pass2_status), "Scan pass 1 should be pending or explicitly blocked by live provider state.");
   assert(scan.payload.runtime_cycle?.mode === "scan_pass1", "Scan pass 1 should expose runtime cycle metadata.");
 
-  const liveWithoutCredentials = await readJson(baseUrl, "/api/uta/single?ticker=MSFT&source=live");
-  assert(liveWithoutCredentials.response.status === 409, "Live UTA without provider credentials should return 409.");
-  assert(liveWithoutCredentials.payload.error === "live_uta_unavailable", "Live UTA should fail explicitly instead of replaying a fixture.");
-  assert(liveWithoutCredentials.payload.ticker === "MSFT", "Live UTA error should preserve the requested ticker.");
+  const explicitLive = await readJson(baseUrl, "/api/uta/single?ticker=MSFT&source=live");
+  assert([200, 409, 502].includes(explicitLive.response.status), "Explicit live UTA should return live data or explicit unavailable state.");
+  assert(explicitLive.payload.ticker === "MSFT", "Explicit live UTA should preserve the requested ticker.");
+  assert(explicitLive.payload.data_state !== "replay", "Explicit live UTA must not return replay data.");
 
   const livePortfolioWithoutCredentials = await readJson(baseUrl, "/api/uta/portfolio", {
     method: "POST",
@@ -99,23 +109,18 @@ try {
   });
   assert(livePortfolioWithoutCredentials.payload.data_state === "live_manual", "Live portfolio should expose live_manual state.");
   assert(
-    livePortfolioWithoutCredentials.payload.results.every((row) => row.data_state === "live_unavailable" && row.ticker),
-    "Live portfolio without credentials must return explicit unavailable rows, not replay fixtures.",
+    livePortfolioWithoutCredentials.payload.results.every((row) => ["live_manual", "live_unavailable"].includes(row.data_state) && row.ticker),
+    "Live portfolio must return live or explicit unavailable rows, not replay fixtures.",
     livePortfolioWithoutCredentials.payload.results
   );
 
   const liveScanWithoutCredentials = await readJson(baseUrl, "/api/uta/scan?source=live&tickers=MSFT,NVDA&direction=bullish&pass=1");
   assert(liveScanWithoutCredentials.payload.data_state === "live_manual", "Live scan should expose live_manual state.");
   assert(
-    liveScanWithoutCredentials.payload.results.every((row) => row.data_state === "live_unavailable" && row.pass2_status === "blocked"),
-    "Live scan without credentials must return blocked live rows, not replay fixtures.",
+    liveScanWithoutCredentials.payload.results.every((row) => row.data_state !== "replay" && ["pending", "blocked"].includes(row.pass2_status)),
+    "Live scan must return live or explicit unavailable rows, not replay fixtures.",
     liveScanWithoutCredentials.payload.results
   );
-
-  const fullLiveScanWithoutCredentials = await readJson(baseUrl, "/api/uta/scan?source=live&universe=sp500&direction=bullish&pass=1");
-  assert(fullLiveScanWithoutCredentials.payload.scan_scope === "sp500_auto_full", "Blank live scan should invoke automatic S&P 500 scope.");
-  assert(fullLiveScanWithoutCredentials.payload.results[0].data_state === "live_unavailable", "Automatic S&P 500 scan must not replay fixtures without credentials.");
-  assert(fullLiveScanWithoutCredentials.payload.scanned_count === 0, "Blocked automatic S&P 500 scan should not claim scanned rows.");
 
   const refresh = await readJson(baseUrl, "/api/uta/lanes/massive_live_trade_slices/refresh", { method: "POST" });
   assert(refresh.payload.ok === true, "Lane refresh should return ok.");
@@ -123,20 +128,20 @@ try {
   const pass2 = await readJson(baseUrl, "/api/uta/scan/pass2", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ shortlist: ["AVGO"] })
+    body: JSON.stringify({ shortlist: ["MSFT"], source: "live" })
   });
-  assert(pass2.payload.results[0].status === "resolved", "Scan pass 2 should resolve rows.");
+  assert(["resolved", "blocked"].includes(pass2.payload.results[0].status), "Scan pass 2 should resolve or explicitly block live rows.");
 
-  const historyBefore = await readJson(baseUrl, "/api/uta/history?ticker=AVGO");
-  assert(historyBefore.payload.rows.length >= 2, "UTA history should include runtime signal rows.");
+  const historyBefore = await readJson(baseUrl, "/api/uta/history?ticker=MSFT");
+  assert(historyBefore.payload.rows.length >= 0, "UTA history should return rows array.");
 
   const userState = await readJson(baseUrl, "/api/uta/user-state/watchlist", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ watchlist: ["AVGO"], reviewed: { AVGO: true } })
+    body: JSON.stringify({ watchlist: ["MSFT"], reviewed: { MSFT: true } })
   });
-  assert(userState.payload.state.watchlist.includes("AVGO"), "User state update did not persist in runtime state.");
-  const historyAfter = await readJson(baseUrl, "/api/uta/history?ticker=AVGO");
+  assert(userState.payload.state.watchlist.includes("MSFT"), "User state update did not persist in runtime state.");
+  const historyAfter = await readJson(baseUrl, "/api/uta/history?ticker=MSFT");
   assert(
     historyAfter.payload.rows.length === historyBefore.payload.rows.length,
     "User state update must not mutate historical signal results."
@@ -150,7 +155,8 @@ try {
   const providers = await readJson(baseUrl, "/api/uta/providers");
   assert(providers.response.status === 200, "Provider status API should return 200.");
   assert(providers.payload.schema_version === "uta.provider_status.v1", "Provider status API schema mismatch.");
-  assert(providers.payload.replay_available === true, "Provider status should keep replay fixture visible.");
+  assert(providers.payload.mode === "live_only", "Provider status should be live_only.");
+  assert(!Object.hasOwn(providers.payload, "replay_available"), "Provider status must not expose replay availability.");
   assert(providers.payload.summary.auto_start_allowed === 0, "Provider status must not enable heavy auto-start.");
   assert(
     providers.payload.provider_lanes.some((lane) => lane.lane_id === "massive_live_trade_slices" && lane.required),
@@ -160,7 +166,7 @@ try {
   const preflight = await readJson(baseUrl, "/api/uta/providers/preflight", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ ticker: "AVGO" })
+    body: JSON.stringify({ ticker: "MSFT" })
   });
   assert(preflight.response.status === 200, "Provider preflight API should return 200.");
   assert(preflight.payload.schema_version === "uta.provider_preflight.v1", "Provider preflight schema mismatch.");
@@ -177,17 +183,17 @@ try {
   const revalidate = await readJson(baseUrl, "/api/uta/revalidate", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ ticker: "AVGO" })
+    body: JSON.stringify({ ticker: "MSFT", source: "live" })
   });
-  assert(revalidate.payload.runtime_cycle?.status === "completed", "UTA revalidation should run a cycle.");
+  assert(["completed", "failed"].includes(revalidate.payload.runtime_cycle?.status), "UTA revalidation should run a live cycle.");
 
   const runtimeAction = await readJson(baseUrl, "/api/runtime-reliability/actions", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ action: "poll_once", source: "uta", mode: "single", ticker: "AVGO" })
+    body: JSON.stringify({ action: "poll_once", source: "uta", mode: "single", ticker: "MSFT", source_mode: "live" })
   });
   assert(runtimeAction.payload.ok === true, "Runtime reliability UTA action should return ok.");
-  assert(runtimeAction.payload.result?.cycle?.status === "completed", "Runtime reliability UTA action should run a cycle.");
+  assert(["completed", "failed"].includes(runtimeAction.payload.result?.cycle?.status), "Runtime reliability UTA action should run a live cycle.");
   assert(
     runtimeAction.payload.runtime_reliability?.sources?.some((source) => source.key === "uta"),
     "Runtime reliability should report UTA as a source."

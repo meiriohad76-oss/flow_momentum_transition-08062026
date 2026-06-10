@@ -2,13 +2,12 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "UTA Provider Status",
   "type": "object",
-  "required": ["schema_version", "generated_at", "mode", "replay_available", "live_ready", "summary", "provider_lanes", "safeguards", "policy"],
+  "required": ["schema_version", "generated_at", "mode", "live_ready", "summary", "provider_lanes", "safeguards", "policy"],
   "properties": {
     "schema_version": { "const": "uta.provider_status.v1" },
     "generated_at": { "type": "string" },
     "source": { "type": "string" },
     "mode": { "type": "string" },
-    "replay_available": { "type": "boolean" },
     "live_ready": { "type": "boolean" },
     "live_trade_prints_configured": { "type": "boolean" },
     "summary": {

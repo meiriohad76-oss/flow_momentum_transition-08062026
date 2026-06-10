@@ -180,7 +180,8 @@ try {
   });
   const providers = providerService.getProviderStatus();
   assert(providers.schema_version === "uta.provider_status.v1", "Provider status schema mismatch.", providers);
-  assert(providers.replay_available === true, "Replay fixture must stay available while providers are configured.", providers);
+  assert(providers.mode === "live_only", "Provider status must report live_only mode.", providers);
+  assert(!Object.hasOwn(providers, "replay_available"), "Provider status must not expose replay availability.", providers);
   assert(providers.live_ready === false, "Default UTA provider status must not claim live readiness.", providers);
   assert(providers.summary.auto_start_allowed === 0, "UTA provider readiness must not allow heavy auto-start.", providers.summary);
   assert(
