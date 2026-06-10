@@ -50,7 +50,7 @@ async function runResponsiveLoad(browser, baseUrl, viewport) {
   assert(text.includes("Unusual Trading Activity Agent"), "UTA shell title missing.", { viewport });
   assert(text.includes("AVGO"), "UTA shell did not render replay ticker.", { viewport });
   assert(text.includes("Tier A"), "UTA shell did not render tier BLUF.", { viewport });
-  assert(text.includes("A - universe percentile"), "UTA shell did not render A indicator.", { viewport });
+  assert(text.toLowerCase().includes("a - universe percentile"), "UTA shell did not render A indicator.", { viewport });
   assert(text.includes("N/A"), "Single mode did not render A as N/A.", { viewport });
   assert(text.includes("Direction source: signed_flow"), "UTA shell did not disclose signed-flow direction source.", { viewport });
   assert(text.includes("Raw Prints"), "Raw prints surface missing.", { viewport });

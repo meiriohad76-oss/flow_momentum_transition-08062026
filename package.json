@@ -38,6 +38,7 @@
     "check:uta-engine": "node scripts/check-uta-engine.js",
     "check:uta-api": "node scripts/check-uta-api.js",
     "check:uta-ui": "node scripts/check-uta-ui.js",
+    "check:uta-ux-parity": "node scripts/check-uta-ux-parity.js",
     "check:uta-replay": "node scripts/check-uta-replay.js",
     "check:uta-historical-replay": "node scripts/check-uta-historical-replay.js",
     "check:uta-calibration": "node scripts/check-uta-calibration.js",
