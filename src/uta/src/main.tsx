@@ -277,6 +277,7 @@ type Mode = "single" | "portfolio" | "scan" | "alerts" | "runtime";
 type SourceMode = "replay" | "live";
 
 const DEFAULT_PORTFOLIO = ["AVGO", "NVDA", "MSFT"];
+const SAFE_TICKER_PATTERN = /^[A-Z0-9][A-Z0-9.-]{0,15}$/;
 
 function fmtMoney(value: unknown) {
   const numeric = Number(value);
@@ -1213,6 +1214,10 @@ function App() {
     const normalized = ticker.trim().toUpperCase() || "AVGO";
     setActiveTicker(normalized);
     setSingleSourceMode(sourceMode);
+    if (!SAFE_TICKER_PATTERN.test(normalized)) {
+      setSingle({ status: "error", data: single.data, message: `Invalid ticker symbol: ${normalized}` });
+      return;
+    }
     setSingle((current) => ({ status: "loading", data: current.data, message: `Loading ${normalized} from ${sourceMode}...` }));
     const data = await apiGet<UtaTickerResult>(`/api/uta/single?ticker=${encodeURIComponent(normalized)}&source=${encodeURIComponent(sourceMode)}`);
     setSingle({ status: "ready", data });

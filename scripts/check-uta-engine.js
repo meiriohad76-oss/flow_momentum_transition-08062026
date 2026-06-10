@@ -230,6 +230,33 @@ try {
   assert(fullLiveBlocked.results[0].data_state === "live_unavailable", "Full live scan without credentials must not replay fixtures.");
   assert(/MASSIVE_API_KEY|POLYGON_API_KEY/.test(fullLiveBlocked.results[0].label), "Full live scan should explain missing provider credentials.");
 
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (url) => {
+    const href = String(url);
+    if (href.includes("/v3/reference/tickers/")) {
+      return new Response(JSON.stringify({ status: "OK", results: null }), { status: 200 });
+    }
+    return new Response(JSON.stringify({ status: "OK", results: [] }), { status: 200 });
+  };
+  try {
+    const noDataService = createUtaService({
+      config: {
+        ...config,
+        massiveApiKey: "test_massive_key",
+        tradePrintsApiKey: "test_massive_key",
+        tradePrintsProvider: "massive",
+        massiveBaseUrl: "https://massive.test",
+        marketDataProvider: "massive"
+      }
+    });
+    const noDataResult = await noDataService.getLiveSingleAnalysis("ORCLE");
+    assert(noDataResult.status === 404, "Live single should reject symbols with zero bars and zero prints.");
+    assert(noDataResult.payload.error === "live_uta_unavailable", "No-data live single should return an explicit live error.");
+    assert(/no usable trades or daily bars/i.test(noDataResult.payload.detail), "No-data live single should explain the missing provider data.");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+
   const portfolio = service.getPortfolioAnalysis({ tickers: ["AVGO", "ZZZZ"] });
   assert(portfolio.results.length === 2, "Portfolio should preserve requested ticker count.");
   assert(portfolio.results[0].indicators.A?.scope_label === "relative to your portfolio today", "Portfolio A scope label is wrong.");

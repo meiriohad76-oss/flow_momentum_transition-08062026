@@ -1406,6 +1406,12 @@ function liveLaneStates(registry = [], { trades = [], bars = [], reference = nul
 async function buildLiveManualPayload(ticker, context = {}) {
   const { config = {}, laneRegistry = {}, policy = {}, universe = {} } = context;
   const inputs = await fetchMassiveLiveInputs(config, ticker);
+  if (!inputs.trades.length && !inputs.bars.length) {
+    const error = new Error(`Massive returned no usable trades or daily bars for ${ticker}. Check the ticker symbol or provider entitlement.`);
+    error.status = 404;
+    error.code = "live_symbol_not_found";
+    throw error;
+  }
   const clock = createLiveClock();
   const profile = {
     ticker,
