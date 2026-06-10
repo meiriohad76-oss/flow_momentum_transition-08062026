@@ -12,7 +12,7 @@ This is the UTA-specific deployment checklist for Raspberry Pi 5, 8 GB memory.
 
 ## Files
 
-- `deploy/uta-autonomous-stock-trader.service`
+- `deploy/flow-momentum-uta.service`
 - `deploy/cloudflared-uta-example.yml`
 - `docs/raspberry-pi-cloudflare.md`
 
@@ -43,11 +43,11 @@ npm run check:uta-deploy-smoke -- --base-url http://127.0.0.1:3000
 ## Service Install Sketch
 
 ```bash
-sudo cp deploy/uta-autonomous-stock-trader.service /etc/systemd/system/uta-autonomous-stock-trader.service
+sudo cp deploy/flow-momentum-uta.service /etc/systemd/system/flow-momentum-uta.service
 sudo systemctl daemon-reload
-sudo systemctl enable uta-autonomous-stock-trader
-sudo systemctl restart uta-autonomous-stock-trader
-sudo systemctl status uta-autonomous-stock-trader --no-pager
+sudo systemctl enable flow-momentum-uta
+sudo systemctl restart flow-momentum-uta
+sudo systemctl status flow-momentum-uta --no-pager
 ```
 
 Before starting the service, update:

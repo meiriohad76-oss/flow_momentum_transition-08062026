@@ -1,5 +1,5 @@
-tunnel: autonomous-stock-trader-uta
-credentials-file: /home/ahad/.cloudflared/autonomous-stock-trader-uta.json
+tunnel: flow-momentum-uta
+credentials-file: /home/ahad/.cloudflared/flow-momentum-uta.json
 
 ingress:
   - hostname: uta.example.com

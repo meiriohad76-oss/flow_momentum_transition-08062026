@@ -27,7 +27,7 @@ try {
     "docs/uta-provider-adapter-matrix.md",
     "docs/uta-validation-calibration.md",
     "docs/uta-pi-deployment.md",
-    "deploy/uta-autonomous-stock-trader.service",
+    "deploy/flow-momentum-uta.service",
     "deploy/cloudflared-uta-example.yml",
     "config/condition_code_policy_v1.json",
     "config/condition_code_policy.schema.json",

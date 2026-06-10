@@ -5,7 +5,8 @@ param(
   [string]$User = "ahad",
   [string]$RepoDir = "/home/ahad/flow_momentum_transition-08062026",
   [string]$RepoUrl = "https://github.com/meiriohad76-oss/flow_momentum_transition-08062026.git",
-  [string]$ServiceName = "uta-autonomous-stock-trader",
+  [string]$ServiceName = "flow-momentum-uta",
+  [string]$OldServiceName = "uta-autonomous-stock-trader",
   [string]$BaseUrl = "http://127.0.0.1:3000",
   [string]$DatabaseDir = "/mnt/uta-ssd",
   [switch]$AllowUnMountedDatabaseDir,
@@ -72,12 +73,18 @@ if ! findmnt -T "`$DATABASE_DIR" >/dev/null 2>&1; then
     exit 1
   fi
 fi
+if [ "$OldServiceName" != "$ServiceName" ] && [ -f "/etc/systemd/system/$OldServiceName.service" ]; then
+  echo "Removing old service $OldServiceName.service"
+  sudo systemctl stop "$OldServiceName" >/dev/null 2>&1 || true
+  sudo systemctl disable "$OldServiceName" >/dev/null 2>&1 || true
+  sudo rm -f "/etc/systemd/system/$OldServiceName.service"
+fi
 if [ ! -f "/etc/systemd/system/$ServiceName.service" ]; then
   echo "Installing $ServiceName.service"
 else
   echo "Refreshing $ServiceName.service"
 fi
-sudo install -m 0644 "deploy/uta-autonomous-stock-trader.service" "/etc/systemd/system/$ServiceName.service"
+sudo install -m 0644 "deploy/flow-momentum-uta.service" "/etc/systemd/system/$ServiceName.service"
 sudo sed -i \
   -e "s#^User=.*#User=$User#" \
   -e "s#^Group=.*#Group=$User#" \

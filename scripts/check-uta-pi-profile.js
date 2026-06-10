@@ -14,7 +14,7 @@ function assert(condition, message, details = {}) {
 try {
   const stackDoc = readFileSync(path.join(config.rootDir, "docs", "uta-stack-runtime-policy.md"), "utf8");
   const piDoc = readFileSync(path.join(config.rootDir, "docs", "uta-pi-deployment.md"), "utf8");
-  const systemdUnit = readFileSync(path.join(config.rootDir, "deploy", "uta-autonomous-stock-trader.service"), "utf8");
+  const systemdUnit = readFileSync(path.join(config.rootDir, "deploy", "flow-momentum-uta.service"), "utf8");
   const tunnelConfig = readFileSync(path.join(config.rootDir, "deploy", "cloudflared-uta-example.yml"), "utf8");
   const gitignore = readFileSync(path.join(config.rootDir, ".gitignore"), "utf8");
 
@@ -55,7 +55,7 @@ try {
     lightweight_state_enabled_current: config.lightweightStateEnabled,
     uta_scheduler_mode: scheduler.scheduler.mode,
     uta_runtime_source_visible: true,
-    deployment_artifacts: ["deploy/uta-autonomous-stock-trader.service", "deploy/cloudflared-uta-example.yml"],
+    deployment_artifacts: ["deploy/flow-momentum-uta.service", "deploy/cloudflared-uta-example.yml"],
     note: "This is a local preflight check; real Pi SSD/systemd/Cloudflare checks remain deployment-ticket work."
   }, null, 2));
 } catch (error) {
