@@ -112,6 +112,11 @@ try {
     liveScanWithoutCredentials.payload.results
   );
 
+  const fullLiveScanWithoutCredentials = await readJson(baseUrl, "/api/uta/scan?source=live&universe=sp500&direction=bullish&pass=1");
+  assert(fullLiveScanWithoutCredentials.payload.scan_scope === "sp500_auto_full", "Blank live scan should invoke automatic S&P 500 scope.");
+  assert(fullLiveScanWithoutCredentials.payload.results[0].data_state === "live_unavailable", "Automatic S&P 500 scan must not replay fixtures without credentials.");
+  assert(fullLiveScanWithoutCredentials.payload.scanned_count === 0, "Blocked automatic S&P 500 scan should not claim scanned rows.");
+
   const refresh = await readJson(baseUrl, "/api/uta/lanes/massive_live_trade_slices/refresh", { method: "POST" });
   assert(refresh.payload.ok === true, "Lane refresh should return ok.");
 

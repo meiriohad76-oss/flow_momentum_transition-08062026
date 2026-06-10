@@ -146,11 +146,20 @@ type ScanResult = {
   universe: string;
   universe_label: string;
   universe_ticker_count: number;
+  requested_ticker_count?: number | null;
   direction_filter: string;
   pass: number;
   generated_at: string;
+  data_state?: string;
   performance_tier: string;
   shortlist_count: number;
+  scanned_count?: number;
+  blocked_count?: number | null;
+  scan_policy?: string;
+  scan_scope?: string;
+  universe_source?: string;
+  universe_cache_state?: string;
+  universe_warning?: string | null;
   results: ScanRow[];
 };
 
@@ -814,7 +823,7 @@ function ScanMode({
   onInspect: (result: UtaTickerResult) => void;
 }) {
   const [direction, setDirection] = useState("bullish");
-  const [tickers, setTickers] = useState(DEFAULT_PORTFOLIO.join(", "));
+  const [tickers, setTickers] = useState("");
   const preliminaryRows = scan.data?.results || [];
   const resolvedRows = pass2.data?.results || [];
   return (
@@ -838,6 +847,7 @@ function ScanMode({
           className="wide-input"
           value={tickers}
           onChange={(event) => setTickers(event.target.value)}
+          placeholder="Blank = automatic S&P 500 live scan"
           aria-label="Scan tickers"
         />
         <button type="submit">Pass 1</button>
@@ -846,6 +856,14 @@ function ScanMode({
       <div className="two-column">
         <section className="panel">
           <SectionHeader title="Scan Pass 1" meta={scan.data ? `${scan.data.universe_label} / ${scan.data.performance_tier}` : "preliminary"} />
+          {scan.data ? (
+            <p className="empty">
+              {scan.data.scan_policy || "Pass 1 ranks preliminary activity before pass 2 resolves trade-print evidence."}
+              {" "}
+              {scan.data.scanned_count !== undefined ? `Scanned ${scan.data.scanned_count} of ${scan.data.universe_ticker_count || scan.data.requested_ticker_count || "unknown"} names.` : ""}
+              {scan.data.universe_cache_state ? ` Universe: ${scan.data.universe_cache_state}.` : ""}
+            </p>
+          ) : null}
           {scan.status === "loading" ? <p className="empty">{scan.message}</p> : null}
           <div className="compact-list">
             {preliminaryRows.map((row) => (

@@ -149,8 +149,9 @@ try {
   assert(fullAnalysis.classifier.tier === "A", "Full replay analysis should classify Tier A.");
 
   const universes = service.getUniverses();
-  assert(universes.universes.length === 1, "Expected one replay universe.");
-  assert(universes.universes[0].performance_tier === "standard", "Replay universe should expose a performance tier.");
+  assert(universes.universes.length >= 2, "Expected live and replay universes.");
+  assert(universes.universes.some((row) => row.cache_state === "missing" || row.cache_state === "cached"), "Live S&P 500 universe metadata missing.");
+  assert(universes.universes.some((row) => row.performance_tier === "standard"), "Replay universe should expose a performance tier.");
 
   const lanes = service.getLaneStates().lanes;
   assert(lanes.some((lane) => lane.required && lane.state === "ready"), "Required ready lane missing.");
@@ -222,6 +223,12 @@ try {
     "Required UTA lanes should prefer Massive, not Polygon, when Massive is configured.",
     massiveProviders.provider_lanes
   );
+
+  const fullLiveBlocked = await providerService.getLiveScan({ source: "live", universe: "sp500", direction: "bullish" });
+  assert(fullLiveBlocked.data_state === "live_manual", "Full live scan should keep live_manual state even when blocked.");
+  assert(fullLiveBlocked.scan_scope === "sp500_auto_full", "Blank live scan should use automatic S&P 500 scope.");
+  assert(fullLiveBlocked.results[0].data_state === "live_unavailable", "Full live scan without credentials must not replay fixtures.");
+  assert(/MASSIVE_API_KEY|POLYGON_API_KEY/.test(fullLiveBlocked.results[0].label), "Full live scan should explain missing provider credentials.");
 
   const portfolio = service.getPortfolioAnalysis({ tickers: ["AVGO", "ZZZZ"] });
   assert(portfolio.results.length === 2, "Portfolio should preserve requested ticker count.");

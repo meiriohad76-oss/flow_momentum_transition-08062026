@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { normalizeTickerSymbol } from "../utils/helpers.js";
 
@@ -9,6 +9,11 @@ const UTA_REPLAY_RUN_LIMIT = 50;
 
 function readJson(filePath) {
   return JSON.parse(readFileSync(filePath, "utf8"));
+}
+
+function writeJson(filePath, value) {
+  mkdirSync(path.dirname(filePath), { recursive: true });
+  writeFileSync(filePath, `${JSON.stringify(value, null, 2)}\n`, "utf8");
 }
 
 function clone(value) {
@@ -883,12 +888,170 @@ function dateDaysAgo(days) {
   return new Date(Date.now() - Math.max(1, Number(days || 1)) * 86_400_000).toISOString().slice(0, 10);
 }
 
+function recentCalendarDates(days = 32) {
+  const dates = [];
+  const today = new Date();
+  for (let index = 0; index < Math.max(1, Number(days || 1)); index += 1) {
+    const date = new Date(today.getTime() - index * 86_400_000);
+    const day = date.getUTCDay();
+    if (day !== 0 && day !== 6) {
+      dates.push(date.toISOString().slice(0, 10));
+    }
+  }
+  return dates.reverse();
+}
+
 function parseTickerList(value, fallback = []) {
   const source = Array.isArray(value) ? value : String(value || "").split(/[,\s]+/);
   const tickers = source
     .map(normalizeTickerSymbol)
     .filter(Boolean);
   return [...new Set(tickers.length ? tickers : fallback.map(normalizeTickerSymbol).filter(Boolean))];
+}
+
+function htmlDecode(value = "") {
+  return String(value)
+    .replace(/&amp;/g, "&")
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;|&apos;/g, "'")
+    .replace(/&nbsp;/g, " ")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">");
+}
+
+function stripHtml(value = "") {
+  return htmlDecode(String(value).replace(/<[^>]*>/g, " ")).replace(/\s+/g, " ").trim();
+}
+
+function parseSp500ConstituentsHtml(html = "") {
+  const tableMatch = String(html).match(/<table[^>]+id=["']constituents["'][\s\S]*?<\/table>/i);
+  const table = tableMatch ? tableMatch[0] : String(html);
+  const rows = [...table.matchAll(/<tr[^>]*>([\s\S]*?)<\/tr>/gi)];
+  const tickers = [];
+  for (const rowMatch of rows) {
+    const cells = [...rowMatch[1].matchAll(/<t[dh][^>]*>([\s\S]*?)<\/t[dh]>/gi)].map((cell) => stripHtml(cell[1]));
+    if (cells.length < 2 || /^symbol$/i.test(cells[0])) {
+      continue;
+    }
+    const symbol = normalizeTickerSymbol(cells[0].replace(".", "."));
+    if (!symbol || !/^[A-Z][A-Z0-9.-]{0,9}$/.test(symbol)) {
+      continue;
+    }
+    tickers.push({
+      symbol,
+      name: cells[1] || symbol,
+      sector: cells[2] || null,
+      exchange: null
+    });
+  }
+  return [...new Map(tickers.map((row) => [row.symbol, row])).values()];
+}
+
+async function fetchText(url, { timeoutMs = 12000, provider = "uta_universe" } = {}) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const response = await fetch(url, {
+      signal: controller.signal,
+      headers: {
+        Accept: "text/html,application/xhtml+xml,application/json",
+        "User-Agent": `SentimentAnalyst/1.0 (+${provider})`
+      }
+    });
+    const text = await response.text();
+    if (!response.ok) {
+      const error = new Error(`${provider} ${response.status}${text ? `: ${text.slice(0, 160)}` : ""}`);
+      error.status = response.status;
+      throw error;
+    }
+    return text;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+function normalizeLiveUniversePayload(payload = {}, fallback = {}) {
+  const tickers = Array.isArray(payload.tickers) ? payload.tickers : [];
+  return {
+    universe_id: payload.universe_id || fallback.universe_id || "sp500",
+    name: payload.name || fallback.name || "sp500",
+    label: payload.label || fallback.label || "S&P 500 live universe",
+    category: payload.category || fallback.category || "index",
+    source: payload.source || fallback.source || "live_cache",
+    last_updated: payload.last_updated || fallback.last_updated || nowIso(),
+    performance_tier: payload.performance_tier || fallback.performance_tier || "pi_bounded_full",
+    estimated_time_seconds: Number(payload.estimated_time_seconds || fallback.estimated_time_seconds || 240),
+    tickers: tickers.map((row) => ({
+      symbol: normalizeTickerSymbol(row.symbol || row.ticker),
+      name: row.name || row.security || row.symbol || row.ticker,
+      sector: row.sector || row.gics_sector || null,
+      exchange: row.exchange || null
+    })).filter((row) => row.symbol)
+  };
+}
+
+function readCachedLiveUniverse(cachePath) {
+  if (!cachePath || !existsSync(cachePath)) {
+    return null;
+  }
+  try {
+    return normalizeLiveUniversePayload(readJson(cachePath));
+  } catch {
+    return null;
+  }
+}
+
+async function loadLiveSp500Universe(config = {}, fallbackUniverse = {}) {
+  const cachePath = config.utaSp500UniverseCachePath;
+  const cacheTtlMs = Math.max(0, Number(config.utaSp500UniverseCacheMs || 0));
+  const cached = readCachedLiveUniverse(cachePath);
+  const cachedMs = cached?.last_updated ? new Date(cached.last_updated).getTime() : 0;
+  const freshCache = cached && cached.tickers.length >= 450 && cacheTtlMs > 0 && Date.now() - cachedMs < cacheTtlMs;
+  if (freshCache) {
+    return { ...cached, source: cached.source || "cached_sp500_constituents", cache_state: "fresh" };
+  }
+
+  try {
+    const html = await fetchText(config.utaSp500UniverseUrl || "https://en.wikipedia.org/wiki/List_of_S%26P_500_companies", {
+      timeoutMs: Math.min(15000, Math.max(2000, Number(config.providerRequestTimeoutMs || 12000))),
+      provider: "uta_sp500_universe"
+    });
+    const tickers = parseSp500ConstituentsHtml(html);
+    if (tickers.length < 450) {
+      throw new Error(`S&P 500 universe parse returned only ${tickers.length} tickers.`);
+    }
+    const universe = normalizeLiveUniversePayload({
+      universe_id: "sp500",
+      name: "sp500",
+      label: "S&P 500 live constituents",
+      category: "index",
+      source: "wikipedia_constituents_table",
+      last_updated: nowIso(),
+      performance_tier: "pi_bounded_full",
+      estimated_time_seconds: 240,
+      tickers
+    });
+    if (cachePath) {
+      writeJson(cachePath, universe);
+    }
+    return { ...universe, cache_state: "refreshed" };
+  } catch (error) {
+    if (cached?.tickers?.length) {
+      return {
+        ...cached,
+        cache_state: "stale_fallback",
+        universe_warning: String(error?.message || error).slice(0, 240)
+      };
+    }
+    const fallback = normalizeLiveUniversePayload(fallbackUniverse);
+    return {
+      ...fallback,
+      label: `${fallback.label || "S&P 500 sample"} fallback`,
+      source: fallback.source || "replay_fixture_fallback",
+      cache_state: "fixture_fallback",
+      universe_warning: String(error?.message || error).slice(0, 240)
+    };
+  }
 }
 
 function createLiveClock(at = new Date()) {
@@ -1084,6 +1247,110 @@ async function fetchMassiveBarSummary(config = {}, ticker = "AVGO") {
     notional_ratio: notionalMedian > 0 && latest ? latest.notional / notionalMedian : null,
     volume_zscore: robustZScore(latest?.volume, volumeMedian, mad(previous.map((bar) => bar.volume), volumeMedian)),
     notional_zscore: robustZScore(latest?.notional, notionalMedian, mad(previous.map((bar) => bar.notional), notionalMedian))
+  };
+}
+
+async function fetchMassiveGroupedDailyBars(config = {}, dates = []) {
+  const provider = config.tradePrintsProvider === "polygon" ? "polygon" : "massive";
+  const apiKey = massiveApiKey(config);
+  if (!apiKey) {
+    const error = new Error("MASSIVE_API_KEY or POLYGON_API_KEY is required for full live UTA scan.");
+    error.status = 409;
+    throw error;
+  }
+  const base = massiveBaseUrl(config, provider);
+  const timeoutMs = Math.min(15000, Math.max(1000, Number(config.marketDataRequestTimeoutMs || config.tradePrintsRequestTimeoutMs || 8000)));
+  const byTicker = new Map();
+  const attemptedDates = [];
+  const emptyDates = [];
+
+  for (const date of dates) {
+    const url = `${base}/v2/aggs/grouped/locale/us/market/stocks/${encodeURIComponent(date)}?adjusted=true&apiKey=${encodeURIComponent(apiKey)}`;
+    try {
+      const payload = await fetchPreflightJson(url, { timeoutMs, provider });
+      attemptedDates.push(date);
+      const rows = Array.isArray(payload?.results) ? payload.results : [];
+      if (!rows.length) {
+        emptyDates.push(date);
+      }
+      for (const row of rows) {
+        const ticker = normalizeTickerSymbol(row.T || row.ticker);
+        const volume = Number(row.v || 0);
+        const price = Number(row.vw || row.c || 0);
+        if (!ticker || !Number.isFinite(volume) || volume <= 0 || !Number.isFinite(price) || price <= 0) {
+          continue;
+        }
+        if (!byTicker.has(ticker)) {
+          byTicker.set(ticker, []);
+        }
+        byTicker.get(ticker).push({
+          date,
+          volume,
+          close: Number(row.c || price),
+          notional: volume * price
+        });
+      }
+    } catch (error) {
+      const status = Number(error?.status || 0);
+      if (status === 404) {
+        emptyDates.push(date);
+        continue;
+      }
+      throw error;
+    }
+  }
+
+  for (const rows of byTicker.values()) {
+    rows.sort((a, b) => String(a.date).localeCompare(String(b.date)));
+  }
+  return {
+    provider,
+    byTicker,
+    attempted_dates: attemptedDates,
+    empty_dates: emptyDates
+  };
+}
+
+function summarizeGroupedBarsForTicker(ticker, bars = [], baselineSessions = 20) {
+  const ordered = [...bars].sort((a, b) => String(a.date).localeCompare(String(b.date)));
+  const latest = ordered.at(-1) || null;
+  const previous = ordered.slice(0, -1).slice(-Math.max(1, Number(baselineSessions || 20)));
+  const volumeMedian = median(previous.map((bar) => bar.volume));
+  const notionalMedian = median(previous.map((bar) => bar.notional));
+  return {
+    ticker,
+    latest,
+    session_count: previous.length,
+    volume_ratio: volumeMedian > 0 && latest ? latest.volume / volumeMedian : null,
+    notional_ratio: notionalMedian > 0 && latest ? latest.notional / notionalMedian : null,
+    volume_zscore: robustZScore(latest?.volume, volumeMedian, mad(previous.map((bar) => bar.volume), volumeMedian)),
+    notional_zscore: robustZScore(latest?.notional, notionalMedian, mad(previous.map((bar) => bar.notional), notionalMedian))
+  };
+}
+
+function liveScanRowFromSummary(summary, direction = "bullish", label = "Preliminary - live Massive grouped daily bars") {
+  const bScore = Math.max(
+    Number(summary.volume_zscore || 0),
+    Number(summary.notional_zscore || 0)
+  );
+  const cScreen = Math.max(
+    Number(summary.volume_ratio || 0),
+    Number(summary.notional_ratio || 0)
+  );
+  return {
+    ticker: summary.ticker,
+    preliminary_tier: bScore >= 2.5 || cScreen >= 3 ? "B" : bScore >= 1.5 || cScreen >= 1.8 ? "C" : "D",
+    B_estimate: {
+      volume_zscore_from_bars: roundNumber(summary.volume_zscore, 2),
+      notional_zscore_from_bars: roundNumber(summary.notional_zscore, 2)
+    },
+    C_screen: roundNumber(cScreen, 3),
+    pass2_status: "pending",
+    label,
+    latest_bar_date: summary.latest?.date || null,
+    data_state: "live_preliminary",
+    preliminary_direction: direction,
+    baseline_sessions: summary.session_count
   };
 }
 
@@ -1728,10 +1995,37 @@ export function createUtaService({ config, store } = {}) {
 
   function getUniverses() {
     const universe = getUniverseFixture();
+    const cachedLiveUniverse = readCachedLiveUniverse(config.utaSp500UniverseCachePath);
+    const liveUniverse = cachedLiveUniverse?.tickers?.length
+      ? {
+          universe_id: cachedLiveUniverse.universe_id,
+          name: cachedLiveUniverse.name,
+          label: cachedLiveUniverse.label,
+          category: cachedLiveUniverse.category,
+          ticker_count: cachedLiveUniverse.tickers.length,
+          last_updated: cachedLiveUniverse.last_updated,
+          source: cachedLiveUniverse.source,
+          performance_tier: cachedLiveUniverse.performance_tier,
+          estimated_time_seconds: cachedLiveUniverse.estimated_time_seconds,
+          cache_state: "cached"
+        }
+      : {
+          universe_id: "sp500",
+          name: "sp500",
+          label: "S&P 500 live constituents",
+          category: "index",
+          ticker_count: null,
+          last_updated: null,
+          source: "not_cached_yet",
+          performance_tier: "pi_bounded_full",
+          estimated_time_seconds: Number(config.utaLiveScanGroupedDays || 32) + 180,
+          cache_state: "missing"
+        };
     return {
       schema_version: "uta.universes.v1",
       generated_at: new Date().toISOString(),
       universes: [
+        liveUniverse,
         {
           universe_id: universe.universe_id,
           name: universe.name,
@@ -1927,37 +2221,142 @@ export function createUtaService({ config, store } = {}) {
   }
 
   async function getLiveScan(query = {}) {
-    const universe = getUniverseFixture();
+    const fallbackUniverse = getUniverseFixture();
+    const hasExplicitTickers = Array.isArray(query.tickers)
+      ? query.tickers.length > 0
+      : String(query.tickers || "").trim().length > 0;
+    if (!hasExplicitTickers && !massiveApiKey(config)) {
+      return {
+        schema_version: "uta.scan_result.v1",
+        mode: "scan",
+        universe: fallbackUniverse.universe_id,
+        universe_label: "S&P 500 live constituents",
+        universe_ticker_count: null,
+        requested_ticker_count: null,
+        direction_filter: String(query.direction || "bullish").toLowerCase(),
+        pass: 1,
+        generated_at: new Date().toISOString(),
+        data_state: "live_manual",
+        performance_tier: "pi_bounded_full",
+        shortlist_count: 0,
+        results: [{
+          ticker: "SP500",
+          preliminary_tier: "D",
+          B_estimate: {},
+          C_screen: null,
+          pass2_status: "blocked",
+          label: "Full live scan blocked: MASSIVE_API_KEY or POLYGON_API_KEY is required.",
+          data_state: "live_unavailable"
+        }],
+        scanned_count: 0,
+        blocked_count: null,
+        scan_policy: "Automatic S&P 500 pass 1 requires Massive grouped daily bars; no replay fallback is used in live mode.",
+        scan_scope: "sp500_auto_full",
+        universe_source: "not_loaded_missing_credentials",
+        universe_cache_state: "not_loaded"
+      };
+    }
+    const universe = hasExplicitTickers
+      ? fallbackUniverse
+      : await loadLiveSp500Universe(config, fallbackUniverse);
     const direction = String(query.direction || "bullish").toLowerCase();
     const requested = parseTickerList(query.tickers, universe.tickers.map((row) => row.symbol));
-    const limit = Math.max(1, Math.min(25, Number(query.limit || query.max_tickers || requested.length || 10)));
+    const defaultLimit = hasExplicitTickers
+      ? requested.length || 10
+      : requested.length || Number(config.utaLiveScanMaxResults || 50);
+    const maxLimit = hasExplicitTickers ? 25 : Math.max(25, Number(config.utaLiveScanMaxResults || 50));
+    const limit = Math.max(1, Math.min(maxLimit, Number(query.limit || query.max_tickers || defaultLimit)));
     const tickers = requested.slice(0, limit);
     const rows = [];
+    if (!hasExplicitTickers) {
+      try {
+        const grouped = await fetchMassiveGroupedDailyBars(config, recentCalendarDates(config.utaLiveScanGroupedDays || 32));
+        const fullRows = requested.map((ticker) => {
+          const summary = summarizeGroupedBarsForTicker(ticker, grouped.byTicker.get(ticker) || [], config.utaLiveScanBaselineSessions || 20);
+          return summary.latest && summary.session_count >= Math.min(10, Number(config.utaLiveScanBaselineSessions || 20))
+            ? liveScanRowFromSummary(summary, direction)
+            : {
+                ticker,
+                preliminary_tier: "D",
+                B_estimate: {},
+                C_screen: null,
+                pass2_status: "blocked",
+                label: "Live scan blocked: insufficient grouped bar history",
+                latest_bar_date: summary.latest?.date || null,
+                data_state: "live_unavailable",
+                preliminary_direction: direction,
+                baseline_sessions: summary.session_count
+              };
+        });
+        rows.push(...fullRows);
+        const shortlistLimit = Math.max(1, Math.min(25, Number(query.shortlist_limit || config.utaLiveScanShortlistLimit || 10)));
+        const ranked = rows
+          .filter((row) => row.pass2_status === "pending")
+          .sort((a, b) => Math.abs(Number(b.C_screen || 0)) - Math.abs(Number(a.C_screen || 0)));
+        return {
+          schema_version: "uta.scan_result.v1",
+          mode: "scan",
+          universe: universe.universe_id,
+          universe_label: universe.label,
+          universe_ticker_count: requested.length,
+          requested_ticker_count: requested.length,
+          direction_filter: direction,
+          pass: 1,
+          generated_at: new Date().toISOString(),
+          data_state: "live_manual",
+          performance_tier: universe.performance_tier || "pi_bounded_full",
+          shortlist_count: Math.min(shortlistLimit, ranked.length),
+          results: ranked.slice(0, shortlistLimit),
+          scanned_count: rows.length,
+          blocked_count: rows.filter((row) => row.pass2_status === "blocked").length,
+          scan_policy: "Automatic S&P 500 pass 1 uses Massive grouped daily bars; pass 2 fetches trade prints only for the shortlist.",
+          scan_scope: "sp500_auto_full",
+          universe_source: universe.source,
+          universe_cache_state: universe.cache_state || "unknown",
+          universe_warning: universe.universe_warning || null,
+          grouped_bar_dates: grouped.attempted_dates,
+          grouped_empty_dates: grouped.empty_dates
+        };
+      } catch (error) {
+        rows.push({
+          ticker: "SP500",
+          preliminary_tier: "D",
+          B_estimate: {},
+          C_screen: null,
+          pass2_status: "blocked",
+          label: `Full live scan blocked: ${error.message}`,
+          data_state: "live_unavailable",
+          preliminary_direction: direction
+        });
+        return {
+          schema_version: "uta.scan_result.v1",
+          mode: "scan",
+          universe: universe.universe_id,
+          universe_label: universe.label,
+          universe_ticker_count: requested.length,
+          requested_ticker_count: requested.length,
+          direction_filter: direction,
+          pass: 1,
+          generated_at: new Date().toISOString(),
+          data_state: "live_manual",
+          performance_tier: universe.performance_tier || "pi_bounded_full",
+          shortlist_count: 0,
+          results: rows,
+          scanned_count: 0,
+          blocked_count: requested.length,
+          scan_policy: "Automatic S&P 500 pass 1 requires Massive grouped daily bars; no replay fallback is used in live mode.",
+          scan_scope: "sp500_auto_full",
+          universe_source: universe.source,
+          universe_cache_state: universe.cache_state || "unknown",
+          universe_warning: universe.universe_warning || null
+        };
+      }
+    }
+
     for (const ticker of tickers) {
       try {
         const summary = await fetchMassiveBarSummary(config, ticker);
-        const directionMultiplier = direction === "bearish" ? -1 : 1;
-        const bScore = Math.max(
-          Number(summary.volume_zscore || 0),
-          Number(summary.notional_zscore || 0)
-        );
-        const cScreen = Math.max(
-          Number(summary.volume_ratio || 0),
-          Number(summary.notional_ratio || 0)
-        );
-        rows.push({
-          ticker,
-          preliminary_tier: bScore >= 2.5 || cScreen >= 3 ? "B" : bScore >= 1.5 || cScreen >= 1.8 ? "C" : "D",
-          B_estimate: {
-            volume_zscore_from_bars: roundNumber(summary.volume_zscore, 2),
-            notional_zscore_from_bars: roundNumber(summary.notional_zscore, 2)
-          },
-          C_screen: roundNumber(directionMultiplier * cScreen, 3),
-          pass2_status: "pending",
-          label: "Preliminary - live Massive bars only",
-          latest_bar_date: summary.latest?.date || null,
-          data_state: "live_preliminary"
-        });
+        rows.push(liveScanRowFromSummary(summary, direction, "Preliminary - live Massive per-ticker bars"));
       } catch (error) {
         rows.push({
           ticker,
@@ -1989,7 +2388,10 @@ export function createUtaService({ config, store } = {}) {
       shortlist_count: shortlist.length,
       results: shortlist.length ? shortlist : rows.slice(0, 5),
       scanned_count: rows.length,
-      scan_policy: "Pass 1 uses Massive daily bars only; pass 2 fetches trade prints for the shortlist."
+      blocked_count: rows.filter((row) => row.pass2_status === "blocked").length,
+      scan_policy: "Custom pass 1 uses Massive per-ticker daily bars; pass 2 fetches trade prints for the shortlist.",
+      scan_scope: "custom_ticker_list",
+      universe_source: universe.source
     };
   }
 
