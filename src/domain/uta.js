@@ -1367,6 +1367,152 @@ function liveScanRowFromSummary(summary, direction = "bullish", label = "Prelimi
   };
 }
 
+function directionPhrase(direction) {
+  return {
+    bullish: "buyer-side pressure",
+    bearish: "seller-side pressure",
+    neutral: "balanced signed flow",
+    undetermined: "undetermined signed flow"
+  }[direction] || "undetermined signed flow";
+}
+
+function bandFromMetrics(indicators = {}) {
+  const b = indicators.B || {};
+  const c = indicators.C || {};
+  const peakB = Math.max(
+    Number(b.volume_zscore || 0),
+    Number(b.notional_zscore || 0),
+    Number(b.focus_notional_share_zscore || 0),
+    Math.abs(Number(b.net_notional_pressure_zscore || 0))
+  );
+  const peakRatio = Math.max(Number(c.volume_ratio || 0), Number(c.notional_ratio || 0));
+  if (peakB >= 3.5 || peakRatio >= 5) return "Extreme";
+  if (peakB >= 2.5 || peakRatio >= 3) return "Unusual";
+  if (peakB >= 1.5 || peakRatio >= 1.8) return "Elevated";
+  return "Normal";
+}
+
+function buildTradeAnalysis({ ticker, classifier, indicators, signing, blocks, baseline, inputs, latestBar }) {
+  const c = indicators.C || {};
+  const b = indicators.B || {};
+  const direction = classifier.direction || signing.direction || "undetermined";
+  const pressure = Number(signing.net_notional_pressure || 0);
+  const absPressure = Math.abs(pressure);
+  const confidence = Number(signing.signing_confidence || 0);
+  const ready = baseline?.state === "ready" && inputs.trades.length > 0;
+  const directional = ["bullish", "bearish"].includes(direction) && absPressure >= 0.15 && confidence >= 0.45;
+  const tierRankValue = tierRank(classifier.tier);
+  const setupStatus = !ready
+    ? "blocked"
+    : directional && tierRankValue >= tierRank("B")
+      ? "review_candidate"
+      : directional && tierRankValue >= tierRank("C")
+        ? "watch_only"
+        : "no_directional_setup";
+  const bias = directional ? direction : "neutral";
+  const volumeRatio = Number(c.volume_ratio || 0);
+  const notionalRatio = Number(c.notional_ratio || 0);
+  const focusCount = Number(c.focus_trade_count || 0);
+  const focusShare = Number(c.focus_notional_share || 0);
+  const totalNotional = Number(c.total_notional || 0);
+  const focusNotional = Number(c.focus_notional || 0);
+  const latestClose = Number(latestBar?.close || 0);
+  const setupCopy = {
+    blocked: "Do not analyze as a trade setup yet. Required live evidence is missing or below threshold.",
+    no_directional_setup: "No directional UTA trade setup right now. Activity is not strong or directional enough.",
+    watch_only: "Watch-only setup. Flow is directional, but evidence is not strong enough for a review candidate.",
+    review_candidate: "Review candidate. UTA evidence is directional and unusual enough to inspect with price, risk, and catalyst context."
+  }[setupStatus];
+  const why = directional
+    ? `${ticker} shows ${directionPhrase(direction)} with ${roundNumber(pressure * 100, 1)}% net signed notional pressure and ${roundNumber(confidence * 100, 0)}% signing confidence.`
+    : `${ticker} does not show a directional signed-flow edge: net signed notional pressure is ${roundNumber(pressure * 100, 1)}% with ${roundNumber(confidence * 100, 0)}% signing confidence.`;
+  return {
+    schema_version: "uta.trade_analysis.v1",
+    bias,
+    setup_status: setupStatus,
+    verdict: setupCopy,
+    evidence_grade: classifier.tier,
+    anomaly_band: bandFromMetrics(indicators),
+    confidence: roundNumber(confidence, 3),
+    pressure: {
+      direction,
+      net_notional_pressure: roundNumber(pressure, 3),
+      net_volume_pressure: roundNumber(signing.net_volume_pressure, 3),
+      signing_confidence: roundNumber(confidence, 3),
+      interpretation: why
+    },
+    activity: {
+      latest_bar_date: latestBar?.date || null,
+      latest_close: Number.isFinite(latestClose) && latestClose > 0 ? roundNumber(latestClose, 2) : null,
+      volume_ratio: roundNumber(volumeRatio, 3),
+      notional_ratio: roundNumber(notionalRatio, 3),
+      volume_zscore: roundNumber(b.volume_zscore, 2),
+      notional_zscore: roundNumber(b.notional_zscore, 2),
+      total_notional: roundNumber(totalNotional, 2),
+      analyzed_prints: inputs.trades.length,
+      baseline_sessions: baseline?.session_count || 0
+    },
+    block_flow: {
+      focus_trade_count: focusCount,
+      focus_notional: roundNumber(focusNotional, 2),
+      focus_notional_share: roundNumber(focusShare, 3),
+      largest_print_notional: roundNumber(c.largest_print_notional, 2),
+      largest_print_multiple: roundNumber(c.largest_print_multiple, 2),
+      trf_share: roundNumber(blocks.trf_share, 3)
+    },
+    trade_boundaries: [
+      "UTA is supporting evidence only; it is not a buy/sell instruction.",
+      "Direction is signed-flow based, not price based.",
+      "Check price structure, catalyst, liquidity, risk, and portfolio constraints before any trade workflow.",
+      classifier.tier === "D" ? "Tier D means no actionable UTA evidence for this cycle." : "Only Tier A/B with aligned risk context should advance to human review."
+    ]
+  };
+}
+
+function buildLiveBluf({ ticker, classifier, indicators, signing, blocks, baseline, inputs }) {
+  const trade = buildTradeAnalysis({
+    ticker,
+    classifier,
+    indicators,
+    signing,
+    blocks,
+    baseline,
+    inputs,
+    latestBar: inputs.bars.at(-1)
+  });
+  const c = indicators.C || {};
+  const b = indicators.B || {};
+  const direction = trade.pressure.direction;
+  const pressurePct = roundNumber(Number(trade.pressure.net_notional_pressure || 0) * 100, 1);
+  const directionLabel = direction === "bullish" ? "Bullish flow" : direction === "bearish" ? "Bearish flow" : "No directional edge";
+  const headline = `${ticker} - ${directionLabel} - Tier ${classifier.tier} (${trade.anomaly_band})`;
+  const focusText = Number(c.focus_trade_count || 0) > 0
+    ? `${c.focus_trade_count} focus prints totaling ${formatUsd(c.focus_notional)} (${roundNumber(Number(c.focus_notional_share || 0) * 100, 1)}% of analyzed notional)`
+    : "no focus/block prints above the configured floor";
+  return {
+    trade,
+    bluf: {
+      headline,
+      what_happened: `${inputs.trades.length} live Massive prints and ${inputs.bars.length} daily bars were analyzed. Volume is ${roundNumber(c.volume_ratio, 2) ?? "N/A"}x baseline, notional is ${roundNumber(c.notional_ratio, 2) ?? "N/A"}x baseline, with ${focusText}.`,
+      why_it_matters: direction === "neutral" || direction === "undetermined"
+        ? `The activity does not currently resolve into a trade bias: signed notional pressure is ${pressurePct}% and confidence is ${roundNumber(signing.signing_confidence * 100, 0)}%. This is a monitoring state, not a bullish/bearish setup.`
+        : `Signed order flow is ${direction}: net notional pressure is ${pressurePct}% with ${roundNumber(signing.signing_confidence * 100, 0)}% signing confidence. B-score peak is ${roundNumber(Math.max(Number(b.volume_zscore || 0), Number(b.notional_zscore || 0)), 2)} sigma.`,
+      what_to_check: trade.setup_status === "review_candidate"
+        ? "Before trade review: confirm price structure/VWAP, catalyst, spread/liquidity, risk box, and whether the move is continuation or exhaustion."
+        : "Watch for a new live cycle with stronger signed pressure, larger focus-print share, provider alerts, options confirmation, or a catalyst before treating this as trade evidence.",
+      limitations: "This is UTA evidence only, not a trade instruction. It does not know your entry, stop, account risk, news context, or portfolio exposure."
+    }
+  };
+}
+
+function formatUsd(value) {
+  const numeric = Number(value || 0);
+  if (Math.abs(numeric) >= 1_000_000_000) return `$${roundNumber(numeric / 1_000_000_000, 2)}B`;
+  if (Math.abs(numeric) >= 1_000_000) return `$${roundNumber(numeric / 1_000_000, 1)}M`;
+  if (Math.abs(numeric) >= 1_000) return `$${roundNumber(numeric / 1_000, 1)}K`;
+  return `$${Math.round(numeric)}`;
+}
+
 function liveLaneStates(registry = [], { trades = [], bars = [], reference = null, clock = createLiveClock() } = {}) {
   const latestTrade = trades.at(-1)?.ts || null;
   const latestBar = bars.at(-1)?.date ? `${bars.at(-1).date}T00:00:00.000Z` : null;
@@ -1471,6 +1617,7 @@ async function buildLiveManualPayload(ticker, context = {}) {
     corroboration: { independent_confirmation_count: 0, provider_alert_confirmed: false },
     signing
   });
+  const interpretation = buildLiveBluf({ ticker, classifier, indicators, signing, blocks, baseline, inputs });
   const generatedAt = clock.iso();
   const payload = {
     schema_version: "uta.ticker_result.v1",
@@ -1486,34 +1633,50 @@ async function buildLiveManualPayload(ticker, context = {}) {
     signing_confidence: signing.signing_confidence,
     indicators,
     lane_states: laneStates,
-    bluf: {
-      headline: `${ticker} live manual UTA sample - Tier ${classifier.tier}`,
-      what_happened: `${inputs.trades.length} recent Massive prints and ${inputs.bars.length} daily bars were fetched for a manual live calculation.`,
-      why_it_matters: "This is the first non-replay path. It uses real provider samples but remains manual until replay/live parity is accepted.",
-      what_to_check: "Validate prints, bars, lane states, and tier explanation before treating this as production signal evidence.",
-      limitations: "Trade sample depth, entitlement delay, and lack of independent corroboration can cap or suppress the tier."
-    },
+    bluf: interpretation.bluf,
+    trade_analysis: interpretation.trade,
     evidence_cards: [
       {
         id: "live_volume",
-        title: "Live Volume Baseline",
+        title: "Volume / Notional Anomaly",
         status: baseline.state === "ready" ? "ready" : "unavailable",
-        headline_metric: `${roundNumber(indicators.B.volume_zscore, 2) ?? "N/A"} sigma`,
-        summary: `${baseline.session_count} historical daily sessions used from Massive bars.`
+        headline_metric: `${roundNumber(indicators.C.notional_ratio, 2) ?? "N/A"}x notional`,
+        summary: `${baseline.session_count} baseline sessions. Volume ${roundNumber(indicators.C.volume_ratio, 2) ?? "N/A"}x, notional ${roundNumber(indicators.C.notional_ratio, 2) ?? "N/A"}x; B notional ${roundNumber(indicators.B.notional_zscore, 2) ?? "N/A"} sigma.`
       },
       {
         id: "live_trade_prints",
-        title: "Massive Trade Prints",
+        title: "Trade Print Sample",
         status: inputs.trades.length ? "ready" : "unavailable",
         headline_metric: `$${Math.round((signing.total_notional || 0) / 1_000_000)}M`,
-        summary: `${normalized.summary.eligible_prints} eligible prints after condition-code policy. Daily bar volume/notional drives B; prints drive signed pressure and focus evidence.`
+        summary: `${normalized.summary.eligible_prints} eligible prints after condition-code policy. Prints drive signed pressure and focus evidence; daily bars drive volume/notional baseline.`
       },
       {
         id: "signed_flow",
         title: "Signed Flow",
         status: signing.total_notional > 0 ? "ready" : "unavailable",
         headline_metric: `${roundNumber((signing.net_notional_pressure || 0) * 100, 1)}%`,
-        summary: "Direction is derived from signed flow, not price movement."
+        summary: `${directionPhrase(signing.direction)} from quote/tick signing. Confidence ${roundNumber(signing.signing_confidence * 100, 0)}%. Direction is never inferred from price.`
+      },
+      {
+        id: "block_flow",
+        title: "Block / Off-Exchange Focus",
+        status: blocks.focus_trade_count > 0 ? "ready" : "unavailable",
+        headline_metric: `${blocks.focus_trade_count} prints`,
+        summary: `${formatUsd(blocks.focus_notional)} focus notional, ${roundNumber((blocks.focus_notional_share || 0) * 100, 1)}% share, largest print ${formatUsd(blocks.largest_print_notional)}.`
+      },
+      {
+        id: "trade_readiness",
+        title: "Trade Readiness",
+        status: interpretation.trade.setup_status === "review_candidate" ? "ready" : "disabled",
+        headline_metric: interpretation.trade.setup_status.replaceAll("_", " "),
+        summary: interpretation.trade.verdict
+      },
+      {
+        id: "boundaries",
+        title: "Risk / Interpretation Boundaries",
+        status: "ready",
+        headline_metric: "supporting evidence",
+        summary: interpretation.trade.trade_boundaries.join(" ")
       }
     ],
     explain_tier: classifier.explain_tier,

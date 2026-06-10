@@ -402,6 +402,76 @@ td {
   gap: 10px;
 }
 
+.trade-analysis {
+  display: grid;
+  gap: 13px;
+  border-color: rgba(116, 167, 255, 0.38);
+}
+
+.trade-analysis.bullish {
+  border-color: rgba(52, 211, 131, 0.5);
+}
+
+.trade-analysis.bearish {
+  border-color: rgba(255, 109, 109, 0.52);
+}
+
+.trade-verdict-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.trade-verdict-row h2 {
+  margin-bottom: 7px;
+  font-size: 22px;
+}
+
+.trade-verdict-row p {
+  max-width: 820px;
+  margin-bottom: 0;
+}
+
+.trade-verdict-tags {
+  display: flex;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.trade-analysis-body {
+  display: grid;
+  grid-template-columns: minmax(0, 1.1fr) minmax(300px, 0.9fr);
+  gap: 12px;
+}
+
+.trade-analysis-body > div {
+  min-width: 0;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--panel-2);
+  padding: 12px;
+}
+
+.trade-analysis-body h3 {
+  margin-bottom: 8px;
+}
+
+.trade-analysis-body p {
+  margin-bottom: 0;
+}
+
+.trade-analysis-body ul {
+  margin: 0;
+  padding-left: 18px;
+  color: var(--soft);
+}
+
+.trade-analysis-body li + li {
+  margin-top: 6px;
+}
+
 .two-column,
 .runtime-grid {
   display: grid;

@@ -65,6 +65,41 @@ type UtaTickerResult = {
     what_to_check: string;
     limitations: string;
   };
+  trade_analysis?: {
+    bias: string;
+    setup_status: string;
+    verdict: string;
+    evidence_grade: string;
+    anomaly_band: string;
+    confidence: number;
+    pressure: {
+      direction: string;
+      net_notional_pressure: number;
+      net_volume_pressure?: number;
+      signing_confidence: number;
+      interpretation: string;
+    };
+    activity: {
+      latest_bar_date?: string | null;
+      latest_close?: number | null;
+      volume_ratio?: number | null;
+      notional_ratio?: number | null;
+      volume_zscore?: number | null;
+      notional_zscore?: number | null;
+      total_notional?: number | null;
+      analyzed_prints?: number;
+      baseline_sessions?: number;
+    };
+    block_flow: {
+      focus_trade_count?: number;
+      focus_notional?: number | null;
+      focus_notional_share?: number | null;
+      largest_print_notional?: number | null;
+      largest_print_multiple?: number | null;
+      trf_share?: number | null;
+    };
+    trade_boundaries?: string[];
+  };
   evidence_cards: EvidenceCard[];
   explain_tier: {
     mode?: string;
@@ -476,6 +511,57 @@ function IndicatorGrid({ data, portfolioMode = false }: { data: UtaTickerResult;
   );
 }
 
+function toneForBias(bias?: string) {
+  if (bias === "bullish") return "good";
+  if (bias === "bearish") return "bad";
+  if (bias === "neutral") return "neutral";
+  return "warn";
+}
+
+function TradeAnalysisPanel({ data }: { data: UtaTickerResult }) {
+  const analysis = data.trade_analysis;
+  if (!analysis) {
+    return null;
+  }
+  return (
+    <section className={`panel trade-analysis ${analysis.bias || "neutral"}`}>
+      <SectionHeader title="Trade Analysis" meta="UTA supporting evidence" />
+      <div className="trade-verdict-row">
+        <div>
+          <span className="crumb">Bias</span>
+          <h2>{analysis.bias === "neutral" ? "No directional UTA setup" : `${analysis.bias.toUpperCase()} flow setup`}</h2>
+          <p>{analysis.verdict}</p>
+        </div>
+        <div className="trade-verdict-tags">
+          <Pill tone={toneForBias(analysis.bias)}>{analysis.bias}</Pill>
+          <Pill tone={analysis.setup_status === "review_candidate" ? "good" : analysis.setup_status === "watch_only" ? "warn" : "neutral"}>
+            {analysis.setup_status.replaceAll("_", " ")}
+          </Pill>
+          <Pill tone="neutral">{analysis.anomaly_band}</Pill>
+        </div>
+      </div>
+      <div className="metric-grid four">
+        <MetricTile label="Signed pressure" value={`${fmtNumber(Number(analysis.pressure.net_notional_pressure) * 100, 1)}%`} detail={analysis.pressure.direction} />
+        <MetricTile label="Confidence" value={fmtPct(analysis.pressure.signing_confidence)} detail="print signing" />
+        <MetricTile label="Volume / notional" value={`${fmtNumber(analysis.activity.volume_ratio, 2)}x / ${fmtNumber(analysis.activity.notional_ratio, 2)}x`} detail={`${analysis.activity.baseline_sessions || 0} baseline sessions`} />
+        <MetricTile label="Focus prints" value={analysis.block_flow.focus_trade_count ?? 0} detail={`${fmtMoney(analysis.block_flow.focus_notional)} focus notional`} />
+      </div>
+      <div className="trade-analysis-body">
+        <div>
+          <h3>Interpretation</h3>
+          <p>{analysis.pressure.interpretation}</p>
+        </div>
+        <div>
+          <h3>Boundaries</h3>
+          <ul>
+            {(analysis.trade_boundaries || []).slice(0, 4).map((item) => <li key={item}>{item}</li>)}
+          </ul>
+        </div>
+      </div>
+    </section>
+  );
+}
+
 function LaneHealth({ lanes, onRefresh }: { lanes: LaneState[]; onRefresh?: (lane: LaneState) => void }) {
   return (
     <section className="panel">
@@ -671,6 +757,7 @@ function TickerDetail({
         </div>
       </section>
 
+      <TradeAnalysisPanel data={data} />
       <div className="two-column">
         <EvidenceCards cards={data.evidence_cards || []} />
         <LaneHealth lanes={data.lane_states || []} onRefresh={onRefreshLane} />
