@@ -401,14 +401,17 @@ function MetricTile({ label, value, detail }: { label: string; value: React.Reac
 
 function StatusStrip({ data }: { data: UtaTickerResult }) {
   const warnings = invariantWarnings(data);
+  const replayBacked = data.calculation_metadata.source_mode === "replay" || data.data_state === "replay";
   return (
     <section className={`status-strip ${warnings.length ? "error" : "ok"}`}>
       <div>
-        <strong>{warnings.length ? "Invariant warning" : "Policy check"}</strong>
+        <strong>{warnings.length ? "Invariant warning" : replayBacked ? "Replay-backed analysis" : "Live analysis"}</strong>
         <span>
           {warnings.length
             ? warnings.join(" ")
-            : `Loaded ${data.ticker} from ${data.calculation_metadata.source_mode}. Direction source: ${data.calculation_metadata.direction_source}.`}
+            : replayBacked
+              ? `Displayed tier/evidence comes from the replay engine. Direction source: ${data.calculation_metadata.direction_source}. Massive provider readiness is shown in Runtime and does not yet replace these calculations.`
+              : `Loaded ${data.ticker} from ${data.calculation_metadata.source_mode}. Direction source: ${data.calculation_metadata.direction_source}.`}
         </span>
       </div>
       <Pill tone={data.data_state === "replay" ? "warn" : "good"}>{data.data_state}</Pill>
@@ -967,8 +970,20 @@ function RuntimeMode({
 }) {
   const status = runtime.data;
   const providerStatus = providers.data || status?.provider_status;
+  const liveReady = Boolean(providerStatus?.live_ready);
   return (
     <section className="mode-stack">
+      <section className={`status-strip ${liveReady ? "ok" : "error"}`}>
+        <div>
+          <strong>{liveReady ? "Live providers ready" : "Replay-first mode"}</strong>
+          <span>
+            {liveReady
+              ? "Massive-required lanes are configured for manual validation. Tier calculations remain replay-backed until the live UTA analysis gate is implemented."
+              : "The dashboard is not yet a live Massive signal engine. Configure all required providers, then run manual live parity before promoting live results."}
+          </span>
+        </div>
+        <Pill tone={liveReady ? "good" : "warn"}>{providerStatus?.mode || "replay_first"}</Pill>
+      </section>
       <div className="runtime-grid">
         <section className="panel">
           <SectionHeader title="Runtime" meta={status?.mode || runtime.status} />
@@ -1014,7 +1029,7 @@ function RuntimeMode({
         <section className="panel">
           <SectionHeader
             title="Provider Readiness"
-            meta={providerStatus?.live_ready ? "live ready" : providers.status}
+            meta={providerStatus?.live_ready ? "manual live ready" : providers.status}
           />
           <div className="metric-grid three">
             <MetricTile
@@ -1261,10 +1276,15 @@ function App() {
     <main className="uta-shell">
       <header className="uta-topbar">
         <div>
-          <span className="crumb">UTA / replay-first runtime</span>
+          <span className="crumb">
+            UTA / {providers.data?.live_ready ? "Massive ready, replay analysis" : "replay-first runtime"}
+          </span>
           <h1>Unusual Trading Activity Agent</h1>
         </div>
         <div className="topbar-meta">
+          <Pill tone={providers.data?.live_ready ? "good" : "warn"}>
+            {providers.data?.live_ready ? "Massive ready" : "Massive gated"}
+          </Pill>
           <Pill tone={runtime.data?.lane_pressure.required_not_ready ? "warn" : "good"}>
             required lanes {runtime.data?.lane_pressure.required_not_ready ?? 0}
           </Pill>

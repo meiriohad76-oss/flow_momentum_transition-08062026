@@ -705,10 +705,10 @@ function buildProviderReadiness(config = {}, registry = []) {
       lane_id: "massive_daily_bars",
       provider_family: "bars",
       provider: marketProvider,
-      enabled: Boolean(config.autonomousDataEnabled),
-      credential: { env_names: ["MARKET_DATA_PROVIDER"], configured: marketConfigured },
+      enabled: marketProvider !== "synthetic",
+      credential: { env_names: ["MARKET_DATA_PROVIDER", "MASSIVE_API_KEY", "POLYGON_API_KEY"], configured: marketConfigured },
       fallback_state: marketConfigured ? "stale" : "unavailable",
-      operator_copy_ready: "Market-data bars provider is configured for baseline and trend lanes.",
+      operator_copy_ready: "Market-data bars provider is configured for manual baseline and trend validation.",
       operator_copy_missing: "Daily bars need a non-synthetic market-data provider before live baselines can be trusted."
     },
     {
