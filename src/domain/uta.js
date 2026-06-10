@@ -1263,6 +1263,7 @@ async function fetchMassiveGroupedDailyBars(config = {}, dates = []) {
   const byTicker = new Map();
   const attemptedDates = [];
   const emptyDates = [];
+  const failedDates = [];
 
   for (const date of dates) {
     const url = `${base}/v2/aggs/grouped/locale/us/market/stocks/${encodeURIComponent(date)}?adjusted=true&apiKey=${encodeURIComponent(apiKey)}`;
@@ -1296,8 +1297,19 @@ async function fetchMassiveGroupedDailyBars(config = {}, dates = []) {
         emptyDates.push(date);
         continue;
       }
-      throw error;
+      failedDates.push({
+        date,
+        error: String(error?.message || error).slice(0, 180)
+      });
     }
+  }
+
+  if (!byTicker.size) {
+    const error = new Error(failedDates.length
+      ? `Massive grouped bars failed for all attempted dates; last error: ${failedDates.at(-1)?.error}`
+      : "Massive grouped bars returned no usable rows.");
+    error.status = 502;
+    throw error;
   }
 
   for (const rows of byTicker.values()) {
@@ -1307,7 +1319,8 @@ async function fetchMassiveGroupedDailyBars(config = {}, dates = []) {
     provider,
     byTicker,
     attempted_dates: attemptedDates,
-    empty_dates: emptyDates
+    empty_dates: emptyDates,
+    failed_dates: failedDates
   };
 }
 
@@ -2321,7 +2334,8 @@ export function createUtaService({ config, store } = {}) {
           universe_cache_state: universe.cache_state || "unknown",
           universe_warning: universe.universe_warning || null,
           grouped_bar_dates: grouped.attempted_dates,
-          grouped_empty_dates: grouped.empty_dates
+          grouped_empty_dates: grouped.empty_dates,
+          grouped_failed_dates: grouped.failed_dates
         };
       } catch (error) {
         rows.push({
