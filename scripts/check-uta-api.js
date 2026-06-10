@@ -87,6 +87,11 @@ try {
   assert(scan.payload.results[0].pass2_status === "pending", "Scan pass 1 should be pending.");
   assert(scan.payload.runtime_cycle?.mode === "scan_pass1", "Scan pass 1 should expose runtime cycle metadata.");
 
+  const liveWithoutCredentials = await readJson(baseUrl, "/api/uta/single?ticker=MSFT&source=live");
+  assert(liveWithoutCredentials.response.status === 409, "Live UTA without provider credentials should return 409.");
+  assert(liveWithoutCredentials.payload.error === "live_uta_unavailable", "Live UTA should fail explicitly instead of replaying a fixture.");
+  assert(liveWithoutCredentials.payload.ticker === "MSFT", "Live UTA error should preserve the requested ticker.");
+
   const refresh = await readJson(baseUrl, "/api/uta/lanes/massive_live_trade_slices/refresh", { method: "POST" });
   assert(refresh.payload.ok === true, "Lane refresh should return ok.");
 

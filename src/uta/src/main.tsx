@@ -242,6 +242,7 @@ type LoadState<T> =
   | { status: "ready"; data: T; message?: string };
 
 type Mode = "single" | "portfolio" | "scan" | "alerts" | "runtime";
+type SingleSourceMode = "replay" | "live";
 
 const DEFAULT_PORTFOLIO = ["AVGO", "NVDA", "MSFT"];
 
@@ -631,14 +632,18 @@ function TickerDetail({
 function SingleMode({
   data,
   history,
+  sourceMode,
   onAnalyze,
+  onSourceModeChange,
   onRefreshLane,
   onRevalidate,
   onWatchlist
 }: {
   data: LoadState<UtaTickerResult>;
   history: HistoryResult | null;
-  onAnalyze: (ticker: string) => void;
+  sourceMode: SingleSourceMode;
+  onAnalyze: (ticker: string, sourceMode: SingleSourceMode) => void;
+  onSourceModeChange: (sourceMode: SingleSourceMode) => void;
   onRefreshLane: (lane: LaneState) => void;
   onRevalidate: () => void;
   onWatchlist: () => void;
@@ -648,10 +653,19 @@ function SingleMode({
     <section className="mode-stack">
       <form className="command-bar" onSubmit={(event: FormEvent<HTMLFormElement>) => {
         event.preventDefault();
-        onAnalyze(ticker.trim().toUpperCase() || "AVGO");
+        onAnalyze(ticker.trim().toUpperCase() || "AVGO", sourceMode);
       }}>
         <label htmlFor="single-ticker">Ticker</label>
         <input id="single-ticker" value={ticker} onChange={(event) => setTicker(event.target.value)} autoComplete="off" />
+        <label htmlFor="single-source">Source</label>
+        <select
+          id="single-source"
+          value={sourceMode}
+          onChange={(event) => onSourceModeChange(event.target.value as SingleSourceMode)}
+        >
+          <option value="replay">Replay fixture</option>
+          <option value="live">Live manual Massive</option>
+        </select>
         <button type="submit">Analyze</button>
       </form>
       {data.status === "loading" ? <section className="panel muted-panel">{data.message}</section> : null}
@@ -1088,6 +1102,7 @@ function RuntimeMode({
 function App() {
   const [mode, setMode] = useState<Mode>("single");
   const [activeTicker, setActiveTicker] = useState("AVGO");
+  const [singleSourceMode, setSingleSourceMode] = useState<SingleSourceMode>("replay");
   const [single, setSingle] = useState<LoadState<UtaTickerResult>>({ status: "idle" });
   const [portfolio, setPortfolio] = useState<LoadState<PortfolioResult>>({ status: "idle" });
   const [scan, setScan] = useState<LoadState<ScanResult>>({ status: "idle" });
@@ -1102,11 +1117,12 @@ function App() {
   const activeData = single.data;
   const watchlistCount = userState?.state.watchlist?.length || 0;
 
-  async function loadSingle(ticker = activeTicker) {
+  async function loadSingle(ticker = activeTicker, sourceMode = singleSourceMode) {
     const normalized = ticker.trim().toUpperCase() || "AVGO";
     setActiveTicker(normalized);
-    setSingle((current) => ({ status: "loading", data: current.data, message: `Loading ${normalized}...` }));
-    const data = await apiGet<UtaTickerResult>(`/api/uta/single?ticker=${encodeURIComponent(normalized)}`);
+    setSingleSourceMode(sourceMode);
+    setSingle((current) => ({ status: "loading", data: current.data, message: `Loading ${normalized} from ${sourceMode}...` }));
+    const data = await apiGet<UtaTickerResult>(`/api/uta/single?ticker=${encodeURIComponent(normalized)}&source=${encodeURIComponent(sourceMode)}`);
     setSingle({ status: "ready", data });
     const nextHistory = await apiGet<HistoryResult>(`/api/uta/history?ticker=${encodeURIComponent(normalized)}&limit=20`);
     setHistory(nextHistory);
@@ -1153,12 +1169,12 @@ function App() {
 
   async function refreshLane(lane: LaneState) {
     await apiPost(`/api/uta/lanes/${encodeURIComponent(lane.lane_id)}/refresh`, {});
-    await loadSingle(activeTicker);
+    await loadSingle(activeTicker, singleSourceMode);
   }
 
   async function revalidateActive() {
-    setSingle((current) => ({ status: "loading", data: current.data, message: `Revalidating ${activeTicker}...` }));
-    const data = await apiPost<UtaTickerResult>("/api/uta/revalidate", { ticker: activeTicker });
+    setSingle((current) => ({ status: "loading", data: current.data, message: `Revalidating ${activeTicker} from ${singleSourceMode}...` }));
+    const data = await apiPost<UtaTickerResult>("/api/uta/revalidate", { ticker: activeTicker, source: singleSourceMode });
     setSingle({ status: "ready", data });
     await loadRuntime();
   }
@@ -1264,13 +1280,15 @@ function App() {
       <SingleMode
         data={single}
         history={history}
-        onAnalyze={(ticker) => loadSingle(ticker).catch((error) => setSingle({ status: "error", message: error.message }))}
+        sourceMode={singleSourceMode}
+        onAnalyze={(ticker, sourceMode) => loadSingle(ticker, sourceMode).catch((error) => setSingle({ status: "error", data: single.data, message: error.message }))}
+        onSourceModeChange={setSingleSourceMode}
         onRefreshLane={(lane) => refreshLane(lane).catch((error) => setSingle({ status: "error", data: single.data, message: error.message }))}
         onRevalidate={() => revalidateActive().catch((error) => setSingle({ status: "error", data: single.data, message: error.message }))}
         onWatchlist={() => toggleWatchlist().catch((error) => setRuntime({ status: "error", data: runtime.data, message: error.message }))}
       />
     );
-  }, [mode, single, portfolio, scan, pass2, runtime, providers, scheduler, history, stream, activeTicker, userState]);
+  }, [mode, single, portfolio, scan, pass2, runtime, providers, scheduler, history, stream, activeTicker, singleSourceMode, userState]);
 
   return (
     <main className="uta-shell">

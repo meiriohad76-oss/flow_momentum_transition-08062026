@@ -881,6 +881,20 @@ function dateDaysAgo(days) {
   return new Date(Date.now() - Math.max(1, Number(days || 1)) * 86_400_000).toISOString().slice(0, 10);
 }
 
+function createLiveClock(at = new Date()) {
+  const date = new Date(at);
+  const ms = date.getTime();
+  return {
+    now: () => ms,
+    iso: () => date.toISOString(),
+    date: () => dateOnly(date.toISOString()),
+    metadata: () => ({
+      source_mode: "live_manual",
+      live_clock: date.toISOString()
+    })
+  };
+}
+
 async function fetchPreflightJson(url, { timeoutMs = 8000, provider = "massive" } = {}) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
@@ -956,6 +970,231 @@ async function runMassivePreflightSample(providerCheck, config = {}, ticker = "A
       error: message.slice(0, 240)
     };
   }
+}
+
+function normalizeMassiveTimestamp(value) {
+  if (value === undefined || value === null || value === "") {
+    return null;
+  }
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) {
+    const parsed = new Date(value).getTime();
+    return Number.isFinite(parsed) ? new Date(parsed).toISOString() : null;
+  }
+  if (numeric > 1e15) {
+    return new Date(numeric / 1_000_000).toISOString();
+  }
+  if (numeric > 1e12) {
+    return new Date(numeric).toISOString();
+  }
+  return new Date(numeric * 1000).toISOString();
+}
+
+async function fetchMassiveLiveInputs(config = {}, ticker = "AVGO") {
+  const provider = config.tradePrintsProvider === "polygon" ? "polygon" : "massive";
+  const apiKey = massiveApiKey(config);
+  if (!apiKey) {
+    const error = new Error("MASSIVE_API_KEY or POLYGON_API_KEY is required for live UTA analysis.");
+    error.status = 409;
+    throw error;
+  }
+  const base = massiveBaseUrl(config, provider);
+  const timeoutMs = Math.min(15000, Math.max(1000, Number(config.tradePrintsRequestTimeoutMs || config.marketDataRequestTimeoutMs || 8000)));
+  const today = new Date().toISOString().slice(0, 10);
+  const barsFrom = dateDaysAgo(75);
+  const tradesUrl = `${base}/v3/trades/${encodeURIComponent(ticker)}?limit=50&sort=timestamp&order=desc&apiKey=${encodeURIComponent(apiKey)}`;
+  const barsUrl = `${base}/v2/aggs/ticker/${encodeURIComponent(ticker)}/range/1/day/${barsFrom}/${today}?adjusted=true&sort=asc&limit=80&apiKey=${encodeURIComponent(apiKey)}`;
+  const referenceUrl = `${base}/v3/reference/tickers/${encodeURIComponent(ticker)}?apiKey=${encodeURIComponent(apiKey)}`;
+  const [tradesPayload, barsPayload, referencePayload] = await Promise.all([
+    fetchPreflightJson(tradesUrl, { timeoutMs, provider }),
+    fetchPreflightJson(barsUrl, { timeoutMs, provider }),
+    fetchPreflightJson(referenceUrl, { timeoutMs, provider }).catch(() => null)
+  ]);
+  const trades = [...(tradesPayload?.results || [])]
+    .map((trade, index) => ({
+      id: trade.id || trade.i || `live-print-${index + 1}`,
+      ts: normalizeMassiveTimestamp(trade.sip_timestamp || trade.participant_timestamp || trade.trf_timestamp || trade.timestamp),
+      venue: trade.trf_id ? `TRF-${trade.trf_id}` : trade.exchange ? `EXCHANGE-${trade.exchange}` : "unknown",
+      price: Number(trade.price || trade.p),
+      size: Number(trade.size || trade.s),
+      condition_codes: (trade.conditions || trade.condition_codes || trade.c || []).map(String)
+    }))
+    .filter((trade) => trade.ts && Number.isFinite(trade.price) && Number.isFinite(trade.size) && trade.size > 0)
+    .sort((a, b) => new Date(a.ts).getTime() - new Date(b.ts).getTime());
+  const bars = [...(barsPayload?.results || [])]
+    .map((bar) => ({
+      date: normalizeMassiveTimestamp(bar.t)?.slice(0, 10),
+      volume: Number(bar.v || 0),
+      close: Number(bar.c),
+      notional: Number(bar.v || 0) * Number(bar.vw || bar.c || 0),
+      focus_notional_share: 0,
+      net_notional_pressure: 0
+    }))
+    .filter((bar) => bar.date && Number.isFinite(bar.volume) && bar.volume > 0);
+  return {
+    provider,
+    trades,
+    bars,
+    reference: referencePayload?.results || null,
+    fetched_at: nowIso()
+  };
+}
+
+function liveLaneStates(registry = [], { trades = [], bars = [], clock = createLiveClock() } = {}) {
+  const latestTrade = trades.at(-1)?.ts || null;
+  const latestBar = bars.at(-1)?.date ? `${bars.at(-1).date}T20:00:00.000Z` : null;
+  const observed = [
+    {
+      lane_id: "massive_live_trade_slices",
+      state: trades.length ? "ready" : "unavailable",
+      tier_effect: trades.length ? "none" : "suppress_to_d",
+      coverage: trades.length ? 1 : 0,
+      latest_as_of: latestTrade,
+      operator_copy: trades.length
+        ? `Massive returned ${trades.length} recent trade prints for this manual sample.`
+        : "Massive returned no usable recent trade prints; no live signal is fabricated."
+    },
+    {
+      lane_id: "massive_daily_bars",
+      state: bars.length >= 10 ? "ready" : "unavailable",
+      tier_effect: bars.length >= 10 ? "none" : "suppress_to_d",
+      coverage: Math.min(1, bars.length / 20),
+      latest_as_of: latestBar,
+      operator_copy: bars.length >= 10
+        ? `Massive returned ${bars.length} daily bars for manual baseline calculation.`
+        : "Massive did not return enough daily bars for a robust live baseline."
+    },
+    {
+      lane_id: "massive_block_trade_feed",
+      state: trades.length ? "ready" : "unavailable",
+      tier_effect: trades.length ? "none" : "cap_at_c",
+      coverage: trades.length ? 1 : 0,
+      latest_as_of: latestTrade,
+      operator_copy: trades.length
+        ? "Block/TRF evidence was derived from the normalized Massive trade sample."
+        : "Block/TRF evidence cannot be derived without live prints."
+    }
+  ];
+  return buildLaneStates(registry, observed, clock);
+}
+
+async function buildLiveManualPayload(ticker, context = {}) {
+  const { config = {}, laneRegistry = {}, policy = {}, universe = {} } = context;
+  const inputs = await fetchMassiveLiveInputs(config, ticker);
+  const clock = createLiveClock();
+  const profile = {
+    ticker,
+    name: inputs.reference?.name || ticker,
+    exchange: inputs.reference?.primary_exchange || null,
+    sector: inputs.reference?.sic_description || null,
+    liquidity_bucket: "live_manual",
+    adv_20day: median(inputs.bars.slice(-21, -1).map((bar) => bar.volume)) || 0,
+    notional_floor: Number(config.tradePrintsBlockTradeMinNotionalUsd || 500_000),
+    pi_performance_tier: universe.performance_tier || "standard",
+    source: "massive_reference"
+  };
+  const latestBar = inputs.bars.at(-1);
+  const historicalSessions = inputs.bars.slice(0, -1).map((bar) => ({
+    date: bar.date,
+    volume: bar.volume,
+    notional: bar.notional,
+    focus_notional_share: 0,
+    net_notional_pressure: 0
+  }));
+  const baseline = buildBaseline({ ticker, historicalSessions, clock, windowSessions: 20 });
+  const normalized = normalizeTradePrints(inputs.trades, policy);
+  const signing = signTradePrints(normalized, { previous_trade_price: latestBar?.close });
+  const blocks = detectBlockTrf(signing, { profile, baseline });
+  const components = computeSignalComponents({ baseline, signed: signing, blocks });
+  const indicators = computeAbcIndicators({ mode: "single_ticker", components });
+  const laneStates = liveLaneStates(laneRegistry.lanes || laneRegistry || [], {
+    trades: inputs.trades,
+    bars: inputs.bars,
+    clock
+  });
+  const classifier = classifyTier({
+    mode: "single_ticker",
+    indicators,
+    laneStates,
+    corroboration: { independent_confirmation_count: 0, provider_alert_confirmed: false },
+    signing
+  });
+  const generatedAt = clock.iso();
+  const payload = {
+    schema_version: "uta.ticker_result.v1",
+    mode: "single_ticker",
+    ticker,
+    name: profile.name,
+    exchange: profile.exchange,
+    sector: profile.sector,
+    generated_at: generatedAt,
+    data_state: "live_manual",
+    tier: classifier.tier,
+    direction: classifier.direction,
+    signing_confidence: signing.signing_confidence,
+    indicators,
+    lane_states: laneStates,
+    bluf: {
+      headline: `${ticker} live manual UTA sample - Tier ${classifier.tier}`,
+      what_happened: `${inputs.trades.length} recent Massive prints and ${inputs.bars.length} daily bars were fetched for a manual live calculation.`,
+      why_it_matters: "This is the first non-replay path. It uses real provider samples but remains manual until replay/live parity is accepted.",
+      what_to_check: "Validate prints, bars, lane states, and tier explanation before treating this as production signal evidence.",
+      limitations: "Trade sample depth, entitlement delay, and lack of independent corroboration can cap or suppress the tier."
+    },
+    evidence_cards: [
+      {
+        id: "live_volume",
+        title: "Live Volume Baseline",
+        status: baseline.state === "ready" ? "ready" : "unavailable",
+        headline_metric: `${roundNumber(indicators.B.volume_zscore, 2) ?? "N/A"} sigma`,
+        summary: `${baseline.session_count} historical daily sessions used from Massive bars.`
+      },
+      {
+        id: "live_trade_prints",
+        title: "Massive Trade Prints",
+        status: inputs.trades.length ? "ready" : "unavailable",
+        headline_metric: `$${Math.round((signing.total_notional || 0) / 1_000_000)}M`,
+        summary: `${normalized.summary.eligible_prints} eligible prints after condition-code policy.`
+      },
+      {
+        id: "signed_flow",
+        title: "Signed Flow",
+        status: signing.total_notional > 0 ? "ready" : "unavailable",
+        headline_metric: `${roundNumber((signing.net_notional_pressure || 0) * 100, 1)}%`,
+        summary: "Direction is derived from signed flow, not price movement."
+      }
+    ],
+    explain_tier: classifier.explain_tier,
+    raw_prints: {
+      ticker,
+      policy_version: normalized.policy_version,
+      truncated: false,
+      normalization_summary: normalized.summary,
+      prints: signing.prints.slice(-25)
+    },
+    engine_diagnostics: {
+      state: components.state,
+      reason: components.state === "ready" ? "live_manual_computed" : "insufficient_live_history",
+      baseline,
+      signal_components: components,
+      provider: inputs.provider,
+      fetched_at: inputs.fetched_at
+    },
+    calculation_metadata: {
+      source_mode: "live_manual",
+      live_clock: generatedAt,
+      provider: inputs.provider,
+      bars_source: "massive_aggs_daily",
+      prints_source: "massive_trades",
+      direction_source: "signed_flow",
+      price_is_corroboration_only: true,
+      abc_indicators_kept_separate: true,
+      latest_bar_date: latestBar?.date || null,
+      live_manual_only: true
+    }
+  };
+  assertNoCompositeScore(payload);
+  return payload;
 }
 
 function ensureUtaStoreState(store) {
@@ -1247,17 +1486,20 @@ export function createUtaService({ config, store } = {}) {
     return state.laneStates;
   }
 
-  function buildCycle({ mode, tickers = ["AVGO"], query = {}, body = {}, reason = "manual" } = {}) {
+  async function buildCycle({ mode, tickers = ["AVGO"], query = {}, body = {}, reason = "manual" } = {}) {
     const startedAt = nowIso();
     const cycleId = `uta-${mode || "cycle"}-${stableCycleStamp(startedAt)}`;
+    const sourceMode = String(body.source || query.source || "replay").trim().toLowerCase();
     let result;
     const events = [];
     try {
       if (mode === "single") {
         const ticker = tickers[0] || body.ticker || query.ticker || "AVGO";
-        const single = getSingleAnalysis(ticker);
+        const single = sourceMode === "live" || sourceMode === "live_manual"
+          ? await getLiveSingleAnalysis(ticker)
+          : getSingleAnalysis(ticker);
         result = { status: single.status, payload: { ...single.payload, cycle_id: cycleId } };
-        rememberSignal(result.payload, { mode: "single_ticker", replayMode: true });
+        rememberSignal(result.payload, { mode: "single_ticker", replayMode: result.payload?.data_state !== "live_manual" });
         events.push({ type: "uta_signal_result", payload: result.payload });
       } else if (mode === "portfolio") {
         const portfolio = getPortfolioAnalysis({ ...body, tickers });
@@ -1292,6 +1534,7 @@ export function createUtaService({ config, store } = {}) {
         status: "completed",
         started_at: startedAt,
         completed_at: completedAt,
+        source_mode: result.payload?.data_state || sourceMode,
         replay_clock: getReplayPayload("single_ticker").calculation_metadata?.replay_clock || null,
         tickers,
         result_summary: {
@@ -1310,7 +1553,7 @@ export function createUtaService({ config, store } = {}) {
       if (store?.health?.liveSources) {
         store.health.liveSources.uta = {
           status: "ready",
-          provider: "replay_first_node",
+          provider: result.payload?.data_state === "live_manual" ? "massive_live_manual" : "replay_first_node",
           last_success_at: completedAt,
           last_poll_at: completedAt,
           mode,
@@ -1373,6 +1616,35 @@ export function createUtaService({ config, store } = {}) {
     }
     const payload = applyTickerOverride(getReplayPayload("single_ticker"), ticker);
     return { status: payload.tier === "D" && ticker !== getSingleFixture().ticker ? 404 : 200, payload };
+  }
+
+  async function getLiveSingleAnalysis(tickerValue) {
+    const ticker = normalizeTickerSymbol(tickerValue);
+    if (!ticker) {
+      return { status: 400, payload: { ok: false, error: "invalid_ticker", detail: "Ticker must be an uppercase market symbol." } };
+    }
+    try {
+      const payload = await buildLiveManualPayload(ticker, {
+        config,
+        policy: getConditionPolicy(),
+        laneRegistry: getLaneRegistry(),
+        universe: getUniverseFixture()
+      });
+      return { status: 200, payload };
+    } catch (error) {
+      return {
+        status: Number(error?.status || 0) || 502,
+        payload: {
+          schema_version: "uta.error.v1",
+          ok: false,
+          error: "live_uta_unavailable",
+          ticker,
+          detail: error.message,
+          data_state: "live_unavailable",
+          source_mode: "live_manual"
+        }
+      };
+    }
   }
 
   function getUniverses() {
@@ -1615,9 +1887,9 @@ export function createUtaService({ config, store } = {}) {
     return getScheduler();
   }
 
-  function revalidate(payload = {}) {
+  async function revalidate(payload = {}) {
     const ticker = normalizeTickerSymbol(payload.ticker || "AVGO");
-    const result = buildCycle({ mode: "single", tickers: [ticker], reason: "manual_revalidation" });
+    const result = await buildCycle({ mode: "single", tickers: [ticker], body: payload, reason: "manual_revalidation" });
     emit("uta_revalidation", {
       ticker,
       cycle_id: result.cycle?.run_id || null,
@@ -1768,6 +2040,7 @@ export function createUtaService({ config, store } = {}) {
     runCycle: buildCycle,
     revalidate,
     getSingleAnalysis,
+    getLiveSingleAnalysis,
     getPortfolioAnalysis,
     getScan,
     runScanPass2,

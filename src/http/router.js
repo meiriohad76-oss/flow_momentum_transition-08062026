@@ -107,7 +107,7 @@ export async function routeRequest(app, request, response) {
   }
 
   if (pathname === "/api/uta/single" && request.method === "GET") {
-    const result = app.runUtaCycle({ mode: "single", ticker: query.ticker || "", reason: "api_single" });
+    const result = await app.runUtaCycle({ mode: "single", ticker: query.ticker || "", query, reason: "api_single" });
     sendJson(response, result.status, { ...result.payload, runtime_cycle: result.cycle });
     return;
   }
@@ -115,16 +115,16 @@ export async function routeRequest(app, request, response) {
   if (pathname === "/api/uta/portfolio" && request.method === "POST") {
     let body = "";
     request.on("data", (chunk) => { body += chunk; });
-    request.on("end", () => {
+    request.on("end", async () => {
       const payload = parseJsonBody(body) || {};
-      const result = app.runUtaCycle({ mode: "portfolio", tickers: payload.tickers || ["AVGO"], body: payload, reason: "api_portfolio" });
+      const result = await app.runUtaCycle({ mode: "portfolio", tickers: payload.tickers || ["AVGO"], body: payload, reason: "api_portfolio" });
       sendJson(response, result.status, { ...result.payload, runtime_cycle: result.cycle });
     });
     return;
   }
 
   if (pathname === "/api/uta/scan" && request.method === "GET") {
-    const result = app.runUtaCycle({ mode: "scan_pass1", query, reason: "api_scan_pass1" });
+    const result = await app.runUtaCycle({ mode: "scan_pass1", query, reason: "api_scan_pass1" });
     sendJson(response, result.status, { ...result.payload, runtime_cycle: result.cycle });
     return;
   }
@@ -132,9 +132,9 @@ export async function routeRequest(app, request, response) {
   if (pathname === "/api/uta/scan/pass2" && request.method === "POST") {
     let body = "";
     request.on("data", (chunk) => { body += chunk; });
-    request.on("end", () => {
+    request.on("end", async () => {
       const payload = parseJsonBody(body) || {};
-      const result = app.runUtaCycle({ mode: "scan_pass2", tickers: payload.shortlist || ["AVGO"], body: payload, reason: "api_scan_pass2" });
+      const result = await app.runUtaCycle({ mode: "scan_pass2", tickers: payload.shortlist || ["AVGO"], body: payload, reason: "api_scan_pass2" });
       sendJson(response, result.status, { ...result.payload, runtime_cycle: result.cycle });
     });
     return;
@@ -201,9 +201,9 @@ export async function routeRequest(app, request, response) {
   if (pathname === "/api/uta/revalidate" && request.method === "POST") {
     let body = "";
     request.on("data", (chunk) => { body += chunk; });
-    request.on("end", () => {
+    request.on("end", async () => {
       const payload = parseJsonBody(body) || {};
-      const result = app.revalidateUta(payload);
+      const result = await app.revalidateUta(payload);
       sendJson(response, result.status, { ...result.payload, runtime_cycle: result.cycle });
     });
     return;

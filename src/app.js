@@ -2005,7 +2005,7 @@ export function createSentimentApp() {
         } else if (canonicalSource === "fundamental_universe") {
           result = await ensureFundamentalCoverage({ force: true });
         } else if (canonicalSource === "uta") {
-          result = uta.runCycle({
+          result = await uta.runCycle({
             mode: payload.mode || "single",
             tickers: payload.tickers || [payload.ticker || "AVGO"],
             query: payload.query || {},
@@ -2016,7 +2016,7 @@ export function createSentimentApp() {
           throw new Error(`Unsupported runtime source: ${source}`);
         }
       } else if (action === "uta_cycle") {
-        result = uta.runCycle({
+        result = await uta.runCycle({
           mode: payload.mode || "single",
           tickers: payload.tickers || [payload.ticker || "AVGO"],
           query: payload.query || {},
@@ -2024,7 +2024,7 @@ export function createSentimentApp() {
           reason: "runtime_reliability_manual"
         });
       } else if (action === "uta_revalidate") {
-        result = uta.revalidate(payload);
+        result = await uta.revalidate(payload);
       } else {
         throw new Error(`Unsupported runtime action: ${action}`);
       }
