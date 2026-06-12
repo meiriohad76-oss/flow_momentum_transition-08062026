@@ -1,24 +1,115 @@
 :root {
   color-scheme: dark;
+  /* surface */
   --bg: #090b0f;
   --panel: #111820;
   --panel-2: #151f29;
   --panel-3: #0d131a;
+  /* borders */
   --line: #283341;
   --line-strong: #3a495b;
+  --border: rgba(255, 255, 255, 0.075);
+  --border-strong: rgba(255, 255, 255, 0.14);
+  --grid-line: rgba(255, 255, 255, 0.05);
+  /* text */
   --ink: #f3f7fb;
-  --muted: #9aa8b8;
-  --soft: #c4ced9;
-  --green: #34d383;
-  --green-bg: #0f2a20;
-  --red: #ff6d6d;
-  --red-bg: #321819;
-  --yellow: #f1c75b;
-  --yellow-bg: #2c2717;
+  --ink-2: #9aa8b8;
+  --ink-3: #6d7a8a;
+  --ink-faint: #4b5a6a;
+  /* semantic colours */
+  --accent: #5a82f0;
+  --accent-soft: rgba(90, 130, 240, 0.16);
+  --accent-line: rgba(90, 130, 240, 0.4);
+  --accent-ink: #ffffff;
+  --buy: #34d383;
+  --buy-bg: #0f2a20;
+  --buy-soft: rgba(52, 169, 129, 0.14);
+  --sell: #ff6d6d;
+  --sell-bg: #321819;
+  --sell-soft: rgba(224, 105, 95, 0.14);
+  --warn: #f1c75b;
+  --warn-bg: #2c2717;
+  --risk-off: #e0a44a;
   --blue: #74a7ff;
   --blue-bg: #13223a;
   --shadow: 0 12px 28px rgba(0, 0, 0, 0.24);
-  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  /* surface variants */
+  --raised: #1a1f2b;
+  --hover: rgba(255, 255, 255, 0.035);
+  /* layout */
+  --pad: 20px;
+  --gap: 16px;
+  --row-h: 44px;
+  --radius: 14px;
+  --radius-sm: 9px;
+  /* legacy aliases — kept for backward compatibility */
+  --green: var(--buy);
+  --green-bg: var(--buy-bg);
+  --red: var(--sell);
+  --red-bg: var(--sell-bg);
+  --yellow: var(--warn);
+  --yellow-bg: var(--warn-bg);
+  --muted: var(--ink-2);
+  --soft: var(--ink-3);
+  /* typography */
+  --font-ui: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  /* density */
+  --space-unit: 1rem;
+  --font-base: 14px;
+  font-family: var(--font-ui);
+  font-size: var(--font-base);
+}
+
+[data-theme="light"] {
+  color-scheme: light;
+  --bg: #f5f7fa;
+  --panel: #ffffff;
+  --panel-2: #f0f2f5;
+  --panel-3: #e8ebf0;
+  --line: #d8dde6;
+  --line-strong: #c0c8d4;
+  --border: rgba(0, 0, 0, 0.10);
+  --border-strong: rgba(0, 0, 0, 0.18);
+  --grid-line: rgba(0, 0, 0, 0.05);
+  --ink: #0d1117;
+  --ink-2: #4a5568;
+  --ink-3: #718096;
+  --ink-faint: #a0aec0;
+  --buy: #1a9e5f;
+  --buy-bg: #e6f7ef;
+  --buy-soft: rgba(26, 158, 95, 0.14);
+  --sell: #d63b3b;
+  --sell-bg: #fde8e8;
+  --sell-soft: rgba(214, 59, 59, 0.14);
+  --warn: #c47f1a;
+  --warn-bg: #fef3dc;
+  --raised: #f8fafb;
+  --hover: rgba(0, 0, 0, 0.035);
+  --shadow: 0 4px 16px rgba(0, 0, 0, 0.10);
+  --green: var(--buy);
+  --green-bg: var(--buy-bg);
+  --red: var(--sell);
+  --red-bg: var(--sell-bg);
+  --yellow: var(--warn);
+  --yellow-bg: var(--warn-bg);
+  --muted: var(--ink-2);
+  --soft: var(--ink-3);
+}
+
+[data-density="compact"] {
+  --space-unit: 0.75rem;
+  --font-base: 12px;
+}
+
+[data-density="regular"] {
+  --space-unit: 1rem;
+  --font-base: 14px;
+}
+
+[data-density="comfy"] {
+  --space-unit: 1.25rem;
+  --font-base: 15px;
 }
 
 * {
@@ -1007,48 +1098,12 @@ td {
    evidence.jsx, and detail-extras.jsx.
    ============================================================ */
 
-:root {
-  --font-ui: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  --pad: 20px;
-  --gap: 16px;
-  --row-h: 44px;
-  --radius: 14px;
-  --radius-sm: 9px;
-  --accent: #5a82f0;
-  --accent-ink: #ffffff;
-  --buy: #34a981;
-  --buy-soft: rgba(52, 169, 129, 0.14);
-  --sell: #e0695f;
-  --sell-soft: rgba(224, 105, 95, 0.14);
-  --risk-off: #e0a44a;
-  --border: rgba(255, 255, 255, 0.075);
-  --border-strong: rgba(255, 255, 255, 0.14);
-  --grid-line: rgba(255, 255, 255, 0.05);
-  --raised: #1a1f2b;
-  --accent-soft: rgba(90, 130, 240, 0.16);
-  --accent-line: rgba(90, 130, 240, 0.4);
-  --ink-2: #a4adbe;
-  --ink-3: #6d7588;
-  --ink-faint: #4b5263;
-  --hover: rgba(255, 255, 255, 0.035);
-  --line: var(--border);
-  --line-strong: var(--border-strong);
-  --green: var(--buy);
-  --green-bg: var(--buy-soft);
-  --red: var(--sell);
-  --red-bg: var(--sell-soft);
-  --blue: var(--accent);
-  --blue-bg: var(--accent-soft);
-  --soft: var(--ink-2);
-  --muted: var(--ink-3);
-}
-
 body {
   background:
     radial-gradient(1200px 700px at 78% -8%, rgba(90, 130, 240, 0.07), transparent 60%),
-    #0a0c11;
+    var(--bg);
   font-family: var(--font-ui);
+  font-size: var(--font-base);
 }
 
 .mono {
