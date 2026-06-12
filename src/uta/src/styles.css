@@ -2191,3 +2191,207 @@ body {
   overflow: auto;
   padding: 20px;
 }
+
+/* Sparkline */
+.sparkline {
+  border-radius: 4px;
+  overflow: visible;
+}
+
+.sparkline-empty {
+  background: var(--panel-3);
+  border-radius: 4px;
+}
+
+/* ConfBar */
+.conf-bar-wrap {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.conf-bar-track {
+  flex: 1;
+  height: 6px;
+  border-radius: 99px;
+  background: var(--panel-3);
+  overflow: hidden;
+}
+
+.conf-bar-fill {
+  height: 100%;
+  border-radius: 99px;
+  background: var(--accent);
+  transition: width 0.3s ease;
+}
+
+.conf-bar-label {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ink-2);
+  white-space: nowrap;
+  min-width: 36px;
+}
+
+/* DeltaChip */
+.delta-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.delta-chip.good { color: var(--buy); }
+.delta-chip.bad  { color: var(--sell); }
+.delta-chip.neutral { color: var(--ink-3); }
+
+/* PressureGauge */
+.pressure-gauge {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.pg-track {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  height: 10px;
+  border-radius: 99px;
+  background: var(--panel-3);
+  overflow: hidden;
+  position: relative;
+}
+
+.pg-half {
+  flex: 1;
+  height: 100%;
+  display: flex;
+}
+
+.pg-left { justify-content: flex-end; }
+.pg-right { justify-content: flex-start; }
+
+.pg-fill {
+  height: 100%;
+  border-radius: 99px;
+  transition: width 0.3s ease;
+}
+
+.pg-centre {
+  width: 2px;
+  height: 100%;
+  background: var(--line-strong);
+  flex-shrink: 0;
+}
+
+.pg-label {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  font-weight: 700;
+  min-width: 44px;
+  text-align: right;
+  white-space: nowrap;
+}
+
+/* VolBars */
+.vol-bars {
+  display: flex;
+  align-items: flex-end;
+  gap: 10px;
+  height: 72px;
+  padding-bottom: 20px;
+  position: relative;
+}
+
+.vb-col {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  flex: 1;
+  height: 100%;
+  gap: 2px;
+}
+
+.vb-bar-wrap {
+  flex: 1;
+  width: 100%;
+  display: flex;
+  align-items: flex-end;
+}
+
+.vb-bar {
+  width: 100%;
+  border-radius: 3px 3px 0 0;
+  min-height: 2px;
+  transition: height 0.3s ease;
+}
+
+.vb-buy  { background: var(--buy); }
+.vb-sell { background: var(--sell); }
+.vb-base { background: var(--panel-3); box-shadow: inset 0 0 0 1px var(--line); }
+
+.vb-label {
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--ink-3);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  position: absolute;
+  bottom: 2px;
+}
+
+.vb-value {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--ink-2);
+}
+
+/* MixBar */
+.mix-bar-wrap {
+  display: grid;
+  gap: 6px;
+}
+
+.mix-bar-track {
+  display: flex;
+  height: 8px;
+  border-radius: 99px;
+  overflow: hidden;
+  background: var(--panel-3);
+}
+
+.mix-bar-seg {
+  height: 100%;
+  transition: width 0.3s ease;
+}
+
+.mix-bar-empty {
+  color: var(--ink-3);
+  font-size: 12px;
+}
+
+.mix-bar-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.mix-legend-item {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  color: var(--ink-3);
+}
+
+.mix-swatch {
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+  flex-shrink: 0;
+}

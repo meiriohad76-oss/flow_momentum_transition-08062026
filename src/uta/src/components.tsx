@@ -50,6 +50,194 @@ export function DeltaChip({ delta, unit = "σ" }: { delta: number; unit?: string
   return <span className={`delta-chip ${tone}`}>{arrow} {delta > 0 ? "+" : ""}{delta.toFixed(1)}{unit}</span>;
 }
 
+export function Sparkline({
+  values,
+  baseline = 0,
+  colour,
+  height = 60,
+  width = "100%"
+}: {
+  values: number[];
+  baseline?: number;
+  colour?: string;
+  height?: number;
+  width?: number | string;
+}) {
+  if (!values || values.length < 2) {
+    return <div className="sparkline-empty" style={{ height }} />;
+  }
+  const min = Math.min(...values, baseline);
+  const max = Math.max(...values, baseline);
+  const range = max - min || 1;
+  const W = 200;
+  const H = height;
+
+  function toX(i: number) { return (i / (values.length - 1)) * W; }
+  function toY(v: number) { return H - ((v - min) / range) * H; }
+
+  const points = values.map((v, i) => `${toX(i).toFixed(1)},${toY(v).toFixed(1)}`).join(" ");
+  const baselineY = toY(baseline).toFixed(1);
+
+  const fillPoints = [
+    `0,${toY(baseline).toFixed(1)}`,
+    ...values.map((v, i) => `${toX(i).toFixed(1)},${toY(v).toFixed(1)}`),
+    `${W},${toY(baseline).toFixed(1)}`
+  ].join(" ");
+
+  const lineColour = colour || "var(--accent)";
+  const fillColour = colour
+    ? colour.replace(")", ", 0.15)").replace("rgb(", "rgba(")
+    : "var(--accent-soft)";
+
+  return (
+    <svg
+      className="sparkline"
+      viewBox={`0 0 ${W} ${H}`}
+      preserveAspectRatio="none"
+      style={{ width, height, display: "block" }}
+      aria-hidden="true"
+    >
+      <line
+        x1={0} y1={baselineY} x2={W} y2={baselineY}
+        stroke="var(--line-strong)" strokeWidth={1} strokeDasharray="4 3"
+      />
+      <polygon points={fillPoints} fill={fillColour} opacity={0.6} />
+      <polyline
+        points={points}
+        fill="none"
+        stroke={lineColour}
+        strokeWidth={1.5}
+        strokeLinejoin="round"
+        strokeLinecap="round"
+      />
+    </svg>
+  );
+}
+
+export function ConfBar({
+  value,
+  label
+}: {
+  value: number;
+  label?: string;
+}) {
+  const pct = Math.min(1, Math.max(0, value));
+  const display = label ?? `${Math.round(pct * 100)}%`;
+  return (
+    <div className="conf-bar-wrap">
+      <div className="conf-bar-track">
+        <div
+          className="conf-bar-fill"
+          style={{ width: `${pct * 100}%` }}
+        />
+      </div>
+      <span className="conf-bar-label">{display}</span>
+    </div>
+  );
+}
+
+export function PressureGauge({ value }: { value: number }) {
+  const clamped = Math.min(1, Math.max(-1, value));
+  const pct = Math.abs(clamped) * 50;
+  const isBull = clamped >= 0;
+  const fillColour = isBull ? "var(--buy)" : "var(--sell)";
+  const label = `${isBull ? "+" : ""}${Math.round(clamped * 100)}%`;
+
+  return (
+    <div className="pressure-gauge" aria-label={`Pressure ${label}`}>
+      <div className="pg-track">
+        <div className="pg-half pg-left">
+          {!isBull && (
+            <div className="pg-fill pg-fill-left" style={{ width: `${pct}%`, background: fillColour }} />
+          )}
+        </div>
+        <div className="pg-centre" />
+        <div className="pg-half pg-right">
+          {isBull && (
+            <div className="pg-fill pg-fill-right" style={{ width: `${pct}%`, background: fillColour }} />
+          )}
+        </div>
+      </div>
+      <span className="pg-label" style={{ color: fillColour }}>{label}</span>
+    </div>
+  );
+}
+
+type VolMetric = { label: string; ratio: number; direction?: "bull" | "bear" };
+
+export function VolBars({ metrics }: { metrics: VolMetric[] }) {
+  if (!metrics || metrics.length === 0) return null;
+  const max = Math.max(...metrics.map((m) => m.ratio), 1);
+  return (
+    <div className="vol-bars" aria-label="Volume metrics vs baseline">
+      {metrics.map((m) => {
+        const heightPct = Math.min(100, (m.ratio / max) * 100);
+        const isHigh = m.ratio > 1;
+        const barClass = isHigh
+          ? m.direction === "bear" ? "vb-sell" : "vb-buy"
+          : "vb-base";
+        return (
+          <div className="vb-col" key={m.label}>
+            <div className="vb-bar-wrap">
+              <div
+                className={`vb-bar ${barClass}`}
+                style={{ height: `${heightPct}%` }}
+                title={`${m.ratio.toFixed(2)}×`}
+              />
+            </div>
+            <span className="vb-label">{m.label}</span>
+            <span className="vb-value">{m.ratio.toFixed(2)}×</span>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+export function volMetricsFromResult(data: UtaTickerResult, direction?: string): VolMetric[] {
+  const dir = direction === "bullish" ? "bull" : direction === "bearish" ? "bear" : undefined;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const blockFlow = (data.trade_analysis as any)?.block_flow;
+  return [
+    { label: "Vol", ratio: Number(data.indicators.C.volume_ratio ?? 1), direction: dir },
+    { label: "Notional", ratio: Number(data.indicators.C.notional_ratio ?? 1), direction: dir },
+    { label: "Trades", ratio: blockFlow?.focus_trade_count > 0 ? 1.5 : 0.5, direction: dir }
+  ];
+}
+
+export type MixSegment = { label: string; value: number; colour: string };
+
+export function MixBar({ segments }: { segments: MixSegment[] }) {
+  const total = segments.reduce((s, seg) => s + seg.value, 0);
+  if (!total) return <div className="mix-bar-empty">No data</div>;
+  return (
+    <div className="mix-bar-wrap">
+      <div className="mix-bar-track" role="img" aria-label="Mix breakdown">
+        {segments.map((seg) => {
+          const pct = (seg.value / total) * 100;
+          if (pct < 0.5) return null;
+          return (
+            <div
+              key={seg.label}
+              className="mix-bar-seg"
+              style={{ width: `${pct}%`, background: seg.colour }}
+              title={`${seg.label}: ${pct.toFixed(1)}%`}
+            />
+          );
+        })}
+      </div>
+      <div className="mix-bar-legend">
+        {segments.filter((s) => (s.value / total) >= 0.03).map((seg) => (
+          <span key={seg.label} className="mix-legend-item">
+            <span className="mix-swatch" style={{ background: seg.colour }} />
+            {seg.label}
+          </span>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 export function IndicatorGrid({ data, portfolioMode = false }: { data: UtaTickerResult; portfolioMode?: boolean }) {
   const a = data.indicators.A;
   const aliases = data.trade_analysis?.indicator_aliases;
