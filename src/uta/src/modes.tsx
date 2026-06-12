@@ -97,86 +97,100 @@ export function CompareBanner({ data }: { data: UtaTickerResult }) {
 }
 
 export function TickerDetail({
-  data,
-  portfolioMode,
-  onRefreshLane,
-  onRevalidate,
-  onWatchlist
+  data, history, isWatchlisted, onRevalidate, onToggleWatchlist, onRefreshLane
 }: {
   data: UtaTickerResult;
-  portfolioMode?: boolean;
-  onRefreshLane?: (lane: LaneState) => void;
-  onRevalidate?: () => void;
-  onWatchlist?: () => void;
+  history: HistoryResult | null;
+  isWatchlisted: boolean;
+  onRevalidate: () => void;
+  onToggleWatchlist: () => void;
+  onRefreshLane: (lane: LaneState) => void;
 }) {
-  const [drawer, setDrawer] = useState<"raw" | null>(null);
-  const [explainOpen, setExplainOpen] = useState(false);
-  const [compare, setCompare] = useState(false);
+  const [showRawPrints, setShowRawPrints] = useState(false);
+  const [showExplainTier, setShowExplainTier] = useState(false);
+  const [activeTab, setActiveTab] = useState<"evidence" | "trade">("evidence");
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const analysis = data.trade_analysis as any;
+  const evidenceContextChip = analysis
+    ? `${String(analysis.bias || "").charAt(0).toUpperCase() + String(analysis.bias || "").slice(1)} · ${String(analysis.setup_status || "").replaceAll("_", " ")}`
+    : null;
+  const tradeContextChip = `Tier ${data.tier} · ${fmtNumber(data.indicators.B.notional_zscore, 1)}σ vol`;
+
   return (
-    <div className="detail-stack fade-in">
-      <StatusStrip data={data} />
-      <div className="crumb detail-crumb">
-        <span>{portfolioMode ? "Portfolio" : "Single Ticker"}</span>
-        <span>›</span>
-        <span>{data.ticker}</span>
+    <div className="layout">
+      <div className="main-col">
+        <StatusStrip data={data} />
+        <BlufCard data={data} />
+        <div className="detail-tabs">
+          <button
+            type="button"
+            className={`detail-tab ${activeTab === "evidence" ? "active" : ""}`}
+            onClick={() => setActiveTab("evidence")}
+          >
+            Evidence
+            {activeTab !== "evidence" && tradeContextChip
+              ? <span className="tab-ctx-chip">{tradeContextChip}</span>
+              : null}
+          </button>
+          <button
+            type="button"
+            className={`detail-tab ${activeTab === "trade" ? "active" : ""}`}
+            onClick={() => setActiveTab("trade")}
+          >
+            Trade Analysis
+            {activeTab !== "trade" && evidenceContextChip
+              ? <span className="tab-ctx-chip">{evidenceContextChip}</span>
+              : null}
+          </button>
+        </div>
+        {activeTab === "evidence" && (
+          <div className="detail-tab-content">
+            <CycleHistory ticker={data.ticker} history={history} />
+            <EvidenceCards cards={data.evidence_cards || []} data={data} />
+          </div>
+        )}
+        {activeTab === "trade" && (
+          <div className="detail-tab-content">
+            <TradeAnalysisPanel data={data} />
+          </div>
+        )}
       </div>
-      <section className="ticker-head ticker-title-row">
-        <div className="th-id">
-          <span className="th-sym mono">{data.ticker}</span>
-          <span className="th-name">{data.name || ""}</span>
-        </div>
-        <div className="th-meta">
-          <span className="pill">{data.exchange || "market"}</span>
-          <span className="pill">{data.sector || "UTA"}</span>
-        </div>
-        <div className="tier-cluster">
-          <TierBadge tier={data.tier} size="lg" />
-          <DirTag direction={data.direction} />
-          <Pill tone={toneForTier(data.tier)}>Cycle {data.runtime_cycle?.run_id || data.cycle_id || "live"}</Pill>
-        </div>
-      </section>
-      <div className="detail-layout layout">
-        <main className="detail-main main-col">
-          {compare ? <CompareBanner data={data} /> : null}
-          <BlufCard data={data} portfolioMode={portfolioMode} />
-          <TradeAnalysisPanel data={data} />
-          <CycleHistory ticker={data.ticker} />
-          <EvidenceCards cards={data.evidence_cards || []} />
-        </main>
-        <aside className="detail-side side-col">
-          <CorroborationPanel data={data} />
-          <ActionsPanel
-            data={data}
-            onRefreshLane={onRefreshLane}
-            onRevalidate={onRevalidate}
-            onWatchlist={onWatchlist}
-            onRawPrints={() => setDrawer("raw")}
-            onExplainTier={() => setExplainOpen(true)}
-            onCompare={() => setCompare((current) => !current)}
-            compare={compare}
-          />
-          <LaneHealth lanes={data.lane_states || []} onRefresh={onRefreshLane} />
-          <DataProvenance data={data} />
-        </aside>
+      <div className="side-col">
+        <CorroborationPanel data={data} />
+        <ActionsPanel
+          data={data}
+          onRevalidate={onRevalidate}
+          onRawPrints={() => setShowRawPrints(true)}
+          onExplainTier={() => setShowExplainTier(true)}
+          onCompare={() => {}}
+          onWatchlist={onToggleWatchlist}
+          onRefreshLane={() => data.lane_states[0] && onRefreshLane(data.lane_states[0])}
+        />
+        <LaneHealth lanes={data.lane_states || []} onRefresh={onRefreshLane} />
       </div>
-      <RawPrintsDrawer data={data} open={drawer === "raw"} onClose={() => setDrawer(null)} />
-      <ExplainTierPanel data={data} open={explainOpen} onClose={() => setExplainOpen(false)} />
+      {showRawPrints && <RawPrintsDrawer data={data} open={showRawPrints} onClose={() => setShowRawPrints(false)} />}
+      {showExplainTier && <ExplainTierPanel data={data} open={showExplainTier} onClose={() => setShowExplainTier(false)} />}
     </div>
   );
 }
 
 export function SingleMode({
   data,
+  history,
+  isWatchlisted,
   onAnalyze,
   onRefreshLane,
   onRevalidate,
-  onWatchlist
+  onToggleWatchlist
 }: {
   data: LoadState<UtaTickerResult>;
+  history: HistoryResult | null;
+  isWatchlisted: boolean;
   onAnalyze: (ticker: string) => void;
   onRefreshLane: (lane: LaneState) => void;
   onRevalidate: () => void;
-  onWatchlist: () => void;
+  onToggleWatchlist: () => void;
 }) {
   const [ticker, setTicker] = useState("AVGO");
   return (
@@ -194,9 +208,11 @@ export function SingleMode({
       {data.data ? (
         <TickerDetail
           data={data.data}
+          history={history}
+          isWatchlisted={isWatchlisted}
           onRefreshLane={onRefreshLane}
           onRevalidate={onRevalidate}
-          onWatchlist={onWatchlist}
+          onToggleWatchlist={onToggleWatchlist}
         />
       ) : null}
     </section>
@@ -389,7 +405,7 @@ export function RuntimeMode({
             {!stream.events.length ? <p className="empty">Waiting for runtime events.</p> : null}
           </div>
         </section>
-        <CycleHistory ticker="runtime" />
+        <CycleHistory ticker="runtime" history={null} />
       </div>
     </section>
   );

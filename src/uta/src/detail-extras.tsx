@@ -2,14 +2,64 @@
 import React from "react";
 import { fmtDate, fmtMoney } from "./utils.js";
 import { SectionHeader, TierBadge } from "./components.js";
-import type { UtaTickerResult, RawPrint } from "./types.js";
+import type { UtaTickerResult, RawPrint, HistoryResult } from "./types.js";
 
-export function CycleHistory({ ticker }: { ticker: string }) {
+export function CycleHistory({
+  ticker,
+  history
+}: {
+  ticker: string;
+  history: HistoryResult | null;
+}) {
+  const rows = (history?.rows || [])
+    .filter((r) => r.ticker === ticker)
+    .slice(0, 12)
+    .reverse();
+
+  if (rows.length === 0) {
+    return (
+      <section className="panel cyc">
+        <SectionHeader title="Cycle History" meta={ticker} />
+        <div className="cyc-cell cyc-D">No cycle history yet</div>
+      </section>
+    );
+  }
+
   return (
     <section className="panel cyc">
-      <SectionHeader title="Cycle History" meta={ticker} />
-      <div className="cyc-cell cyc-placeholder">
-        <span>Visual cycle timeline — Phase 3</span>
+      <SectionHeader title="Cycle History" meta={`last ${rows.length} cycles`} />
+      <div className="cyc-bars">
+        {rows.map((row, i) => {
+          const isUp = row.direction === "bullish";
+          const heightPct = 40;
+          const barStyle = isUp
+            ? { bottom: "50%", height: `${heightPct}%` }
+            : { top: "50%", height: `${heightPct}%` };
+          return (
+            <div className="cyc-bar-col" key={i}>
+              <div
+                className={`cyc-bar ${isUp ? "up" : "dn"}`}
+                style={barStyle}
+                title={`${row.tier || "D"} · ${row.direction || "—"} · ${fmtDate(row.generated_at || row.created_at)}`}
+              />
+            </div>
+          );
+        })}
+      </div>
+      <div className="cyc-ribbon">
+        {rows.map((row, i) => {
+          const tier = (row.tier || "D").toUpperCase();
+          const isNow = i === rows.length - 1;
+          return (
+            <div
+              key={i}
+              className={`cyc-cell cyc-${tier} ${isNow ? "cyc-now" : ""}`}
+              title={fmtDate(row.generated_at || row.created_at)}
+            >
+              {tier}
+            </div>
+          );
+        })}
       </div>
     </section>
   );

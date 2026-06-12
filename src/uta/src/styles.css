@@ -2395,3 +2395,151 @@ body {
   border-radius: 2px;
   flex-shrink: 0;
 }
+
+/* Evidence card body inner layouts */
+.ev-body-inner {
+  display: grid;
+  gap: 12px;
+  padding: 14px var(--pad) var(--pad);
+  border-top: 1px solid var(--grid-line);
+}
+
+.ev-stat-row {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.ev-sub-label {
+  color: var(--ink-3);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  margin-bottom: -6px;
+}
+
+.ev-interp {
+  color: var(--ink-2);
+  font-size: 12.5px;
+  line-height: 1.5;
+  margin: 0;
+  font-style: italic;
+}
+
+.ev-empty {
+  color: var(--ink-3);
+  font-size: 13px;
+  font-style: italic;
+  padding: 14px var(--pad) var(--pad);
+  margin: 0;
+}
+
+.ev-trend-label {
+  font-size: 20px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+
+@media (max-width: 720px) {
+  .ev-stat-row {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Detail tabs */
+.detail-tabs {
+  display: flex;
+  gap: 4px;
+  border-bottom: 1px solid var(--line);
+  padding-bottom: 0;
+}
+
+.detail-tab {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 40px;
+  min-height: 40px;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  border-radius: 0;
+  background: transparent;
+  color: var(--ink-3);
+  padding: 0 14px;
+  font-size: 13.5px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: color 0.15s, border-color 0.15s;
+  margin-bottom: -1px;
+}
+
+.detail-tab:hover {
+  color: var(--ink);
+  background: transparent;
+}
+
+.detail-tab.active {
+  color: var(--ink);
+  font-weight: 600;
+  border-bottom-color: var(--accent);
+  background: transparent;
+}
+
+.tab-ctx-chip {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--ink-3);
+  background: var(--panel-3);
+  border-radius: 99px;
+  padding: 2px 8px;
+  white-space: nowrap;
+}
+
+.detail-tab-content {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+/* CycleHistory bar chart */
+.cyc-bars {
+  display: flex;
+  gap: 4px;
+  height: 80px;
+  align-items: center;
+  padding: 0 var(--pad);
+  position: relative;
+}
+
+.cyc-bar-col {
+  flex: 1;
+  height: 100%;
+  position: relative;
+}
+
+.cyc-bar {
+  position: absolute;
+  left: 0;
+  right: 0;
+  border-radius: 2px;
+}
+
+.cyc-bar.up {
+  background: var(--buy, #22c55e);
+}
+
+.cyc-bar.dn {
+  background: var(--sell, #ef4444);
+}
+
+.cyc-ribbon {
+  display: flex;
+  gap: 4px;
+  padding: 0 var(--pad) var(--pad);
+}
+
+.cyc-now {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}

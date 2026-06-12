@@ -95,8 +95,6 @@ try {
     "B",
     "C",
     "Trade Analysis",
-    "Primary trigger",
-    "Trigger criteria",
     "Cycle History",
     "Corroboration",
     "Actions",
@@ -111,10 +109,32 @@ try {
   await assertCount(page, ".layout .side-col", 1, "Prototype side column");
   await assertCount(page, ".bluf .bluf-row", 4, "BLUF 2x2 grid");
   await assertCount(page, ".ind-summary .ind-chip", 3, "A/B/C indicator chips");
-  await assertCount(page, '[data-ux-source="ux design/evidence.jsx:EvidenceGrid"] .ev-card', 9, "Evidence cards");
   await assertCount(page, ".cyc .cyc-cell", 1, "Cycle timeline");
   await assertCount(page, ".corr-list .corr-row", 6, "Corroboration flags");
   await assertCount(page, ".actions-panel .action-btn", 6, "Actions panel controls");
+
+  // Click Trade Analysis tab to expose its content before checking trigger text
+  const tradeTab = page.getByRole("button", { name: "Trade Analysis" });
+  if ((await tradeTab.count()) > 0) {
+    await tradeTab.click();
+    await page.waitForTimeout(300);
+  }
+
+  // Re-read body text to include Trade Analysis tab content
+  const textAfterTab = await page.locator("body").innerText();
+  const textAfterTabUpper = textAfterTab.toUpperCase();
+  const tradeTabRequiredText = ["Primary trigger", "Trigger criteria"];
+  for (const item of tradeTabRequiredText) {
+    assert(textAfterTabUpper.includes(item.toUpperCase()), `Trade Analysis tab text missing: ${item}`);
+  }
+
+  // Check evidence cards after switching back to evidence tab
+  const evidenceTab = page.getByRole("button", { name: "Evidence" });
+  if ((await evidenceTab.count()) > 0) {
+    await evidenceTab.click();
+    await page.waitForTimeout(300);
+  }
+  await assertCount(page, '[data-ux-source="ux design/evidence.jsx:EvidenceGrid"] .ev-card', 9, "Evidence cards");
 
   await page.getByRole("button", { name: "Raw Prints" }).click();
   await page.waitForSelector('[data-ux-source="ux design/detail-extras.jsx:RawPrintsDrawer"]', { timeout: 10000 });
