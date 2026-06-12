@@ -1,7 +1,7 @@
 // src/uta/src/scan.tsx
 import React, { useState } from "react";
-import { fmtNumber, fmtPct, tickerList, setupTone, setupLabel, DEFAULT_PORTFOLIO } from "./utils.js";
-import { Pill, SectionHeader, TierBadge, DirTag } from "./components.js";
+import { fmtNumber, fmtPct, tickerList, setupTone, setupLabel, DEFAULT_PORTFOLIO, tierRank } from "./utils.js";
+import { TierBadge, DirTag, BandTag, PressureGauge } from "./components.js";
 import type { ScanResult, ScanRow, LoadState, UtaTickerResult } from "./types.js";
 
 type UniverseOption = {
@@ -265,6 +265,239 @@ function ResolvingTable({
   );
 }
 
+type TierFilter = "all" | "A" | "B" | "C";
+type ViewMode = "cards" | "table" | "grouped";
+
+function RefinementBar({
+  rows,
+  tierFilter,
+  onTierFilter,
+  viewMode,
+  onViewMode,
+  onWatchAll,
+  onSaveScan
+}: {
+  rows: ScanRow[];
+  tierFilter: TierFilter;
+  onTierFilter: (f: TierFilter) => void;
+  viewMode: ViewMode;
+  onViewMode: (v: ViewMode) => void;
+  onWatchAll: () => void;
+  onSaveScan: () => void;
+}) {
+  const counts: Record<string, number> = { all: rows.length };
+  for (const row of rows) {
+    const t = row.result?.tier || row.preliminary_tier || "D";
+    counts[t] = (counts[t] || 0) + 1;
+  }
+  return (
+    <div className="refinement-bar">
+      <div className="ref-tier-chips">
+        {(["all", "A", "B", "C"] as TierFilter[]).map((t) => (
+          <button
+            key={t}
+            type="button"
+            className={`ref-chip ${tierFilter === t ? "active" : "secondary"}`}
+            onClick={() => onTierFilter(t)}
+          >
+            {t === "all" ? "All" : `Tier ${t}`}
+            <span className="ref-chip-count">{counts[t] ?? 0}</span>
+          </button>
+        ))}
+      </div>
+      <div className="ref-view-switch">
+        {(["cards", "table", "grouped"] as ViewMode[]).map((v) => (
+          <button
+            key={v}
+            type="button"
+            className={`ref-view-btn ${viewMode === v ? "active" : "secondary"}`}
+            onClick={() => onViewMode(v)}
+          >
+            {v.charAt(0).toUpperCase() + v.slice(1)}
+          </button>
+        ))}
+      </div>
+      <div className="ref-actions">
+        <button type="button" className="secondary" onClick={onWatchAll}>Watch all shown</button>
+        <button type="button" className="secondary" onClick={onSaveScan}>Save scan</button>
+      </div>
+    </div>
+  );
+}
+
+function ScanCard({ row, onInspect }: { row: ScanRow; onInspect: (r: UtaTickerResult) => void }) {
+  const result = row.result;
+  const tier = result?.tier || row.preliminary_tier || "D";
+  const direction = result?.direction || row.bias || "undetermined";
+  const pressureVal = Number(row.signed_pressure ?? result?.indicators?.C?.net_notional_pressure ?? 0);
+  const setupStatus = row.setup_status || result?.trade_analysis?.setup_status;
+  const isClickable = !!result;
+  return (
+    <div
+      className={`scan-card ${isClickable ? "clickable" : ""}`}
+      onClick={isClickable ? () => onInspect(result!) : undefined}
+      role={isClickable ? "button" : undefined}
+      tabIndex={isClickable ? 0 : undefined}
+    >
+      <div className="sc-head">
+        <span className="sc-sym mono">{row.ticker}</span>
+        <TierBadge tier={tier} size="sm" />
+      </div>
+      <div className="sc-meta">
+        <DirTag direction={direction} />
+        {row.anomaly_band && <BandTag band={row.anomaly_band} />}
+      </div>
+      {setupStatus && (
+        <div className={`sc-setup pill ${setupTone(setupStatus)}`}>
+          {setupLabel(setupStatus)}
+        </div>
+      )}
+      <div className="sc-stats">
+        {result && (
+          <>
+            <span className="sc-stat">
+              <span>B</span>
+              <strong>{fmtNumber(result.indicators.B.notional_zscore, 1)}σ</strong>
+            </span>
+            <span className="sc-stat">
+              <span>C</span>
+              <strong>{fmtNumber(result.indicators.C.notional_ratio, 1)}×</strong>
+            </span>
+          </>
+        )}
+      </div>
+      <div className="sc-pressure-wrap">
+        <PressureGauge value={pressureVal} />
+      </div>
+    </div>
+  );
+}
+
+type SortKey = "ticker" | "tier" | "direction" | "B" | "A" | "C" | "setup" | "delta";
+
+function ScanTable({
+  rows,
+  onInspect
+}: {
+  rows: ScanRow[];
+  onInspect: (r: UtaTickerResult) => void;
+}) {
+  const [sortKey, setSortKey] = useState<SortKey>("tier");
+  const [sortAsc, setSortAsc] = useState(false);
+
+  function handleSort(key: SortKey) {
+    if (sortKey === key) { setSortAsc((a) => !a); }
+    else { setSortKey(key); setSortAsc(false); }
+  }
+
+  const sorted = [...rows].sort((a, b) => {
+    const ra = a.result, rb = b.result;
+    let av: unknown, bv: unknown;
+    if (sortKey === "tier")   { av = tierRank(ra?.tier ?? a.preliminary_tier); bv = tierRank(rb?.tier ?? b.preliminary_tier); }
+    else if (sortKey === "B") { av = ra?.indicators.B.notional_zscore ?? 0; bv = rb?.indicators.B.notional_zscore ?? 0; }
+    else if (sortKey === "C") { av = ra?.indicators.C.notional_ratio ?? 0; bv = rb?.indicators.C.notional_ratio ?? 0; }
+    else if (sortKey === "ticker") { av = a.ticker; bv = b.ticker; }
+    else { av = 0; bv = 0; }
+    const cmp = typeof av === "string" ? av.localeCompare(String(bv)) : Number(av) - Number(bv);
+    return sortAsc ? cmp : -cmp;
+  });
+
+  function Th({ k, label }: { k: SortKey; label: string }) {
+    return (
+      <th
+        onClick={() => handleSort(k)}
+        style={{ cursor: "pointer", userSelect: "none" }}
+      >
+        {label} {sortKey === k ? (sortAsc ? "↑" : "↓") : ""}
+      </th>
+    );
+  }
+
+  return (
+    <div className="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <Th k="ticker" label="Ticker" />
+            <Th k="tier" label="Tier" />
+            <Th k="direction" label="Direction" />
+            <Th k="B" label="B (σ)" />
+            <Th k="A" label="A (%)" />
+            <Th k="C" label="C (×)" />
+            <Th k="setup" label="Setup" />
+          </tr>
+        </thead>
+        <tbody>
+          {sorted.map((row) => {
+            const r = row.result;
+            const tier = r?.tier || row.preliminary_tier || "D";
+            const setup = row.setup_status || r?.trade_analysis?.setup_status;
+            return (
+              <tr
+                key={row.ticker}
+                className={r ? "clickable-row" : ""}
+                onClick={r ? () => onInspect(r) : undefined}
+              >
+                <td className="mono">{row.ticker}</td>
+                <td><TierBadge tier={tier} size="sm" /></td>
+                <td>{r ? <DirTag direction={r.direction} /> : "—"}</td>
+                <td className="mono">{r ? fmtNumber(r.indicators.B.notional_zscore, 2) : "—"}</td>
+                <td className="mono">{r?.indicators.A ? fmtPct(r.indicators.A.volume_percentile) : "N/A"}</td>
+                <td className="mono">{r ? fmtNumber(r.indicators.C.notional_ratio, 2) : "—"}</td>
+                <td>{setup ? <span className={`pill ${setupTone(setup)}`}>{setupLabel(setup)}</span> : "—"}</td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+const TIER_DESC: Record<string, string> = {
+  A: "Actionable — strong supporting evidence across multiple indicators",
+  B: "Review closely — notable activity, confirm with corroboration",
+  C: "Context only — elevated but insufficient for setup"
+};
+
+function ScanGrouped({
+  rows,
+  onInspect
+}: {
+  rows: ScanRow[];
+  onInspect: (r: UtaTickerResult) => void;
+}) {
+  const byTier: Record<string, ScanRow[]> = { A: [], B: [], C: [] };
+  for (const row of rows) {
+    const t = row.result?.tier || row.preliminary_tier || "D";
+    if (t === "A" || t === "B" || t === "C") byTier[t].push(row);
+  }
+  return (
+    <div className="scan-grouped">
+      {(["A", "B", "C"] as const).map((t) => {
+        if (byTier[t].length === 0) return null;
+        return (
+          <div className="sg-section" key={t}>
+            <div className="sg-header">
+              <TierBadge tier={t} />
+              <div>
+                <div className="sg-tier-name">Tier {t}</div>
+                <div className="sg-tier-desc">{TIER_DESC[t]}</div>
+              </div>
+              <span className="sg-count">{byTier[t].length}</span>
+            </div>
+            <div className="scan-cards-grid">
+              {byTier[t].map((row) => (
+                <ScanCard key={row.ticker} row={row} onInspect={onInspect} />
+              ))}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 export function ScanMode({
   scan,
   pass2,
@@ -283,8 +516,18 @@ export function ScanMode({
   const [universe, setUniverse] = useState("");
   const [direction, setDirection] = useState<"bullish" | "bearish" | "both">("bullish");
   const [customTickers, setCustomTickers] = useState("");
-  const preliminaryRows = scan.data?.results || [];
-  const resolvedRows = pass2.data?.results || [];
+  const [tierFilter, setTierFilter] = useState<TierFilter>("all");
+  const [viewMode, setViewMode] = useState<ViewMode>(() =>
+    (localStorage.getItem("uta_scan_view") as ViewMode) || "cards"
+  );
+
+  function handleViewMode(v: ViewMode) {
+    setViewMode(v);
+    localStorage.setItem("uta_scan_view", v);
+  }
+
+  const resultRows = (pass2.data?.results ?? scan.data?.results ?? [])
+    .filter((row) => tierFilter === "all" || (row.result?.tier || row.preliminary_tier) === tierFilter);
 
   // Derived values for funnel
   const pass1Data = scan.data;
@@ -352,63 +595,33 @@ export function ScanMode({
       )}
 
       {/* Results — show when pass-1 or pass-2 data available */}
-      {(scan.status === "ready" || pass2.status === "ready") && (
-        <div className="two-column">
-          <section className="panel">
-            <SectionHeader title="Scan Pass 1" meta={scan.data ? `${scan.data.universe_label} / ${scan.data.performance_tier}` : "preliminary"} />
-            {scan.data ? (
-              <p className="empty">
-                {scan.data.scan_policy || "Pass 1 ranks preliminary activity before pass 2 resolves trade-print evidence."}
-                {" "}
-                {scan.data.scanned_count !== undefined ? `Scanned ${scan.data.scanned_count} of ${scan.data.universe_ticker_count || scan.data.requested_ticker_count || "unknown"} names.` : ""}
-                {scan.data.universe_cache_state ? ` Universe: ${scan.data.universe_cache_state}.` : ""}
-              </p>
-            ) : null}
-            <div className="compact-list">
-              {preliminaryRows.map((row) => (
-                <div className="compact-row" key={row.ticker}>
-                  <div>
-                    <b>{row.ticker}</b>
-                    <span>{row.scan_reason || row.label || "Preliminary activity screen - pass 2 resolves signed-flow evidence"}</span>
-                  </div>
-                  <div className="row-metrics">
-                    <Pill tone="warn">preliminary</Pill>
-                    <span>{row.preliminary_tier || "n/a"}</span>
-                    {row.C_screen !== undefined ? <span>{fmtNumber(row.C_screen, 2)}x C</span> : null}
-                  </div>
-                </div>
+      {(pass2.status === "ready" || scan.status === "ready") && (
+        <div className="scan-results">
+          <RefinementBar
+            rows={pass2.data?.results ?? scan.data?.results ?? []}
+            tierFilter={tierFilter}
+            onTierFilter={setTierFilter}
+            viewMode={viewMode}
+            onViewMode={handleViewMode}
+            onWatchAll={() => { /* Phase 5: bulk watchlist add */ }}
+            onSaveScan={() => { /* Phase 5: persist saved scan */ }}
+          />
+          {viewMode === "cards" && (
+            <div className="scan-cards-grid">
+              {resultRows.map((row) => (
+                <ScanCard key={row.ticker} row={row} onInspect={onInspect} />
               ))}
             </div>
-            {scan.status === "ready" && !preliminaryRows.length && (
-              <p className="empty">No preliminary scan rows yet.</p>
-            )}
-          </section>
-          <section className="panel">
-            <SectionHeader title="Scan Pass 2" meta="resolved evidence" />
-            {pass2.status === "loading" ? <p className="empty">{pass2.message}</p> : null}
-            <div className="compact-list">
-              {resolvedRows.map((row) => (
-                <div className="compact-row clickable-row" key={row.ticker} onClick={() => row.result && onInspect(row.result)}>
-                  <div>
-                    <b>{row.ticker}</b>
-                    <span>
-                      {row.result
-                        ? `${setupLabel(row.setup_status)} / ${row.bias || row.result.direction} / ${row.primary_trigger || "No trigger"}`
-                        : row.error || row.status || row.pass2_status || "blocked"}
-                    </span>
-                    {row.next_trigger_needed ? <small>{row.next_trigger_needed}</small> : null}
-                  </div>
-                  <div className="row-metrics">
-                    <Pill tone={setupTone(row.setup_status)}>{setupLabel(row.setup_status)}</Pill>
-                    <span>{row.result ? `Tier ${row.result.tier}` : "n/a"}</span>
-                    {row.signed_pressure !== undefined && row.signed_pressure !== null ? <span>{fmtPct(row.signed_pressure)} pressure</span> : null}
-                    {row.signing_confidence !== undefined && row.signing_confidence !== null ? <span>{fmtPct(row.signing_confidence)} conf</span> : null}
-                  </div>
-                </div>
-              ))}
-              {!resolvedRows.length ? <p className="empty">No resolved scan rows yet.</p> : null}
-            </div>
-          </section>
+          )}
+          {viewMode === "table" && (
+            <ScanTable rows={resultRows} onInspect={onInspect} />
+          )}
+          {viewMode === "grouped" && (
+            <ScanGrouped rows={resultRows} onInspect={onInspect} />
+          )}
+          {resultRows.length === 0 && (
+            <p className="empty">No results match the current filter.</p>
+          )}
         </div>
       )}
     </section>
