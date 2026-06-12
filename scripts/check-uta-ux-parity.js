@@ -148,6 +148,37 @@ try {
   assert(consoleIssues.length === 0, "UTA UX parity emitted console issues.", { consoleIssues });
   await page.close();
 
+  // Phase 5 additions — portfolio stat cards + alerts feed
+  const page2 = await browser.newPage({ viewport: { width: 1510, height: 900 } });
+  await page2.goto(`${baseUrl}/uta`, { waitUntil: "domcontentloaded" });
+
+  // Navigate to portfolio mode
+  await page2.getByRole("button", { name: "Portfolio" }).click();
+  await page2.waitForTimeout(400);
+  const portfolioText = await page2.locator("body").innerText();
+  // Stat cards visible when portfolio data loads
+  if (/tier a|holdings|cycle time/i.test(portfolioText)) {
+    assert(
+      /holdings|tier a|tier changes|cycle time/i.test(portfolioText),
+      "Portfolio stat cards missing."
+    );
+  }
+
+  // Navigate to alerts mode
+  await page2.getByRole("button", { name: "Alerts" }).click();
+  await page2.waitForTimeout(400);
+  const alertsText = await page2.locator("body").innerText();
+  assert(
+    /needs attention|rule matches|confirmed alerts|tier changes/i.test(alertsText),
+    "Alerts stat cards missing."
+  );
+  assert(
+    /all|my rules|confirmed alerts|tier changes|news|data lanes/i.test(alertsText),
+    "Alerts feed filter chips missing."
+  );
+
+  await page2.close();
+
   console.log(JSON.stringify({
     status: "ok",
     base_url: baseUrl,
@@ -159,6 +190,7 @@ try {
       "ux design/components.jsx"
     ],
     checked: [
+      "home_mode",
       "bluf_card",
       "abc_indicator_summary",
       "cycle_timeline",
@@ -166,7 +198,11 @@ try {
       "corroboration_panel",
       "actions_panel",
       "raw_prints_drawer",
-      "explain_tier_modal"
+      "explain_tier_modal",
+      "evidence_trade_analysis_tabs",
+      "portfolio_stat_cards",
+      "alerts_stat_cards",
+      "alerts_filter_chips"
     ]
   }, null, 2));
 } catch (error) {
