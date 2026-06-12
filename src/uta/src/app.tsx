@@ -427,6 +427,7 @@ export function App() {
             setActiveTicker(result.ticker);
             setMode("single");
           }}
+          savedScans={userState?.state.saved_scans || []}
         />
       );
     }
