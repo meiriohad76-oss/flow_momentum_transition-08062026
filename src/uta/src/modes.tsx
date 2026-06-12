@@ -324,8 +324,7 @@ export function PortfolioMode({
                     <td>
                       <span className="mono">{result.ticker}</span>
                       {isReviewed && <span className="pill neutral" style={{ marginLeft: 6, fontSize: 10 }}>✓</span>}
-                      {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
-                      {(result as any).name ? <span className="port-name">{(result as any).name}</span> : null}
+                      {result.name ? <span className="port-name">{result.name}</span> : null}
                     </td>
                     <td><TierBadge tier={result.tier} size="sm" /></td>
                     <td>{isTierD ? <span className="ink-3">—</span> : <DirTag direction={result.direction} />}</td>
