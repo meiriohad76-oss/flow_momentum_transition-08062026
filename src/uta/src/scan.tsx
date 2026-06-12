@@ -259,8 +259,21 @@ export function ScanMode({
                 </div>
               </div>
             ))}
-            {!preliminaryRows.length ? <p className="empty">No preliminary scan rows yet.</p> : null}
           </div>
+          {scan.status === "ready" && !preliminaryRows.length && (
+            <p className="empty">No preliminary scan rows yet.</p>
+          )}
+          {scan.status === "ready" && preliminaryRows.length > 0 && (
+            <button
+              type="button"
+              className="secondary"
+              style={{ marginTop: 8 }}
+              onClick={onPass2}
+              disabled={pass2.status === "loading"}
+            >
+              {pass2.status === "loading" ? "Running Pass 2…" : `Run Pass 2 — Resolve ${preliminaryRows.length} flagged tickers`}
+            </button>
+          )}
         </section>
         <section className="panel">
           <SectionHeader title="Scan Pass 2" meta="resolved evidence" />
