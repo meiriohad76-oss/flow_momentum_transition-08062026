@@ -55,6 +55,14 @@ try {
   page.on("pageerror", (error) => consoleIssues.push(`pageerror: ${error.message}`));
 
   await page.goto(`${baseUrl}/uta`, { waitUntil: "domcontentloaded" });
+
+  // If HomeMode loaded, click into Single Ticker first
+  const hasHome = (await page.locator(".home-mode").count()) > 0;
+  if (hasHome) {
+    await page.locator(".home-card").first().click();
+    await page.waitForTimeout(200);
+  }
+
   await page.waitForSelector('[data-ux-source="ux design/evidence.jsx:BlufCard"], .error-panel', { timeout: 15000 });
 
   const text = await page.locator("body").innerText();

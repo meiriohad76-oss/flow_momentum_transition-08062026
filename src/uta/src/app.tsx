@@ -1,6 +1,6 @@
 // src/uta/src/app.tsx
 import React, { useEffect, useMemo, useState } from "react";
-import { apiGet, apiPost, LIVE_SOURCE_MODE, DEFAULT_PORTFOLIO, SAFE_TICKER_PATTERN } from "./utils.js";
+import { apiGet, apiPost, fmtDate, LIVE_SOURCE_MODE, DEFAULT_PORTFOLIO, SAFE_TICKER_PATTERN } from "./utils.js";
 import { useSseEvents, SingleMode, PortfolioMode, RuntimeMode } from "./modes.js";
 import { ScanMode } from "./scan.js";
 import { AlertsMode } from "./alerts.js";
@@ -10,8 +10,74 @@ import type {
   ProviderStatus, HistoryResult, SchedulerResult, UserStateResult, LaneState, LoadState, UtaRule
 } from "./types.js";
 
+function HomeMode({
+  onMode, lastCycleAt, universeCount, regimeBadge
+}: {
+  onMode: (mode: Mode) => void;
+  lastCycleAt?: string;
+  universeCount?: number;
+  regimeBadge?: string;
+}) {
+  const cards = [
+    {
+      mode: "single" as Mode,
+      icon: "◎",
+      name: "Single Ticker",
+      desc: "Deep analysis of one ticker against its own history.",
+      tierRules: "B + C only · no peer group · signed-flow direction"
+    },
+    {
+      mode: "portfolio" as Mode,
+      icon: "⊞",
+      name: "Portfolio",
+      desc: "Rank all your holdings against each other in one cycle.",
+      tierRules: "A + B + C · ranked vs your portfolio today"
+    },
+    {
+      mode: "scan" as Mode,
+      icon: "⊙",
+      name: "Scan / Discovery",
+      desc: "Two-pass universe scan — daily bar screen then live prints.",
+      tierRules: "A + B + C · two-pass discovery · universe percentile"
+    }
+  ];
+  return (
+    <div className="home-mode">
+      <div className="home-hero">
+        <div className="home-eyebrow">Choose how you want to look at the market</div>
+        <h1 className="home-headline">Unusual Trading Activity</h1>
+        <p className="home-thesis">
+          Three independent indicators — B (historical z-score), A (universe percentile), C (raw magnitude) —
+          that are never collapsed into a single score. Tier is rule-based and always auditable.
+          Honest data lanes: incomplete data produces Tier D, never a fabricated result.
+        </p>
+      </div>
+      <div className="home-cards">
+        {cards.map((c) => (
+          <button key={c.mode} className="home-card" type="button" onClick={() => onMode(c.mode)}>
+            <div className="home-card-icon">{c.icon}</div>
+            <div className="home-card-name">{c.name}</div>
+            <div className="home-card-desc">{c.desc}</div>
+            <div className="home-card-rules">{c.tierRules}</div>
+          </button>
+        ))}
+      </div>
+      <button className="home-alerts-banner" type="button" onClick={() => onMode("alerts")}>
+        <span className="home-alerts-label">Alerts &amp; Rules</span>
+        <span className="home-alerts-desc">Typed event feed · rule matches · tier changes</span>
+        <span className="home-alerts-cta">View →</span>
+      </button>
+      <div className="home-footer">
+        {lastCycleAt ? <span>Last cycle: {fmtDate(lastCycleAt)}</span> : null}
+        {universeCount ? <span>{universeCount.toLocaleString()} tickers tracked</span> : null}
+        {regimeBadge ? <span className="home-regime-chip">{regimeBadge}</span> : null}
+      </div>
+    </div>
+  );
+}
+
 export function App() {
-  const [mode, setMode] = useState<Mode>("single");
+  const [mode, setMode] = useState<Mode>("home");
   const [activeTicker, setActiveTicker] = useState("AVGO");
   const [single, setSingle] = useState<LoadState<UtaTickerResult>>({ status: "idle" });
   const [portfolio, setPortfolio] = useState<LoadState<PortfolioResult>>({ status: "idle" });
@@ -148,6 +214,16 @@ export function App() {
   }, []);
 
   const modeBody = useMemo(() => {
+    if (mode === "home") {
+      return (
+        <HomeMode
+          onMode={(m) => setMode(m)}
+          lastCycleAt={history?.rows?.[0]?.generated_at}
+          universeCount={runtime.data?.signal_result_count}
+          regimeBadge={undefined}
+        />
+      );
+    }
     if (mode === "portfolio") {
       return (
         <PortfolioMode
@@ -247,11 +323,10 @@ export function App() {
       </header>
       <nav className="mode-tabs" aria-label="UTA modes">
         {[
-          ["single", "Single"],
+          ["single", "Single Ticker"],
           ["portfolio", "Portfolio"],
           ["scan", "Scan"],
-          ["alerts", "Alerts"],
-          ["runtime", "Runtime"]
+          ["alerts", "Alerts"]
         ].map(([id, label]) => (
           <button
             key={id}

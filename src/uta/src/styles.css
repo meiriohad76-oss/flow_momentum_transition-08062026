@@ -276,7 +276,7 @@ td {
 
 .mode-tabs {
   display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 6px;
   margin: 12px 0;
   padding: 6px;
@@ -1870,4 +1870,139 @@ body {
   .bluf-aside {
     display: none;
   }
+}
+
+/* HomeMode */
+.home-mode {
+  display: grid;
+  gap: 32px;
+  max-width: 900px;
+  margin: 0 auto;
+  padding: 48px 0 64px;
+}
+
+.home-hero {
+  text-align: center;
+}
+
+.home-eyebrow {
+  margin-bottom: 10px;
+  color: var(--ink-2);
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+}
+
+.home-headline {
+  margin-bottom: 16px;
+  font-size: 42px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
+.home-thesis {
+  max-width: 600px;
+  margin: 0 auto;
+  color: var(--ink-2);
+  font-size: 15px;
+  line-height: 1.6;
+}
+
+.home-cards {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 14px;
+}
+
+.home-card {
+  display: grid;
+  gap: 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--panel);
+  padding: 24px 20px;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s;
+}
+
+.home-card:hover {
+  border-color: var(--accent-line);
+  background: var(--panel-2);
+}
+
+.home-card-icon {
+  font-size: 24px;
+  color: var(--accent);
+}
+
+.home-card-name {
+  font-size: 17px;
+  font-weight: 700;
+  color: var(--ink);
+}
+
+.home-card-desc {
+  font-size: 13px;
+  color: var(--ink-2);
+  line-height: 1.5;
+}
+
+.home-card-rules {
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--accent);
+  letter-spacing: 0.02em;
+}
+
+.home-alerts-banner {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--panel);
+  padding: 18px 24px;
+  text-align: left;
+  cursor: pointer;
+  width: 100%;
+}
+
+.home-alerts-banner:hover {
+  background: var(--panel-2);
+}
+
+.home-alerts-label {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--ink);
+}
+
+.home-alerts-desc {
+  font-size: 13px;
+  color: var(--ink-2);
+  flex: 1;
+}
+
+.home-alerts-cta {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--accent);
+}
+
+.home-footer {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  justify-content: center;
+  color: var(--ink-3);
+  font-size: 12px;
+}
+
+.home-regime-chip {
+  padding: 3px 10px;
+  border-radius: 99px;
+  background: var(--panel-2);
+  font-weight: 600;
 }
