@@ -2923,3 +2923,67 @@ body {
 .sg-count { margin-left: auto; font-family: var(--font-mono); font-size: 13px; font-weight: 600; color: var(--ink-2); }
 
 .scan-results { display: grid; gap: 14px; }
+
+/* Portfolio stat cards */
+.port-stat-cards {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+  margin-bottom: 4px;
+}
+
+.port-stat-card {
+  display: grid;
+  gap: 3px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--panel-2);
+  padding: 14px 16px;
+}
+
+.psc-label {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--ink-3);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.psc-value {
+  font-family: var(--font-mono);
+  font-size: 26px;
+  font-weight: 700;
+  color: var(--ink);
+  line-height: 1.1;
+}
+
+.psc-mono { font-size: 16px; }
+
+.psc-detail {
+  font-size: 12px;
+  color: var(--ink-3);
+}
+
+.psc-accent { border-color: var(--buy); background: var(--buy-bg); }
+.psc-accent .psc-value { color: var(--buy); }
+
+.psc-warn { border-color: var(--warn); background: var(--warn-bg); }
+.psc-warn .psc-value { color: var(--warn); }
+
+/* Holdings table row styles */
+.row-tier-a { border-left: 2px solid var(--buy); }
+.row-ignored { opacity: 0.4; }
+.row-ignored td { text-decoration: line-through; }
+
+.port-name {
+  display: block;
+  font-size: 11px;
+  color: var(--ink-3);
+  margin-top: 2px;
+}
+
+.ink-3 { color: var(--ink-3); }
+
+@media (max-width: 900px) {
+  .port-stat-cards { grid-template-columns: repeat(2, 1fr); }
+}

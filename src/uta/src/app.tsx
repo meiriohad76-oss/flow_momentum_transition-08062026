@@ -412,6 +412,7 @@ export function App() {
             setActiveTicker(result.ticker);
             setMode("single");
           }}
+          userState={userState}
         />
       );
     }
