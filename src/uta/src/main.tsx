@@ -14,6 +14,10 @@ import {
   tierRank, setupTone, setupLabel, ruleMatches, invariantWarnings,
   apiGet, apiPost
 } from "./utils.js";
+import { Pill, SectionHeader, MetricTile, TierBadge, DirTag, BandTag, DeltaChip, IndicatorGrid } from "./components.js";
+import { BlufCard, CorroborationPanel, ActionsPanel, EvidenceCards, LaneHealth, DataProvenance } from "./evidence.js";
+import { TradeAnalysisPanel } from "./trade-analysis.js";
+import { CycleHistory, RawPrintsDrawer, ExplainTierPanel } from "./detail-extras.js";
 
 function useSseEvents() {
   const [events, setEvents] = useState<Array<{ type: string; received_at: string; payload: string }>>([]);
@@ -61,27 +65,11 @@ function useSseEvents() {
   return { state, events };
 }
 
-function Pill({ children, tone = "neutral" }: { children: React.ReactNode; tone?: string }) {
-  return <span className={`pill ${tone}`}>{children}</span>;
-}
-
-function SectionHeader({ title, meta }: { title: string; meta?: string }) {
-  return (
-    <div className="section-header">
-      <h2>{title}</h2>
-      {meta ? <span>{meta}</span> : null}
-    </div>
-  );
-}
-
-function MetricTile({ label, value, detail }: { label: string; value: React.ReactNode; detail?: string }) {
-  return (
-    <div className="metric-tile">
-      <span>{label}</span>
-      <strong>{value}</strong>
-      {detail ? <small>{detail}</small> : null}
-    </div>
-  );
+function toneForTier(tier?: string) {
+  if (tier === "A") return "good";
+  if (tier === "B") return "warn";
+  if (tier === "C") return "neutral";
+  return "bad";
 }
 
 function StatusStrip({ data }: { data: UtaTickerResult }) {
@@ -101,486 +89,6 @@ function StatusStrip({ data }: { data: UtaTickerResult }) {
   );
 }
 
-function toneForTier(tier?: string) {
-  if (tier === "A") return "good";
-  if (tier === "B") return "warn";
-  if (tier === "C") return "neutral";
-  return "bad";
-}
-
-function TierBadge({ tier, size = "" }: { tier?: string; size?: string }) {
-  const normalized = String(tier || "D").toUpperCase();
-  return <span className={`tier-badge tier-ring t-${normalized.toLowerCase()} tier-${normalized.toLowerCase()} ${size}`}>{normalized}</span>;
-}
-
-function DirectionTag({ direction }: { direction?: string }) {
-  const arrow = direction === "bullish" ? "↑" : direction === "bearish" ? "↓" : "↔";
-  return <span className={`dir-tag ${direction || "neutral"}`}>{arrow} {direction || "neutral"}</span>;
-}
-
-function BandTag({ band }: { band?: string }) {
-  return <span className={`band-tag ${String(band || "normal").toLowerCase()}`}>{band || "Normal"}</span>;
-}
-
-function DisplayDirectionTag({ direction }: { direction?: string }) {
-  const dir = direction || "undetermined";
-  const arrow = dir === "bullish" ? "↑" : dir === "bearish" ? "↓" : "↔";
-  const label = dir === "bullish" ? "Buyer-side" : dir === "bearish" ? "Seller-side" : "Undetermined";
-  return <span className={`dir-tag ${dir === "bullish" ? "bull" : dir === "bearish" ? "bear" : "undet"} ${dir}`}>{arrow} {label}</span>;
-}
-
-function IndicatorGrid({ data, portfolioMode = false }: { data: UtaTickerResult; portfolioMode?: boolean }) {
-  const a = data.indicators.A;
-  const aliases = data.trade_analysis?.indicator_aliases;
-  const b = aliases?.B || {
-    volume: data.indicators.B.volume_zscore,
-    notional: data.indicators.B.notional_zscore,
-    focus: data.indicators.B.focus_notional_share_zscore,
-    pressure: data.indicators.B.net_notional_pressure_zscore
-  };
-  const c = aliases?.C || {
-    vr: data.indicators.C.volume_ratio,
-    nr: data.indicators.C.notional_ratio,
-    fshare: data.indicators.C.focus_notional_share,
-    fcount: data.indicators.C.focus_trade_count,
-    nnp: data.indicators.C.net_notional_pressure
-  };
-  return (
-    <div className="indicator-summary ind-summary">
-      <article className="ind-chip B b">
-        <span>B · vs own history</span>
-        <strong>{fmtNumber(b.notional, 2)}σ notional</strong>
-        <small>{fmtNumber(b.volume, 2)}σ vol · {fmtNumber(b.focus, 2)}σ focus · {fmtNumber(b.pressure, 2)}σ pressure</small>
-      </article>
-      <article className={`ind-chip A a ${a === null ? "na" : ""}`}>
-        <span>{portfolioMode ? "A - relative to your portfolio today" : "A - universe percentile"}</span>
-        <strong>{a === null ? "N/A" : fmtPct(a.volume_percentile)}</strong>
-        <small>{a === null ? "single-ticker mode by design" : String(a.scope_label || "peer ranked context")}</small>
-      </article>
-      <article className="ind-chip C c">
-        <span>C · raw magnitude</span>
-        <strong>{fmtNumber(c.nr, 2)}x notional</strong>
-        <small>{fmtNumber(c.vr, 2)}x vol · {fmtPct(c.nnp)} pressure · {c.fcount ?? 0} focus prints</small>
-      </article>
-    </div>
-  );
-}
-
-function toneForBias(bias?: string) {
-  if (bias === "bullish") return "good";
-  if (bias === "bearish") return "bad";
-  if (bias === "neutral") return "neutral";
-  return "warn";
-}
-
-function TradeAnalysisPanel({ data }: { data: UtaTickerResult }) {
-  const analysis = data.trade_analysis;
-  if (!analysis) {
-    return null;
-  }
-  return (
-    <section className={`panel trade-analysis ${analysis.bias || "neutral"}`} data-testid="trade-analysis">
-      <SectionHeader title="Trade Analysis" meta={analysis.trigger_model || "signed-flow criteria"} />
-      <div className="trade-verdict-row">
-        <div>
-          <span className="crumb">Bias / setup verdict</span>
-          <h2>{analysis.bias === "neutral" ? "No directional UTA setup" : `${analysis.bias.toUpperCase()} signed-flow setup`}</h2>
-          <p>{analysis.verdict}</p>
-        </div>
-        <div className="trade-verdict-tags">
-          <Pill tone={toneForBias(analysis.bias)}>{analysis.bias}</Pill>
-          <Pill tone={analysis.setup_status === "review_candidate" ? "good" : analysis.setup_status === "watch_only" ? "warn" : "neutral"}>
-            {analysis.setup_status.replaceAll("_", " ")}
-          </Pill>
-          <BandTag band={analysis.anomaly_band} />
-        </div>
-      </div>
-      <div className="trigger-strip">
-        <div>
-          <span>Primary trigger</span>
-          <b>{analysis.trigger_summary?.primary_trigger || "No trigger"}</b>
-        </div>
-        <div>
-          <span>Next required evidence</span>
-          <b>{analysis.trigger_summary?.next_trigger_needed || "N/A"}</b>
-        </div>
-        <div>
-          <span>Trade workflow effect</span>
-          <b>{(analysis.trigger_summary?.trade_action || "no_trade").replaceAll("_", " ")}</b>
-        </div>
-      </div>
-      <div className="metric-grid four">
-        <MetricTile label="Signed pressure" value={`${fmtNumber(Number(analysis.pressure.net_notional_pressure) * 100, 1)}%`} detail={analysis.pressure.direction} />
-        <MetricTile label="Confidence" value={fmtPct(analysis.pressure.signing_confidence)} detail="print signing" />
-        <MetricTile label="Volume / notional" value={`${fmtNumber(analysis.activity.volume_ratio, 2)}x / ${fmtNumber(analysis.activity.notional_ratio, 2)}x`} detail={`${analysis.activity.baseline_sessions || 0} baseline sessions`} />
-        <MetricTile label="Focus prints" value={analysis.block_flow.focus_trade_count ?? 0} detail={`${fmtMoney(analysis.block_flow.focus_notional)} focus notional`} />
-      </div>
-      <div className="trade-analysis-body">
-        <div>
-          <h3>Interpretation</h3>
-          <p>{analysis.pressure.interpretation}</p>
-        </div>
-        <div>
-          <h3>Trigger criteria</h3>
-          <div className="criteria-list">
-            {(analysis.criteria || []).map((item) => (
-              <div className={`criteria ${item.passed ? "pass" : "fail"}`} key={item.id}>
-                <b>{item.passed ? "✓" : "×"}</b>
-                <span>{item.label}<small>{item.actual}</small></span>
-              </div>
-            ))}
-          </div>
-        </div>
-      </div>
-    </section>
-  );
-}
-
-function BlufCard({ data, portfolioMode = false }: { data: UtaTickerResult; portfolioMode?: boolean }) {
-  const analysis = data.trade_analysis;
-  const rows = [
-    ["What happened", data.bluf.what_happened],
-    ["Why it matters", data.bluf.why_it_matters],
-    ["What to check", data.bluf.what_to_check],
-    ["Limitations", data.bluf.limitations]
-  ];
-  return (
-    <section className="panel card bluf bluf-card" data-ux-source="ux design/evidence.jsx:BlufCard">
-      <div className="bluf-head">
-        <TierBadge tier={data.tier} size="lg" />
-        <div>
-          <span className="crumb">{portfolioMode ? "Portfolio detail" : "Single ticker"} / BLUF</span>
-          <div className="bluf-headline">{data.bluf.headline}</div>
-          <div className="bluf-meta">
-            <DisplayDirectionTag direction={data.direction} />
-            <BandTag band={analysis?.anomaly_band} />
-            <Pill tone="neutral">Direction confidence {fmtPct(data.signing_confidence)}</Pill>
-          </div>
-        </div>
-        <div className="bluf-aside uplabel">BLUF · as of {fmtDate(data.generated_at)}</div>
-      </div>
-      <IndicatorGrid data={data} portfolioMode={portfolioMode} />
-      <div className="bluf-grid">
-        {rows.map(([label, value]) => (
-          <div className="bluf-row" key={label}>
-            <div className="bluf-k">{label}</div>
-            <div className="bluf-v">{value}</div>
-          </div>
-        ))}
-      </div>
-    </section>
-  );
-}
-
-function LaneHealth({ lanes, onRefresh }: { lanes: LaneState[]; onRefresh?: (lane: LaneState) => void }) {
-  return (
-    <section className="panel">
-      <SectionHeader title="Data Health" meta={`${lanes.length} lanes`} />
-      <div className="lane-list">
-        {lanes.map((lane) => (
-          <div className="lane" key={lane.lane_id}>
-            <div>
-              <b>{lane.label}</b>
-              <span>{lane.operator_copy}</span>
-              <small>
-                {lane.required ? "Required" : "Optional"} / tier effect: {lane.tier_effect}
-                {typeof lane.coverage === "number" ? ` / coverage ${fmtPct(lane.coverage)}` : ""}
-              </small>
-            </div>
-            <div className="lane-actions">
-              <Pill tone={lane.state === "ready" ? "good" : lane.state === "disabled" ? "neutral" : "warn"}>{lane.state}</Pill>
-              {lane.next_action && onRefresh ? (
-                <button className="icon-button" type="button" onClick={() => onRefresh(lane)} title={lane.next_action.label}>
-                  R
-                </button>
-              ) : null}
-            </div>
-          </div>
-        ))}
-      </div>
-    </section>
-  );
-}
-
-function DataProvenance({ data }: { data: UtaTickerResult }) {
-  const diagnostics = data.engine_diagnostics || {};
-  const printSample = diagnostics.print_sample || {};
-  const live = data.data_state === "live_manual";
-  return (
-    <section className="panel">
-      <SectionHeader title="Data Provenance" meta={live ? "Massive live manual" : "Live provider state"} />
-      <div className="metric-grid four">
-        <MetricTile label="Source mode" value={data.calculation_metadata.source_mode || data.data_state} detail={live ? "manual provider pull" : "provider unavailable"} />
-        <MetricTile label="Provider" value={data.calculation_metadata.provider || diagnostics.provider || "massive"} detail={data.calculation_metadata.prints_source || "live provider"} />
-        <MetricTile label="Bars" value={data.calculation_metadata.latest_bar_date || data.calculation_metadata.live_clock || "N/A"} detail={data.calculation_metadata.bars_source || `${diagnostics.baseline?.session_count ?? "N/A"} baseline sessions`} />
-        <MetricTile label="Print sample" value={printSample.eligible_prints ?? data.raw_prints?.prints?.length ?? "N/A"} detail={fmtMoney(printSample.total_notional)} />
-      </div>
-      <p>
-        {live
-          ? "Live manual mode uses Massive daily bars for volume/notional baselines and recent Massive prints for signed flow, focus prints, and raw-print evidence."
-          : "Live provider data is required. Missing providers produce explicit unavailable lane states and no synthetic signal."}
-      </p>
-    </section>
-  );
-}
-
-function EvCard({ card, defaultOpen }: { card: EvidenceCard; defaultOpen: boolean }) {
-  const [open, setOpen] = useState(defaultOpen);
-  return (
-    <article className={`ev-card ${open ? "open" : "ev-collapsed"} ${card.status}`} data-card-id={card.id}>
-      <button className="ev-head" type="button" onClick={() => setOpen((current) => !current)}>
-        <span className="ico">{card.title.slice(0, 1)}</span>
-        <span className="ev-titlewrap">
-          <span className="ev-title">{card.title}</span>
-          <span className="ev-sub">{card.status.replaceAll("_", " ")}</span>
-        </span>
-        <span className="ev-metric">{card.headline_metric}</span>
-        <span className="ev-chev">{open ? "⌃" : "⌄"}</span>
-      </button>
-      <div className="ev-body">
-        <p>{card.summary}</p>
-      </div>
-    </article>
-  );
-}
-
-function EvidenceCards({ cards }: { cards: EvidenceCard[] }) {
-  return (
-    <section className="panel card" data-ux-source="ux design/evidence.jsx:EvidenceGrid">
-      <SectionHeader title="Evidence" meta={`${cards.length} cards`} />
-      <div className="evidence-grid ev-grid">
-        {cards.map((card, index) => <EvCard key={card.id} card={card} defaultOpen={index < 3} />)}
-      </div>
-    </section>
-  );
-}
-
-function CorroborationPanel({ data }: { data: UtaTickerResult }) {
-  const corr = data.trade_analysis?.corroboration || {};
-  const rows = [
-    ["Price action aligned", corr.price_action_aligned, "Strong"],
-    ["Provider alert confirmed", corr.provider_alert_confirmed, "Strong"],
-    ["Options flow aligned", corr.options_flow_aligned, "Strong"],
-    ["Pre-market + regular elevated", corr.premarket_regular_elevated, "Moderate"],
-    ["News catalyst present", corr.news_catalyst_present, "Contextual"],
-    ["Macro regime supports", corr.macro_regime_supports, "Contextual"]
-  ] as const;
-  return (
-    <section className="panel">
-      <SectionHeader title="Corroboration" meta={`${corr.independent_strong_count || 0} strong confirmations`} />
-      <div className="corr-list">
-        {rows.map(([label, passed, level]) => (
-          <div className={`corr-row ${passed ? "on" : "off"}`} key={label}>
-            <span>{passed ? "✓" : "–"}</span>
-            <div>
-              <b>{label}</b>
-              <small>{level} independence</small>
-            </div>
-          </div>
-        ))}
-      </div>
-      <p>{corr.note || "Tier A requires at least one independent strong corroboration. Optional lanes never penalize when absent."}</p>
-    </section>
-  );
-}
-
-function ActionsPanel({
-  data,
-  onRefreshLane,
-  onRevalidate,
-  onWatchlist,
-  onRawPrints,
-  onExplainTier,
-  onCompare,
-  compare
-}: {
-  data: UtaTickerResult;
-  onRefreshLane?: (lane: LaneState) => void;
-  onRevalidate?: () => void;
-  onWatchlist?: () => void;
-  onRawPrints?: () => void;
-  onExplainTier?: () => void;
-  onCompare?: () => void;
-  compare?: boolean;
-}) {
-  const firstRefreshable = data.lane_states.find((lane) => lane.next_action) || data.lane_states[0];
-  return (
-    <section className="panel card actions-panel" data-ux-source="ux design/evidence.jsx:ActionsPanel">
-      <SectionHeader title="Actions" meta="human review controls" />
-      <button type="button" className="action-btn" onClick={onRevalidate}>Revalidate ticker</button>
-      <button type="button" className="action-btn" onClick={onRawPrints}>Raw Prints</button>
-      <button type="button" className="action-btn" onClick={onExplainTier}>Explain Tier</button>
-      <button type="button" className={`action-btn ${compare ? "on" : ""}`} onClick={onCompare}>{compare ? "Hide compare" : "Compare to prior cycle"}</button>
-      <button type="button" className="action-btn" onClick={onWatchlist}>Add to watchlist</button>
-      <button type="button" className="action-btn" onClick={() => firstRefreshable && onRefreshLane?.(firstRefreshable)}>
-        Refresh lane
-      </button>
-      <div className="action-note">
-        <b>Supporting evidence only</b>
-        <span>UTA cannot place trades or bypass risk/execution gates. Use Tier A/B as a review prompt, not an instruction.</span>
-      </div>
-    </section>
-  );
-}
-
-function ExplainTier({ data }: { data: UtaTickerResult }) {
-  return (
-    <section className="panel" data-testid="explain-tier">
-      <SectionHeader title="Explain Tier" meta={data.explain_tier.verdict || `Tier ${data.tier}`} />
-      <div className="rule-list">
-        {(data.explain_tier.rules || []).map((rule) => (
-          <div className={`rule ${rule.passed ? "pass" : "fail"}`} key={rule.id}>
-            <Pill tone={rule.passed ? "good" : "bad"}>{rule.passed ? "passed" : "failed"}</Pill>
-            <div>
-              <b>{rule.label}</b>
-              <span>{rule.actual}</span>
-            </div>
-          </div>
-        ))}
-      </div>
-      {data.explain_tier.gap_to_next_tier?.length ? (
-        <div className="gap-box">
-          <b>Gap to next tier</b>
-          <ul>
-            {data.explain_tier.gap_to_next_tier.map((gap, index) => <li key={`${gap}-${index}`}>{String(gap)}</li>)}
-          </ul>
-        </div>
-      ) : null}
-    </section>
-  );
-}
-
-function RawPrints({ prints }: { prints: RawPrint[] }) {
-  return (
-    <section className="panel raw-print-panel">
-      <SectionHeader title="Raw Prints" meta={`${prints.length} shown`} />
-      <div className="table-wrap">
-        <table>
-          <thead>
-            <tr>
-              <th>Time</th>
-              <th>Venue</th>
-              <th>Side</th>
-              <th>Price</th>
-              <th>Size</th>
-              <th>Notional</th>
-              <th>Codes</th>
-            </tr>
-          </thead>
-          <tbody>
-            {prints.map((print, index) => (
-              <tr key={`${print.ts}-${index}`}>
-                <td>{fmtDate(print.ts)}</td>
-                <td>{print.venue}</td>
-                <td>{print.signed_side || "unknown"}</td>
-                <td>{fmtMoney(print.price)}</td>
-                <td>{Number(print.size || 0).toLocaleString()}</td>
-                <td>{fmtMoney(print.notional)}</td>
-                <td>{(print.condition_codes || []).join(", ") || "none"}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-    </section>
-  );
-}
-
-function RawPrintsDrawer({ data, open, onClose }: { data: UtaTickerResult; open: boolean; onClose: () => void }) {
-  const prints = data.raw_prints?.prints || [];
-  if (!open) return null;
-  return (
-    <>
-      <div className="scrim" onClick={onClose} />
-      <aside className="drawer" data-ux-source="ux design/detail-extras.jsx:RawPrintsDrawer">
-        <div className="drawer-head">
-          <div>
-            <div className="dt">{data.ticker} · Raw prints</div>
-            <div className="ds">Top {prints.length} by notional · post-condition-code policy {data.raw_prints?.policy_version || "v1"}</div>
-          </div>
-          <button className="x-close" type="button" onClick={onClose}>×</button>
-        </div>
-        <div className="drawer-body">
-          <div className="table-wrap">
-            <table className="rp-table">
-              <thead>
-                <tr>
-                  <th>Time</th>
-                  <th>Price</th>
-                  <th>Size</th>
-                  <th>Notional</th>
-                  <th>Venue</th>
-                  <th>Signed</th>
-                  <th>Method</th>
-                  <th>Codes</th>
-                </tr>
-              </thead>
-              <tbody>
-                {prints.map((print, index) => (
-                  <tr key={`${print.ts}-${index}`}>
-                    <td>{fmtDate(print.ts)}</td>
-                    <td>{fmtMoney(print.price)}</td>
-                    <td>{Number(print.size || 0).toLocaleString()}</td>
-                    <td>{fmtMoney(print.notional)}</td>
-                    <td><span className={String(print.venue || "").toUpperCase().includes("TRF") ? "venue-chip venue-trf" : "venue-chip venue-lit"}>{print.venue || "N/A"}</span></td>
-                    <td className={print.signed_side === "buy" ? "rp-buy" : print.signed_side === "sell" ? "rp-sell" : ""}>{print.signed_side || "unknown"}</td>
-                    <td>{print.signing_method || "unknown"}</td>
-                    <td>{(print.condition_codes || []).join(", ") || "none"}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-        <div className="drawer-foot">Condition-code policy removes hard-excluded prints before scoring. Direction remains signed-flow only.</div>
-      </aside>
-    </>
-  );
-}
-
-function ExplainTierModal({ data, open, onClose }: { data: UtaTickerResult; open: boolean; onClose: () => void }) {
-  if (!open) return null;
-  return (
-    <>
-      <div className="scrim" onClick={onClose} />
-      <section className="modal" data-ux-source="ux design/detail-extras.jsx:ExplainTierPanel">
-        <div className="modal-head">
-          <TierBadge tier={data.tier} size="lg" />
-          <div>
-            <div className="dt">Why {data.ticker} is Tier {data.tier}</div>
-            <div className="ds">{data.explain_tier.rule_set || "rule-based A/B/C gates"}</div>
-          </div>
-          <button className="x-close" type="button" onClick={onClose}>×</button>
-        </div>
-        <div className="modal-body">
-          <div className="verdict-banner">
-            <b>{data.explain_tier.verdict || `Tier ${data.tier}`}</b>
-            <span>Tier is rule-based and never a collapsed score.</span>
-          </div>
-          {(data.explain_tier.rules || []).map((rule) => (
-            <div className="rule-row" key={rule.id}>
-              <span className={`rule-mk ${rule.passed ? "pass" : "fail"}`}>{rule.passed ? "✓" : "×"}</span>
-              <div className="rule-ct">
-                <div className="rule-name">{rule.label}</div>
-                <div className="rule-detail">{rule.actual}</div>
-              </div>
-            </div>
-          ))}
-          {data.explain_tier.gap_to_next_tier?.length ? (
-            <div className="elev-note">
-              <b>Why not the next tier?</b> {data.explain_tier.gap_to_next_tier.map(String).join(" · ")}
-            </div>
-          ) : null}
-        </div>
-        <div className="modal-foot">
-          <span>Policy: condition_code_policy_v1. Explain output comes from classifier payload.</span>
-          <button type="button" className="btn btn-sm" onClick={onClose}>Close</button>
-        </div>
-      </section>
-    </>
-  );
-}
-
 function CompareBanner({ data }: { data: UtaTickerResult }) {
   const maxB = data.trade_analysis?.activity.max_b_zscore ?? data.indicators.B.notional_zscore;
   return (
@@ -594,35 +102,14 @@ function CompareBanner({ data }: { data: UtaTickerResult }) {
   );
 }
 
-function CycleHistory({ history }: { history: HistoryResult | null }) {
-  return (
-    <section className="panel card cyc" data-ux-source="ux design/detail-extras.jsx:CycleTimeline">
-      <SectionHeader title="Cycle History" meta={`${history?.rows.length || 0} rows`} />
-      <div className="cyc-bars">
-        {(history?.rows || []).slice(0, 12).map((row, index) => {
-          const up = row.direction === "bullish";
-          const height = row.tier === "A" ? 48 : row.tier === "B" ? 34 : row.tier === "C" ? 22 : 8;
-          return <span className="cyc-bar-col" key={row.id || index}><span className={`cyc-bar ${up ? "up" : "dn"} ${index === 0 ? "cur" : ""}`} style={{ height, bottom: up ? "50%" : "auto", top: up ? "auto" : "50%" }} /></span>;
-        })}
-        {!history?.rows.length ? <p className="empty">No cycles stored yet.</p> : null}
-      </div>
-      <div className="cyc-ribbon">
-        {(history?.rows || []).slice(0, 12).map((row, index) => <span className={`cyc-cell cyc-${row.tier || "D"} ${index === 0 ? "cyc-now" : ""}`} key={`${row.id || index}-tier`}>{row.tier || "D"}</span>)}
-      </div>
-    </section>
-  );
-}
-
 function TickerDetail({
   data,
-  history,
   portfolioMode,
   onRefreshLane,
   onRevalidate,
   onWatchlist
 }: {
   data: UtaTickerResult;
-  history: HistoryResult | null;
   portfolioMode?: boolean;
   onRefreshLane?: (lane: LaneState) => void;
   onRevalidate?: () => void;
@@ -650,7 +137,7 @@ function TickerDetail({
         </div>
         <div className="tier-cluster">
           <TierBadge tier={data.tier} size="lg" />
-          <DisplayDirectionTag direction={data.direction} />
+          <DirTag direction={data.direction} />
           <Pill tone={toneForTier(data.tier)}>Cycle {data.runtime_cycle?.run_id || data.cycle_id || "live"}</Pill>
         </div>
       </section>
@@ -659,7 +146,7 @@ function TickerDetail({
           {compare ? <CompareBanner data={data} /> : null}
           <BlufCard data={data} portfolioMode={portfolioMode} />
           <TradeAnalysisPanel data={data} />
-          <CycleHistory history={history} />
+          <CycleHistory ticker={data.ticker} />
           <EvidenceCards cards={data.evidence_cards || []} />
         </main>
         <aside className="detail-side side-col">
@@ -679,21 +166,19 @@ function TickerDetail({
         </aside>
       </div>
       <RawPrintsDrawer data={data} open={drawer === "raw"} onClose={() => setDrawer(null)} />
-      <ExplainTierModal data={data} open={explainOpen} onClose={() => setExplainOpen(false)} />
+      <ExplainTierPanel data={data} open={explainOpen} onClose={() => setExplainOpen(false)} />
     </div>
   );
 }
 
 function SingleMode({
   data,
-  history,
   onAnalyze,
   onRefreshLane,
   onRevalidate,
   onWatchlist
 }: {
   data: LoadState<UtaTickerResult>;
-  history: HistoryResult | null;
   onAnalyze: (ticker: string) => void;
   onRefreshLane: (lane: LaneState) => void;
   onRevalidate: () => void;
@@ -715,7 +200,6 @@ function SingleMode({
       {data.data ? (
         <TickerDetail
           data={data.data}
-          history={history}
           onRefreshLane={onRefreshLane}
           onRevalidate={onRevalidate}
           onWatchlist={onWatchlist}
@@ -767,7 +251,7 @@ function PortfolioMode({
                 <tr key={row.ticker} onClick={() => onInspect(row)} className="clickable-row">
                   <td>{row.ticker}</td>
                   <td>Tier {row.tier}</td>
-                  <td>{row.indicators.A === null ? "N/A" : fmtPct(row.indicators.A.volume_percentile)}</td>
+                  <td>{row.indicators.A === null ? "N/A" : fmtPct((row.indicators.A as Record<string, unknown>).volume_percentile)}</td>
                   <td>{fmtNumber(row.indicators.B.notional_zscore)} sigma</td>
                   <td>{fmtMoney(row.indicators.C.focus_notional)}</td>
                   <td>{row.direction}</td>
@@ -1160,7 +644,7 @@ function RuntimeMode({
             {!stream.events.length ? <p className="empty">Waiting for runtime events.</p> : null}
           </div>
         </section>
-        <CycleHistory history={history} />
+        <CycleHistory ticker="runtime" />
       </div>
     </section>
   );
@@ -1360,7 +844,6 @@ function App() {
     return (
       <SingleMode
         data={single}
-        history={history}
         onAnalyze={(ticker) => loadSingle(ticker).catch((error) => setSingle({ status: "error", data: single.data, message: error.message }))}
         onRefreshLane={(lane) => refreshLane(lane).catch((error) => setSingle({ status: "error", data: single.data, message: error.message }))}
         onRevalidate={() => revalidateActive().catch((error) => setSingle({ status: "error", data: single.data, message: error.message }))}
