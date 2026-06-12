@@ -2084,3 +2084,110 @@ body {
   background: var(--panel-2);
   font-weight: 600;
 }
+
+/* RegimeBanner */
+.regime-banner {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 8px 20px;
+  background: var(--panel-2);
+  border-bottom: 1px solid var(--line);
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--ink-2);
+  flex-wrap: wrap;
+}
+
+.regime-badge {
+  font-weight: 700;
+  font-size: 12px;
+  padding: 3px 10px;
+  border-radius: 99px;
+}
+
+.regime-on .regime-badge { background: var(--buy-bg); color: var(--buy); }
+.regime-neutral .regime-badge { background: var(--panel-3); color: var(--ink-2); }
+.regime-off .regime-badge { background: var(--warn-bg); color: var(--warn); }
+.regime-crisis { background: rgba(255, 109, 109, 0.08); }
+.regime-crisis .regime-badge { background: var(--sell-bg); color: var(--sell); }
+
+.regime-interp {
+  flex: 1;
+  font-style: italic;
+  color: var(--ink-3);
+}
+
+/* RevalidationBar */
+.revalidation-bar {
+  height: 2px;
+  background: linear-gradient(90deg, var(--accent), var(--buy));
+  animation: reval-slide 1.4s ease-in-out infinite;
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 100;
+}
+
+@keyframes reval-slide {
+  0% { transform: scaleX(0); transform-origin: left; }
+  50% { transform: scaleX(1); transform-origin: left; }
+  51% { transform: scaleX(1); transform-origin: right; }
+  100% { transform: scaleX(0); transform-origin: right; }
+}
+
+/* WatchlistDrawer */
+.watchlist-drawer {
+  width: min(380px, 92vw);
+}
+
+.wl-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.wl-sym {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  text-align: left;
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+  padding: 4px 6px;
+  border-radius: 6px;
+}
+
+.wl-sym:hover { background: var(--panel-2); }
+
+/* RuntimeOverlay */
+.runtime-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg);
+}
+
+.runtime-overlay-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 20px;
+  border-bottom: 1px solid var(--line);
+  font-size: 15px;
+  font-weight: 600;
+  background: var(--panel);
+}
+
+.runtime-overlay-body {
+  flex: 1;
+  overflow: auto;
+  padding: 20px;
+}

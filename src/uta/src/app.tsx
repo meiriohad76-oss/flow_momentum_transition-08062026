@@ -4,6 +4,7 @@ import { apiGet, apiPost, fmtDate, LIVE_SOURCE_MODE, DEFAULT_PORTFOLIO, SAFE_TIC
 import { useSseEvents, SingleMode, PortfolioMode, RuntimeMode } from "./modes.js";
 import { ScanMode } from "./scan.js";
 import { AlertsMode } from "./alerts.js";
+import { TierBadge, DirTag } from "./components.js";
 import type {
   Mode, UtaTickerResult, PortfolioResult, ScanResult, RuntimeStatus,
   ProviderStatus, HistoryResult, SchedulerResult, UserStateResult, LaneState, LoadState, UtaRule
@@ -80,6 +81,72 @@ function TopBar({
       </div>
     </header>
   );
+}
+
+type MacroRegime = {
+  badge: "Risk-On" | "Neutral" | "Risk-Off" | "Crisis";
+  vix?: number;
+  t10y2y?: number;
+  fed_funds?: number;
+  interpretation: string;
+};
+
+function RegimeBanner({ regime }: { regime: MacroRegime | null }) {
+  if (!regime) return null;
+  const toneClass = { "Risk-On": "on", "Neutral": "neutral", "Risk-Off": "off", "Crisis": "crisis" }[regime.badge];
+  return (
+    <div className={`regime-banner regime-${toneClass}`}>
+      <span className="regime-badge">{regime.badge}</span>
+      {regime.vix != null && <span>VIX {regime.vix.toFixed(1)}</span>}
+      {regime.t10y2y != null && <span>T10Y2Y {regime.t10y2y.toFixed(2)}%</span>}
+      {regime.fed_funds != null && <span>Fed Funds {regime.fed_funds.toFixed(2)}%</span>}
+      <span className="regime-interp">{regime.interpretation}</span>
+    </div>
+  );
+}
+
+function WatchlistDrawer({
+  watchlist, results, onClose, onNavigate, onRemove
+}: {
+  watchlist: string[];
+  results: UtaTickerResult[];
+  onClose: () => void;
+  onNavigate: (sym: string) => void;
+  onRemove: (sym: string) => void;
+}) {
+  const resultMap = Object.fromEntries(results.map((r) => [r.ticker, r]));
+  return (
+    <>
+      <div className="scrim" onClick={onClose} />
+      <div className="drawer watchlist-drawer">
+        <div className="drawer-head">
+          <span className="dt">Watchlist · {watchlist.length} saved</span>
+          <button className="x-close icon-button secondary" type="button" onClick={onClose}>✕</button>
+        </div>
+        <div className="drawer-body">
+          {watchlist.length === 0 ? (
+            <p className="empty">No tickers saved yet. Use 'Add to watchlist' in any ticker detail view.</p>
+          ) : watchlist.map((sym) => {
+            const r = resultMap[sym];
+            return (
+              <div className="wl-row" key={sym}>
+                <button type="button" className="wl-sym secondary" onClick={() => { onNavigate(sym); onClose(); }}>
+                  <span className="mono">{sym}</span>
+                  {r ? <><TierBadge tier={r.tier} size="sm" /><DirTag direction={r.direction} /></> : null}
+                </button>
+                <button type="button" className="icon-button secondary" onClick={() => onRemove(sym)}>×</button>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    </>
+  );
+}
+
+function RevalidationBar({ active }: { active: boolean }) {
+  if (!active) return null;
+  return <div className="revalidation-bar" />;
 }
 
 function HomeMode({
@@ -173,6 +240,12 @@ export function App() {
   const [showRuntime, setShowRuntime] = React.useState(false);
 
   React.useEffect(() => {
+    const handler = (e: KeyboardEvent) => { if (e.key === "Escape") setShowRuntime(false); };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, []);
+
+  React.useEffect(() => {
     document.documentElement.setAttribute("data-theme", theme);
     localStorage.setItem("uta_theme_v1", theme);
   }, [theme]);
@@ -186,6 +259,17 @@ export function App() {
 
   const activeData = single.data;
   const watchlistCount = userState?.state.watchlist?.length || 0;
+
+  const macroRegime = React.useMemo((): MacroRegime | null => {
+    const macroCard = activeData?.evidence_cards?.find((c) => c.id === "macro_context");
+    if (!macroCard) return null;
+    const summary = macroCard.summary || "";
+    const badge: MacroRegime["badge"] =
+      /risk.off/i.test(summary) ? "Risk-Off" :
+      /crisis/i.test(summary) ? "Crisis" :
+      /risk.on/i.test(summary) ? "Risk-On" : "Neutral";
+    return { badge, interpretation: macroCard.summary };
+  }, [activeData]);
 
   async function loadSingle(ticker = activeTicker) {
     const normalized = ticker.trim().toUpperCase() || "AVGO";
@@ -422,6 +506,44 @@ export function App() {
               {d.charAt(0).toUpperCase() + d.slice(1)}
             </button>
           ))}
+        </div>
+      )}
+      <RevalidationBar active={single.status === "loading" || portfolio.status === "loading"} />
+      {mode !== "home" && <RegimeBanner regime={macroRegime} />}
+      {showWatchlist && (
+        <WatchlistDrawer
+          watchlist={userState?.state.watchlist || []}
+          results={portfolio.data?.results || (single.data ? [single.data] : [])}
+          onClose={() => setShowWatchlist(false)}
+          onNavigate={(sym) => {
+            setMode("single");
+            loadSingle(sym).catch((err) => setSingle({ status: "error", data: single.data, message: err.message }));
+          }}
+          onRemove={(sym) => {
+            const next = (userState?.state.watchlist || []).filter((t) => t !== sym);
+            apiPost<UserStateResult>("/api/uta/user-state/watchlist", { watchlist: next })
+              .then(setUserState)
+              .catch(console.error);
+          }}
+        />
+      )}
+      {showRuntime && (
+        <div className="runtime-overlay">
+          <div className="runtime-overlay-head">
+            <span>Operator — Runtime</span>
+            <button type="button" className="x-close icon-button secondary" onClick={() => setShowRuntime(false)}>✕</button>
+          </div>
+          <div className="runtime-overlay-body">
+            <RuntimeMode
+              runtime={runtime}
+              providers={providers}
+              scheduler={scheduler}
+              history={history}
+              stream={stream}
+              onSchedulerToggle={(enabled) => toggleScheduler(enabled).catch((err) => setScheduler({ status: "error", message: err.message }))}
+              onRefreshRuntime={() => loadRuntime().catch((err) => setRuntime({ status: "error", message: err.message }))}
+            />
+          </div>
         </div>
       )}
       {activeData && mode !== "single" ? (
