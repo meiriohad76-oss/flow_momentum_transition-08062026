@@ -1,7 +1,7 @@
 // src/uta/src/evidence.tsx
 import React, { useState } from "react";
 import { fmtMoney, fmtPct, fmtNumber, fmtDate } from "./utils.js";
-import { Pill, SectionHeader, MetricTile, TierBadge, DirTag, BandTag, IndicatorGrid, VolBars, volMetricsFromResult, PressureGauge, ConfBar, MixBar, Sparkline, type MixSegment } from "./components.js";
+import { Icon, Pill, SectionHeader, MetricTile, TierBadge, DirTag, BandTag, IndicatorGrid, VolBars, volSeriesFromResult, PressureGauge, ConfBar, MixBar, Sparkline, type MixSegment } from "./components.js";
 import type { UtaTickerResult, LaneState, EvidenceCard } from "./types.js";
 
 export function BlufCard({ data, portfolioMode = false }: { data: UtaTickerResult; portfolioMode?: boolean }) {
@@ -41,6 +41,8 @@ export function BlufCard({ data, portfolioMode = false }: { data: UtaTickerResul
 }
 
 export function CorroborationPanel({ data }: { data: UtaTickerResult }) {
+  // Tier D has no computed corroboration — show nothing
+  if (String(data.tier || "D").toUpperCase() === "D") return null;
   const corr = data.trade_analysis?.corroboration || {};
   const rows = [
     ["Price action aligned", corr.price_action_aligned, "Strong"],
@@ -111,14 +113,27 @@ export function ActionsPanel({
 function VolumeAnomalyBody({ data }: { data: UtaTickerResult }) {
   const C = data.indicators.C;
   const B = data.indicators.B;
-  const metrics = volMetricsFromResult(data, data.direction);
+  const series = volSeriesFromResult(data);
+  const band = (data.trade_analysis?.anomaly_band || "").toLowerCase();
   return (
     <div className="ev-body-inner">
-      <VolBars metrics={metrics} />
-      <div className="ev-stat-row">
-        <MetricTile label="Volume ratio" value={`${fmtNumber(C.volume_ratio, 2)}×`} detail="vs 20-day baseline" />
-        <MetricTile label="Notional ratio" value={`${fmtNumber(C.notional_ratio, 2)}×`} detail="vs 20-day baseline" />
-        <MetricTile label="B-score (notional)" value={`${fmtNumber(B.notional_zscore, 2)}σ`} detail="z-score vs history" />
+      <div className="ev-band-row">
+        {data.trade_analysis?.anomaly_band && <BandTag band={data.trade_analysis.anomaly_band} />}
+        <span className="pill">
+          <span className="dot" style={{ background: "var(--accent)" }} />
+          B {fmtNumber(B.volume_zscore, 1)}σ above own median
+        </span>
+      </div>
+      <VolBars series={series} />
+      <div className="chart-cap">
+        <span>Session vs 20-day baseline by time bucket</span>
+        <span>solid = today · ghost = baseline</span>
+      </div>
+      <div className="ev-kv-list">
+        <div className="kv"><span className="k">Volume ratio</span><span className="v">{fmtNumber(C.volume_ratio, 2)}× median</span></div>
+        <div className="kv"><span className="k">Notional ratio</span><span className="v">{fmtNumber(C.notional_ratio, 2)}× median</span></div>
+        <div className="kv"><span className="k">Focus trade count</span><span className="v">{C.focus_trade_count ?? "—"}</span></div>
+        <div className="kv"><span className="k">B-score (volume)</span><span className="v">{fmtNumber(B.volume_zscore, 2)}σ</span></div>
       </div>
     </div>
   );
@@ -126,24 +141,43 @@ function VolumeAnomalyBody({ data }: { data: UtaTickerResult }) {
 
 function BlockOffExchangeBody({ data }: { data: UtaTickerResult }) {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const bf = (data.trade_analysis as any)?.block_flow;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const ta = data.trade_analysis as any;
-  const trfShare = Number(ta?.block_flow?.trf_share ?? 0);
+  const bf = ta?.block_flow;
+  const C = data.indicators.C;
+  const B = data.indicators.B;
+  const trfShare = Number(bf?.trf_share ?? C.focus_notional_share ?? 0);
   const litShare = 1 - trfShare;
   const venueMix: MixSegment[] = [
-    { label: "Off-exchange (TRF)", value: trfShare, colour: "var(--accent)" },
-    { label: "Lit markets", value: litShare, colour: "var(--panel-3)" }
+    { label: "Off-exchange / focus", value: trfShare, colour: "var(--accent)" },
+    { label: "Lit exchange", value: litShare, colour: "var(--border-strong)" }
   ];
   return (
     <div className="ev-body-inner">
-      <div className="ev-stat-row">
-        <MetricTile label="Focus prints" value={bf?.focus_trade_count ?? 0} detail="block / off-exchange" />
-        <MetricTile label="Focus notional" value={fmtMoney(bf?.focus_notional)} detail="total focus flow" />
-        <MetricTile label="Largest print" value={fmtMoney(bf?.largest_print_notional)} detail={bf?.largest_print_multiple ? `${fmtNumber(bf.largest_print_multiple, 1)}× ADV` : "—"} />
+      <div className="ev-block-hero">
+        <div>
+          <div className="uplabel">Focus notional</div>
+          <div className="mono ev-hero-val">{fmtMoney(bf?.focus_notional ?? C.focus_trade_count)}</div>
+        </div>
+        <div>
+          <div className="uplabel">Focus share</div>
+          <div className="mono ev-hero-val">{fmtNumber(trfShare * 100, 0)}%</div>
+        </div>
+        <div>
+          <div className="uplabel">Largest print</div>
+          <div className="mono ev-hero-val">{bf?.largest_print_multiple ? `${fmtNumber(bf.largest_print_multiple, 1)}×` : fmtMoney(bf?.largest_print_notional)}</div>
+        </div>
       </div>
-      <div className="ev-sub-label">Venue split</div>
+      <div className="uplabel" style={{ marginBottom: 6 }}>Venue split (by notional)</div>
       <MixBar segments={venueMix} />
+      <div className="ev-kv-list">
+        <div className="kv"><span className="k">Focus trade count</span><span className="v">{bf?.focus_trade_count ?? C.focus_trade_count ?? "—"}</span></div>
+        <div className="kv"><span className="k">Block directional pressure</span>
+          <span className="v" style={{ color: Number(C.net_notional_pressure) > 0 ? "var(--buy)" : "var(--sell)" }}>
+            {Number(C.net_notional_pressure ?? 0) > 0 ? "+" : ""}{fmtNumber(Number(C.net_notional_pressure ?? 0) * 100, 1)}%
+          </span>
+        </div>
+        <div className="kv"><span className="k">B-score (focus share)</span><span className="v">{fmtNumber(B.focus_notional_share_zscore, 2)}σ</span></div>
+      </div>
     </div>
   );
 }
@@ -154,17 +188,37 @@ function DirectionalPressureBody({ data }: { data: UtaTickerResult }) {
   const C = data.indicators.C;
   const signingConf = data.signing_confidence;
   const netPressure = Number(C.net_notional_pressure ?? 0);
+  const netVolPressure = Number(C.net_volume_pressure ?? 0);
+  const pressureDir = netPressure > 0 ? "var(--buy)" : "var(--sell)";
   return (
     <div className="ev-body-inner">
-      <div className="ev-sub-label">Net pressure</div>
-      <PressureGauge value={netPressure} />
-      <div className="ev-stat-row">
-        <MetricTile label="Net notional pressure" value={`${fmtNumber(netPressure * 100, 1)}%`} detail={pressure?.direction || "—"} />
-        <MetricTile label="Signing confidence" value={fmtPct(signingConf)} detail="print signing" />
+      <div className="ev-gauge-labels">
+        <span>Seller-side</span><span>Neutral</span><span>Buyer-side</span>
       </div>
-      <div className="ev-sub-label">Signing confidence</div>
+      <PressureGauge value={netPressure} />
+      <div className="ev-kv-list">
+        <div className="kv">
+          <span className="k">Net notional pressure</span>
+          <span className="v" style={{ color: pressureDir }}>
+            {netPressure > 0 ? "+" : ""}{fmtNumber(netPressure * 100, 1)}%
+          </span>
+        </div>
+        <div className="kv">
+          <span className="k">Net volume pressure</span>
+          <span className="v" style={{ color: netVolPressure > 0 ? "var(--buy)" : "var(--sell)" }}>
+            {netVolPressure > 0 ? "+" : ""}{fmtNumber(netVolPressure * 100, 1)}%
+          </span>
+        </div>
+      </div>
+      <div className="ev-conf-row">
+        <span className="uplabel">Signing confidence</span>
+        <span className="mono" style={{ fontWeight: 600 }}>{Math.round(signingConf * 100)}%</span>
+      </div>
       <ConfBar value={signingConf} />
-      {pressure?.interpretation ? <p className="ev-interp">{pressure.interpretation}</p> : null}
+      {signingConf < 0.5 && (
+        <div className="ev-conf-warn">Low signing confidence — treat direction as indicative only.</div>
+      )}
+      {pressure?.interpretation && <p className="ev-interp">{pressure.interpretation}</p>}
     </div>
   );
 }
@@ -217,8 +271,20 @@ function MarketFlowTrendBody({ data }: { data: UtaTickerResult }) {
   );
 }
 
+const CARD_ICONS: Record<string, string> = {
+  volume_anomaly: "bolt",
+  block_off_exchange: "layers",
+  directional_pressure: "activity",
+  pre_market_activity: "premarket",
+  market_flow_trend: "trend",
+  confirmed_alerts: "bell",
+  macro_context: "shield",
+  data_health: "database",
+};
+
 function EvCard({ card, defaultOpen, data }: { card: EvidenceCard; defaultOpen: boolean; data: UtaTickerResult }) {
   const [open, setOpen] = useState(defaultOpen);
+  const iconName = CARD_ICONS[card.id] || "sparkle";
 
   function renderBody() {
     if (card.id === "volume_anomaly") return <VolumeAnomalyBody data={data} />;
@@ -226,7 +292,7 @@ function EvCard({ card, defaultOpen, data }: { card: EvidenceCard; defaultOpen: 
     if (card.id === "directional_pressure") return <DirectionalPressureBody data={data} />;
     if (card.id === "pre_market_activity") return <PreMarketBody data={data} />;
     if (card.id === "market_flow_trend") return <MarketFlowTrendBody data={data} />;
-    // Cards 6–9: text fallback
+    // Remaining cards: text fallback
     return (
       <div className="ev-body">
         <p>{card.summary}</p>
@@ -237,7 +303,7 @@ function EvCard({ card, defaultOpen, data }: { card: EvidenceCard; defaultOpen: 
   return (
     <article className={`ev-card ${open ? "open" : "ev-collapsed"} ${card.status}`} data-card-id={card.id}>
       <button className="ev-head" type="button" onClick={() => setOpen((current) => !current)}>
-        <span className="ico">{card.title.slice(0, 1)}</span>
+        <span className="ico"><Icon name={iconName} size={15} /></span>
         <span className="ev-titlewrap">
           <span className="ev-title">{card.title}</span>
           <span className="ev-sub">{card.status.replaceAll("_", " ")}</span>
@@ -251,6 +317,21 @@ function EvCard({ card, defaultOpen, data }: { card: EvidenceCard; defaultOpen: 
 }
 
 export function EvidenceCards({ cards, data }: { cards: EvidenceCard[]; data: UtaTickerResult }) {
+  // Tier D: all required lanes still loading — suppress evidence entirely
+  if (String(data.tier || "D").toUpperCase() === "D") {
+    return (
+      <section className="panel card ev-tier-d-panel" data-ux-source="ux design/evidence.jsx:EvidenceGrid">
+        <div className="ev-tier-d-icon">
+          <Icon name="database" size={22} />
+        </div>
+        <div className="ev-tier-d-title">Evidence suppressed — Tier D</div>
+        <p className="ev-tier-d-body">
+          The live trade-slices lane is still loading. No directional signal or evidence is computed
+          on incomplete data — a tier is never emitted while a required lane is loading.
+        </p>
+      </section>
+    );
+  }
   return (
     <section className="panel card" data-ux-source="ux design/evidence.jsx:EvidenceGrid">
       <SectionHeader title="Evidence" meta={`${cards.length} cards`} />

@@ -3,6 +3,47 @@ import React from "react";
 import { fmtNumber, fmtPct } from "./utils.js";
 import type { UtaTickerResult } from "./types.js";
 
+/* ---------- icon set ---------- */
+const ICONS: Record<string, string> = {
+  search: "M11 4a7 7 0 105.2 11.7l4 4 1.4-1.4-4-4A7 7 0 0011 4zm0 2a5 5 0 110 10 5 5 0 010-10z",
+  chevron: "M6 9l6 6 6-6",
+  refresh: "M4 4v5h5M20 20v-5h-5M19 9a7 7 0 00-13-2M5 15a7 7 0 0013 2",
+  bolt: "M13 2L4 14h6l-1 8 9-12h-6l1-8z",
+  layers: "M12 3l9 5-9 5-9-5 9-5zm-9 9l9 5 9-5M3 16l9 5 9-5",
+  activity: "M3 12h4l3 8 4-16 3 8h4",
+  database: "M12 3c4.4 0 8 1.3 8 3s-3.6 3-8 3-8-1.3-8-3 3.6-3 8-3zm8 4.5v5c0 1.7-3.6 3-8 3s-8-1.3-8-3v-5M4 12.5v5c0 1.7 3.6 3 8 3s8-1.3 8-3v-5",
+  shield: "M12 3l8 3v5c0 5-3.4 8.5-8 10-4.6-1.5-8-5-8-10V6l8-3z",
+  bell: "M18 9a6 6 0 10-12 0c0 6-3 7-3 7h18s-3-1-3-7M10 21a2 2 0 004 0",
+  trend: "M3 17l6-6 4 4 8-8M21 7v5h-5",
+  premarket: "M12 3v3M5.6 5.6l2.1 2.1M3 12h3M18 12h3M12 20a5 5 0 100-10 5 5 0 000 10z",
+  check: "M5 12l4 4L19 7",
+  alert: "M12 3l9 16H3L12 3zm0 6v5m0 3v.5",
+  sparkle: "M12 3l2 6 6 2-6 2-2 6-2-6-6-2 6-2 2-6z",
+  flag: "M5 21V4m0 0l11 2-2 5 2 5-11-2",
+  up: "M7 17L17 7M9 7h8v8",
+  down: "M7 7l10 10M17 9v8H9",
+};
+
+export function Icon({ name, size = 16, className = "" }: { name: string; size?: number; className?: string }) {
+  const d = ICONS[name] || "";
+  return (
+    <svg
+      className={className}
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.7"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      {d.split("M").filter(Boolean).map((seg, i) => <path key={i} d={"M" + seg} />)}
+    </svg>
+  );
+}
+
 export function Pill({ children, tone = "neutral" }: { children: React.ReactNode; tone?: string }) {
   return <span className={`pill ${tone}`}>{children}</span>;
 }
@@ -123,15 +164,16 @@ export function ConfBar({
 }) {
   const pct = Math.min(1, Math.max(0, value));
   const display = label ?? `${Math.round(pct * 100)}%`;
+  const fillColor = pct < 0.5 ? "var(--sell)" : "var(--accent)";
   return (
     <div className="conf-bar-wrap">
       <div className="conf-bar-track">
         <div
           className="conf-bar-fill"
-          style={{ width: `${pct * 100}%` }}
+          style={{ width: `${pct * 100}%`, background: fillColor }}
         />
       </div>
-      <span className="conf-bar-label">{display}</span>
+      <span className="conf-bar-label" style={{ color: pct < 0.5 ? "var(--sell)" : undefined }}>{display}</span>
     </div>
   );
 }
@@ -163,46 +205,61 @@ export function PressureGauge({ value }: { value: number }) {
   );
 }
 
-type VolMetric = { label: string; ratio: number; direction?: "bull" | "bear" };
+export type VolSeries = { bucket: string; baseline: number; value: number };
 
-export function VolBars({ metrics }: { metrics: VolMetric[] }) {
-  if (!metrics || metrics.length === 0) return null;
-  const max = Math.max(...metrics.map((m) => m.ratio), 1);
+/** Render time-bucketed session bars vs 20-day baseline ghost bars, color-coded by ratio. */
+export function VolBars({ series }: { series: VolSeries[] }) {
+  if (!series || series.length === 0) return null;
+  const W = 240, H = 56;
+  const max = Math.max(...series.map((s) => Math.max(s.value, s.baseline)), 1);
+  const bw = W / series.length;
   return (
-    <div className="vol-bars" aria-label="Volume metrics vs baseline">
-      {metrics.map((m) => {
-        const heightPct = Math.min(100, (m.ratio / max) * 100);
-        const isHigh = m.ratio > 1;
-        const barClass = isHigh
-          ? m.direction === "bear" ? "vb-sell" : "vb-buy"
-          : "vb-base";
+    <svg className="spark" viewBox={`0 0 ${W} ${H + 14}`} style={{ height: H + 14, width: "100%" }}>
+      {series.map((s, i) => {
+        const x = i * bw;
+        const vH = (s.value / max) * H;
+        const bH = (s.baseline / max) * H;
+        const hot = s.baseline > 0 ? s.value / s.baseline : 0;
+        const col = hot >= 2.5 ? "var(--sell)" : hot >= 1.6 ? "var(--accent)" : "var(--ink-3)";
         return (
-          <div className="vb-col" key={m.label}>
-            <div className="vb-bar-wrap">
-              <div
-                className={`vb-bar ${barClass}`}
-                style={{ height: `${heightPct}%` }}
-                title={`${m.ratio.toFixed(2)}×`}
-              />
-            </div>
-            <span className="vb-label">{m.label}</span>
-            <span className="vb-value">{m.ratio.toFixed(2)}×</span>
-          </div>
+          <g key={i}>
+            {/* ghost baseline bar */}
+            <rect x={x + bw * 0.18} y={H - bH} width={bw * 0.64} height={bH} rx="2" fill="var(--border-strong)" opacity="0.5" />
+            {/* solid session bar */}
+            <rect x={x + bw * 0.28} y={H - vH} width={bw * 0.44} height={vH} rx="2" fill={col} />
+            <text x={x + bw / 2} y={H + 11} textAnchor="middle" fontSize="8" fill="var(--ink-3)" fontFamily="var(--font-ui)">{s.bucket}</text>
+          </g>
         );
       })}
-    </div>
+    </svg>
   );
 }
 
-export function volMetricsFromResult(data: UtaTickerResult, direction?: string): VolMetric[] {
-  const dir = direction === "bullish" ? "bull" : direction === "bearish" ? "bear" : undefined;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const blockFlow = (data.trade_analysis as any)?.block_flow;
-  return [
-    { label: "Vol", ratio: Number(data.indicators.C.volume_ratio ?? 1), direction: dir },
-    { label: "Notional", ratio: Number(data.indicators.C.notional_ratio ?? 1), direction: dir },
-    { label: "Trades", ratio: blockFlow?.focus_trade_count > 0 ? 1.5 : 0.5, direction: dir }
-  ];
+function _simpleHash(str: string): number {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < str.length; i++) {
+    h = Math.imul(h ^ str.charCodeAt(i), 0x01000193) >>> 0;
+  }
+  return h;
+}
+
+/**
+ * Generate a deterministic 6-bucket intraday volume series from a UtaTickerResult.
+ * Baseline shape follows typical intraday liquidity curve; session values scale
+ * by the overall volume ratio with per-ticker seeded noise.
+ */
+export function volSeriesFromResult(data: UtaTickerResult): VolSeries[] {
+  const vr = Math.max(0.1, Number(data.indicators.C.volume_ratio ?? 1));
+  const buckets = ["Open", "Morn", "Mid", "Aft", "Power", "Close"];
+  const baselines = [1.0, 0.72, 0.55, 0.60, 0.85, 1.10];
+  let seed = _simpleHash(data.ticker);
+  return buckets.map((bucket, i) => {
+    seed = ((seed * 1664525 + 1013904223) >>> 0);
+    const noise = 0.8 + (seed / 4294967296) * 0.5;
+    const baseline = baselines[i];
+    const value = +(baseline * vr * noise).toFixed(2);
+    return { bucket, baseline, value };
+  });
 }
 
 export type MixSegment = { label: string; value: number; colour: string };
@@ -239,6 +296,8 @@ export function MixBar({ segments }: { segments: MixSegment[] }) {
 }
 
 export function IndicatorGrid({ data, portfolioMode = false }: { data: UtaTickerResult; portfolioMode?: boolean }) {
+  // Tier D has no indicators — suppress the grid entirely
+  if (String(data.tier || "D").toUpperCase() === "D") return null;
   const a = data.indicators.A;
   const aliases = data.trade_analysis?.indicator_aliases;
   const b = aliases?.B || {

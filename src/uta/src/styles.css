@@ -3165,3 +3165,188 @@ body {
 .rule-name { font-size: 13.5px; font-weight: 600; color: var(--ink); }
 
 .rule-chips { display: flex; gap: 6px; flex-wrap: wrap; }
+
+/* ====================================================================
+   Evidence card visual improvements — icons, charts, KV rows, Tier D
+   ==================================================================== */
+
+/* .spark — SVG chart base class (VolBars, Sparkline) */
+.spark {
+  display: block;
+  width: 100%;
+  height: auto;
+  overflow: visible;
+}
+
+/* Chart caption below VolBars / Sparkline */
+.chart-cap {
+  display: flex;
+  justify-content: space-between;
+  font-size: 11px;
+  color: var(--ink-3);
+  margin-top: 6px;
+}
+
+/* KV row — key / value pairs inside evidence card bodies */
+.kv {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 12px;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--grid-line);
+}
+.kv:last-child { border-bottom: none; }
+.kv .k { font-size: 12.5px; color: var(--ink-2); }
+.kv .v {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink);
+  text-align: right;
+}
+
+/* KV list container with proper spacing */
+.ev-kv-list { margin-top: 4px; }
+
+/* Inline band + pill row at top of volume anomaly body */
+.ev-band-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 4px;
+}
+
+/* Block/TRF hero metrics row */
+.ev-block-hero {
+  display: flex;
+  gap: 24px;
+  flex-wrap: wrap;
+  margin-bottom: 8px;
+}
+.ev-hero-val {
+  font-size: 19px;
+  font-weight: 600;
+  line-height: 1.1;
+  margin-top: 2px;
+}
+
+/* Directional pressure gauge axis labels */
+.ev-gauge-labels {
+  display: flex;
+  justify-content: space-between;
+  font-size: 11px;
+  color: var(--ink-3);
+  margin-bottom: 6px;
+}
+
+/* Signing confidence header row */
+.ev-conf-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 6px;
+}
+
+/* Low signing confidence warning */
+.ev-conf-warn {
+  font-size: 11.5px;
+  color: var(--sell);
+  margin-top: 6px;
+}
+
+/* Uplabel — small uppercase label above charts/metrics */
+.uplabel {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+
+/* Tier D suppression panel */
+.ev-tier-d-panel {
+  text-align: center;
+  padding: 40px 24px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+}
+.ev-tier-d-icon {
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  background: var(--panel-3);
+  color: var(--ink-3);
+  display: grid;
+  place-items: center;
+  margin-bottom: 4px;
+}
+.ev-tier-d-title {
+  font-weight: 600;
+  font-size: 16px;
+  color: var(--ink);
+}
+.ev-tier-d-body {
+  color: var(--ink-2);
+  max-width: 440px;
+  font-size: 13.5px;
+  line-height: 1.55;
+  margin: 0;
+}
+
+/* Evidence card icon container — ensure consistent size */
+.ev-head .ico {
+  width: 30px;
+  height: 30px;
+  min-width: 30px;
+  border-radius: 8px;
+  display: grid;
+  place-items: center;
+  background: var(--panel-3);
+  color: var(--ink-2);
+  flex: none;
+}
+
+/* Evidence grid — 2-col on desktop, 1-col on mobile */
+.ev-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+  align-items: start;
+  padding: 14px var(--pad) var(--pad);
+}
+@media (max-width: 860px) {
+  .ev-grid { grid-template-columns: 1fr; }
+}
+
+/* Pressure gauge — bidirectional linear gauge */
+.pressure-gauge {
+  position: relative;
+}
+.pg-track {
+  display: flex;
+  height: 10px;
+  border-radius: 99px;
+  background: linear-gradient(90deg, var(--sell-soft), var(--panel-3) 50%, var(--buy-soft));
+  overflow: hidden;
+}
+.pg-half { flex: 1; display: flex; }
+.pg-half.pg-left { justify-content: flex-end; }
+.pg-half.pg-right { justify-content: flex-start; }
+.pg-fill { height: 100%; }
+.pg-centre {
+  width: 2px;
+  background: var(--border-strong);
+  flex: none;
+}
+.pg-label {
+  display: block;
+  text-align: center;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 600;
+  margin-top: 4px;
+}

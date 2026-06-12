@@ -25,13 +25,21 @@ export function CycleHistory({
     );
   }
 
+  function tierHeight(tier: string): number {
+    const t = String(tier || "D").toUpperCase();
+    if (t === "A") return 90;
+    if (t === "B") return 65;
+    if (t === "C") return 40;
+    return 15;
+  }
+
   return (
     <section className="panel cyc">
       <SectionHeader title="Cycle History" meta={`last ${rows.length} cycles`} />
       <div className="cyc-bars">
         {rows.map((row, i) => {
           const isUp = row.direction === "bullish";
-          const heightPct = 40;
+          const heightPct = tierHeight(row.tier || "D");
           const barStyle = isUp
             ? { bottom: "50%", height: `${heightPct}%` }
             : { top: "50%", height: `${heightPct}%` };
