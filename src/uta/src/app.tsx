@@ -4,11 +4,83 @@ import { apiGet, apiPost, fmtDate, LIVE_SOURCE_MODE, DEFAULT_PORTFOLIO, SAFE_TIC
 import { useSseEvents, SingleMode, PortfolioMode, RuntimeMode } from "./modes.js";
 import { ScanMode } from "./scan.js";
 import { AlertsMode } from "./alerts.js";
-import { Pill } from "./components.js";
 import type {
   Mode, UtaTickerResult, PortfolioResult, ScanResult, RuntimeStatus,
   ProviderStatus, HistoryResult, SchedulerResult, UserStateResult, LaneState, LoadState, UtaRule
 } from "./types.js";
+
+function TopBar({
+  mode, onMode, onHome, onSearch, onOpenWatchlist, onOpenRuntime,
+  watchlistCount, alertCount, syncState, syncTime, themeToggle, densityControl
+}: {
+  mode: Mode;
+  onMode: (m: Mode) => void;
+  onHome: () => void;
+  onSearch: (sym: string) => void;
+  onOpenWatchlist: () => void;
+  onOpenRuntime: () => void;
+  watchlistCount: number;
+  alertCount: number;
+  syncState: "live" | "revalidating" | "error";
+  syncTime?: string;
+  themeToggle: () => void;
+  densityControl: () => void;
+}) {
+  const [searchVal, setSearchVal] = React.useState("");
+  const tabs: { id: Mode; label: string; badge?: number }[] = [
+    { id: "single", label: "Single Ticker" },
+    { id: "portfolio", label: "Portfolio" },
+    { id: "scan", label: "Scan" },
+    { id: "alerts", label: "Alerts", badge: alertCount > 0 ? alertCount : undefined }
+  ];
+
+  function handleSearch(e: React.FormEvent) {
+    e.preventDefault();
+    const sym = searchVal.trim().toUpperCase();
+    if (sym) { onSearch(sym); setSearchVal(""); }
+  }
+
+  return (
+    <header className="uta-topbar">
+      <button className="topbar-brand secondary icon-button" type="button" onClick={onHome} title="Home">
+        UTA
+      </button>
+      <nav className="topbar-tabs">
+        {tabs.map((t) => (
+          <button
+            key={t.id}
+            type="button"
+            className={`topbar-tab ${mode === t.id ? "active" : ""}`}
+            onClick={() => onMode(t.id)}
+          >
+            {t.label}
+            {t.badge ? <span className="tab-badge">{t.badge}</span> : null}
+          </button>
+        ))}
+      </nav>
+      <form className="topbar-search" onSubmit={handleSearch}>
+        <input
+          type="text"
+          placeholder="Search ticker…"
+          value={searchVal}
+          onChange={(e) => setSearchVal(e.target.value)}
+          className="topbar-search-input"
+        />
+      </form>
+      <div className="topbar-actions">
+        <button className="secondary icon-button" type="button" onClick={onOpenWatchlist} title="Watchlist">
+          ☆ {watchlistCount > 0 ? watchlistCount : ""}
+        </button>
+        <button className="secondary icon-button" type="button" onClick={themeToggle} title="Toggle theme">◑</button>
+        <button className="secondary icon-button" type="button" onClick={densityControl} title="Density">≡</button>
+        <span className={`sync-indicator ${syncState}`}>
+          {syncState === "revalidating" ? "Revalidating…" : `Live · ${syncTime || "--:--"} ET`}
+        </span>
+        <button className="secondary icon-button" type="button" onClick={onOpenRuntime} title="Operator">⚙</button>
+      </div>
+    </header>
+  );
+}
 
 function HomeMode({
   onMode, lastCycleAt, universeCount, regimeBadge
@@ -89,6 +161,28 @@ export function App() {
   const [scheduler, setScheduler] = useState<LoadState<SchedulerResult>>({ status: "idle" });
   const [userState, setUserState] = useState<UserStateResult | null>(null);
   const stream = useSseEvents();
+
+  const [theme, setTheme] = React.useState<"dark" | "light">(() => {
+    return (localStorage.getItem("uta_theme_v1") as "dark" | "light") || "dark";
+  });
+  const [density, setDensity] = React.useState<"compact" | "regular" | "comfy">(() => {
+    return (localStorage.getItem("uta_density_v1") as "compact" | "regular" | "comfy") || "regular";
+  });
+  const [showDensityPop, setShowDensityPop] = React.useState(false);
+  const [showWatchlist, setShowWatchlist] = React.useState(false);
+  const [showRuntime, setShowRuntime] = React.useState(false);
+
+  React.useEffect(() => {
+    document.documentElement.setAttribute("data-theme", theme);
+    localStorage.setItem("uta_theme_v1", theme);
+  }, [theme]);
+
+  React.useEffect(() => {
+    document.documentElement.setAttribute("data-density", density);
+    localStorage.setItem("uta_density_v1", density);
+  }, [density]);
+
+  function toggleTheme() { setTheme((t) => t === "dark" ? "light" : "dark"); }
 
   const activeData = single.data;
   const watchlistCount = userState?.state.watchlist?.length || 0;
@@ -303,41 +397,33 @@ export function App() {
 
   return (
     <main className="uta-shell">
-      <header className="uta-topbar">
-        <div>
-          <span className="crumb">
-            UTA / {providers.data?.live_ready ? "Massive live ready" : "live provider gated"}
-          </span>
-          <h1>Unusual Trading Activity Agent</h1>
+      <TopBar
+        mode={mode}
+        onMode={(m) => setMode(m)}
+        onHome={() => setMode("home")}
+        onSearch={(sym) => {
+          setMode("single");
+          loadSingle(sym).catch((err) => setSingle({ status: "error", data: single.data, message: err.message }));
+        }}
+        onOpenWatchlist={() => setShowWatchlist(true)}
+        onOpenRuntime={() => setShowRuntime(true)}
+        watchlistCount={watchlistCount}
+        alertCount={0}
+        syncState="live"
+        syncTime={single.data ? fmtDate(single.data.generated_at).split(",")[1]?.trim() : undefined}
+        themeToggle={toggleTheme}
+        densityControl={() => setShowDensityPop((v) => !v)}
+      />
+      {showDensityPop && (
+        <div className="density-pop">
+          {(["compact", "regular", "comfy"] as const).map((d) => (
+            <button key={d} type="button" className={`secondary ${density === d ? "active" : ""}`}
+              onClick={() => { setDensity(d); setShowDensityPop(false); }}>
+              {d.charAt(0).toUpperCase() + d.slice(1)}
+            </button>
+          ))}
         </div>
-        <div className="topbar-meta">
-          <Pill tone={providers.data?.live_ready ? "good" : "warn"}>
-            {providers.data?.live_ready ? "Massive ready" : "Massive gated"}
-          </Pill>
-          <Pill tone={runtime.data?.lane_pressure.required_not_ready ? "warn" : "good"}>
-            required lanes {runtime.data?.lane_pressure.required_not_ready ?? 0}
-          </Pill>
-          <Pill tone="neutral">watchlist {watchlistCount}</Pill>
-          <Pill tone={stream.state === "connected" ? "good" : "warn"}>SSE {stream.state}</Pill>
-        </div>
-      </header>
-      <nav className="mode-tabs" aria-label="UTA modes">
-        {[
-          ["single", "Single Ticker"],
-          ["portfolio", "Portfolio"],
-          ["scan", "Scan"],
-          ["alerts", "Alerts"]
-        ].map(([id, label]) => (
-          <button
-            key={id}
-            type="button"
-            className={mode === id ? "active" : ""}
-            onClick={() => setMode(id as Mode)}
-          >
-            {label}
-          </button>
-        ))}
-      </nav>
+      )}
       {activeData && mode !== "single" ? (
         <section className="context-strip">
           <span>{activeData.ticker} / Tier {activeData.tier} / {activeData.direction}</span>
