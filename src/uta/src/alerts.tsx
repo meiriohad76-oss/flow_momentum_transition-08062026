@@ -1,6 +1,6 @@
 // src/uta/src/alerts.tsx
 import React, { useMemo, useState } from "react";
-import { fmtDate, ruleMatches } from "./utils.js";
+import { fmtDate, ruleMatches, tierRank } from "./utils.js";
 import { Pill, SectionHeader, MetricTile, TierBadge, DirTag } from "./components.js";
 import type { UtaTickerResult, HistoryResult, UserStateResult, UtaRule } from "./types.js";
 
@@ -152,6 +152,249 @@ function ActivityFeed({
   );
 }
 
+type RuleEditorState = {
+  name: string;
+  scope: "all" | "portfolio" | "watchlist";
+  direction: "bullish" | "bearish" | "any";
+  min_tier: "A" | "B" | "C";
+  min_b_score: number;
+  min_a_rank: number;
+  min_c_ratio: number;
+  require_provider_alert: boolean;
+};
+
+function RuleEditor({
+  initial,
+  onSave,
+  onCancel,
+  liveResults
+}: {
+  initial?: Partial<RuleEditorState>;
+  onSave: (rule: RuleEditorState) => void;
+  onCancel: () => void;
+  liveResults: UtaTickerResult[];
+}) {
+  const [state, setState] = useState<RuleEditorState>({
+    name: "",
+    scope: "all",
+    direction: "any",
+    min_tier: "B",
+    min_b_score: 1.5,
+    min_a_rank: 50,
+    min_c_ratio: 1.5,
+    require_provider_alert: false,
+    ...initial
+  });
+
+  function update<K extends keyof RuleEditorState>(key: K, value: RuleEditorState[K]) {
+    setState((s) => ({ ...s, [key]: value }));
+  }
+
+  // Live match preview
+  const matchCount = liveResults.filter((r) => {
+    if (r.tier === "D") return false;
+    if (tierRank(r.tier) < tierRank(state.min_tier)) return false;
+    if (state.direction !== "any" && r.direction !== state.direction) return false;
+    if (Number(r.indicators.B.notional_zscore ?? 0) < state.min_b_score) return false;
+    if (Number(r.indicators.C.notional_ratio ?? 0) < state.min_c_ratio) return false;
+    if (state.require_provider_alert && !r.trade_analysis?.corroboration?.provider_alert_confirmed) return false;
+    return true;
+  }).length;
+
+  return (
+    <div className="rule-editor">
+      <div className="rule-ed-field">
+        <label className="rule-ed-label">Rule name</label>
+        <input
+          type="text"
+          value={state.name}
+          onChange={(e) => update("name", e.target.value)}
+          placeholder="e.g. Tier B bullish with provider alert"
+        />
+      </div>
+      <div className="rule-ed-field">
+        <label className="rule-ed-label">Scope</label>
+        <div className="dir-seg">
+          {(["all", "portfolio", "watchlist"] as const).map((s) => (
+            <button key={s} type="button" className={`dir-seg-btn ${state.scope === s ? "active" : "secondary"}`}
+              onClick={() => update("scope", s)}>
+              {s.charAt(0).toUpperCase() + s.slice(1)}
+            </button>
+          ))}
+        </div>
+      </div>
+      <div className="rule-ed-field">
+        <label className="rule-ed-label">Direction</label>
+        <div className="dir-seg">
+          {(["bullish", "bearish", "any"] as const).map((d) => (
+            <button key={d} type="button" className={`dir-seg-btn ${state.direction === d ? "active" : "secondary"}`}
+              onClick={() => update("direction", d)}>
+              {d.charAt(0).toUpperCase() + d.slice(1)}
+            </button>
+          ))}
+        </div>
+      </div>
+      <div className="rule-ed-field">
+        <label className="rule-ed-label">Min tier</label>
+        <div className="dir-seg">
+          {(["A", "B", "C"] as const).map((t) => (
+            <button key={t} type="button" className={`dir-seg-btn ${state.min_tier === t ? "active" : "secondary"}`}
+              onClick={() => update("min_tier", t)}>
+              Tier {t}
+            </button>
+          ))}
+        </div>
+      </div>
+      <div className="rule-ed-field">
+        <label className="rule-ed-label">
+          Min B-score (σ) — <strong>{state.min_b_score.toFixed(1)}σ</strong>
+        </label>
+        <input
+          type="range" min={0} max={4} step={0.1}
+          value={state.min_b_score}
+          onChange={(e) => update("min_b_score", Number(e.target.value))}
+          className="rule-slider"
+        />
+        <div className="rule-slider-ticks"><span>0σ</span><span>2σ</span><span>4σ</span></div>
+      </div>
+      <div className="rule-ed-field">
+        <label className="rule-ed-label">
+          Min A rank (percentile) — <strong>{state.min_a_rank}th</strong>
+        </label>
+        <input
+          type="range" min={0} max={100} step={5}
+          value={state.min_a_rank}
+          onChange={(e) => update("min_a_rank", Number(e.target.value))}
+          className="rule-slider"
+        />
+        <div className="rule-slider-ticks"><span>0</span><span>50th</span><span>100th</span></div>
+      </div>
+      <div className="rule-ed-field">
+        <label className="rule-ed-label">
+          Min notional ratio (×) — <strong>{state.min_c_ratio.toFixed(1)}×</strong>
+        </label>
+        <input
+          type="range" min={1} max={10} step={0.25}
+          value={state.min_c_ratio}
+          onChange={(e) => update("min_c_ratio", Number(e.target.value))}
+          className="rule-slider"
+        />
+        <div className="rule-slider-ticks"><span>1×</span><span>5×</span><span>10×</span></div>
+      </div>
+      <div className="rule-ed-field rule-ed-toggle">
+        <label className="rule-ed-label">
+          <input
+            type="checkbox"
+            checked={state.require_provider_alert}
+            onChange={(e) => update("require_provider_alert", e.target.checked)}
+          />
+          Provider alert required
+        </label>
+      </div>
+      <div className="rule-match-preview">
+        Matches <strong>{matchCount}</strong> ticker{matchCount !== 1 ? "s" : ""} right now
+      </div>
+      <div className="rule-ed-actions">
+        <button type="button" onClick={() => onSave(state)} disabled={!state.name.trim()}>
+          Save rule
+        </button>
+        <button type="button" className="secondary" onClick={onCancel}>Cancel</button>
+      </div>
+    </div>
+  );
+}
+
+function RulesDrawer({
+  rules,
+  onClose,
+  onSaveRule,
+  onToggleRule,
+  onDeleteRule,
+  liveResults
+}: {
+  rules: UtaRule[];
+  onClose: () => void;
+  onSaveRule: (rule: UtaRule) => void;
+  onToggleRule: (id: string, enabled: boolean) => void;
+  onDeleteRule: (id: string) => void;
+  liveResults: UtaTickerResult[];
+}) {
+  const [editing, setEditing] = useState<string | null>(null); // null = list, "new" = new rule
+
+  function handleSave(state: RuleEditorState) {
+    const rule: UtaRule = {
+      id: editing === "new" ? `rule_${Date.now()}` : editing!,
+      name: state.name,
+      enabled: true,
+      min_tier: state.min_tier,
+      direction: state.direction,
+      source: "user"
+    };
+    onSaveRule(rule);
+    setEditing(null);
+  }
+
+  return (
+    <>
+      <div className="scrim" onClick={onClose} />
+      <div className="drawer rules-drawer">
+        <div className="drawer-head">
+          <span className="dt">Alert Rules</span>
+          <span className="ds">{rules.length} active</span>
+          <button className="x-close icon-button secondary" type="button" onClick={onClose}>✕</button>
+        </div>
+        <div className="drawer-body">
+          {editing !== null ? (
+            <RuleEditor
+              initial={editing === "new" ? undefined : { name: rules.find((r) => r.id === editing)?.name }}
+              onSave={handleSave}
+              onCancel={() => setEditing(null)}
+              liveResults={liveResults}
+            />
+          ) : (
+            <>
+              <button type="button" onClick={() => setEditing("new")} style={{ marginBottom: 16 }}>
+                + New rule
+              </button>
+              <div className="rule-list">
+                {rules.length === 0 && (
+                  <p className="empty">No rules yet. Create one to get notified about signals that match your criteria.</p>
+                )}
+                {rules.map((rule) => {
+                  const matches = liveResults.filter((r) => ruleMatches(rule, r)).length;
+                  return (
+                    <div className="rule-card" key={rule.id}>
+                      <div className="rule-card-head">
+                        <label className="rule-toggle">
+                          <input
+                            type="checkbox"
+                            checked={rule.enabled}
+                            onChange={(e) => onToggleRule(rule.id, e.target.checked)}
+                          />
+                          <span className="rule-name">{rule.name}</span>
+                        </label>
+                        <span className={`pill ${matches > 0 ? "good" : "neutral"}`}>
+                          {matches} match{matches !== 1 ? "es" : ""}
+                        </span>
+                        <button type="button" className="secondary icon-button" onClick={() => setEditing(rule.id)}>✎</button>
+                        <button type="button" className="secondary icon-button" onClick={() => onDeleteRule(rule.id)}>×</button>
+                      </div>
+                      <div className="rule-chips">
+                        <span className="pill neutral">Tier {rule.min_tier}+</span>
+                        <span className="pill neutral">{rule.direction}</span>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </>
+          )}
+        </div>
+      </div>
+    </>
+  );
+}
+
 export function AlertsMode({
   userState,
   history,
@@ -234,6 +477,29 @@ export function AlertsMode({
       <button type="button" className="secondary" onClick={() => setShowRulesDrawer(true)}>
         Rules {rules.length > 0 ? `(${rules.length})` : ""}
       </button>
+      {showRulesDrawer && (
+        <RulesDrawer
+          rules={userState?.state.rules || []}
+          onClose={() => setShowRulesDrawer(false)}
+          onSaveRule={(rule) => {
+            const current = userState?.state.rules || [];
+            const next = current.some((r) => r.id === rule.id)
+              ? current.map((r) => r.id === rule.id ? rule : r)
+              : [...current, rule];
+            onRulesChange(next);
+          }}
+          onToggleRule={(id, enabled) => {
+            const next = (userState?.state.rules || []).map((r) =>
+              r.id === id ? { ...r, enabled } : r
+            );
+            onRulesChange(next);
+          }}
+          onDeleteRule={(id) => {
+            onRulesChange((userState?.state.rules || []).filter((r) => r.id !== id));
+          }}
+          liveResults={activeData ? [activeData] : []}
+        />
+      )}
 
       <section className="panel">
         <SectionHeader title="Rule Editor" meta="user rules only" />
