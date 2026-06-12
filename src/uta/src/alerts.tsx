@@ -1,8 +1,156 @@
 // src/uta/src/alerts.tsx
-import React, { useState } from "react";
+import React, { useMemo, useState } from "react";
 import { fmtDate, ruleMatches } from "./utils.js";
-import { Pill, SectionHeader, MetricTile } from "./components.js";
+import { Pill, SectionHeader, MetricTile, TierBadge, DirTag } from "./components.js";
 import type { UtaTickerResult, HistoryResult, UserStateResult, UtaRule } from "./types.js";
+
+function AlertsStatCards({
+  needsAttention,
+  ruleMatches: ruleMatchCount,
+  confirmedAlerts,
+  tierChanges
+}: {
+  needsAttention: number;
+  ruleMatches: number;
+  confirmedAlerts: number;
+  tierChanges: number;
+}) {
+  return (
+    <div className="port-stat-cards">
+      <div className={`port-stat-card ${needsAttention > 0 ? "psc-accent" : ""}`}>
+        <span className="psc-label">Needs attention</span>
+        <strong className="psc-value">{needsAttention}</strong>
+        <span className="psc-detail">Tier A or rule-matched</span>
+      </div>
+      <div className="port-stat-card">
+        <span className="psc-label">Rule matches</span>
+        <strong className="psc-value">{ruleMatchCount}</strong>
+        <span className="psc-detail">active rules fired</span>
+      </div>
+      <div className="port-stat-card">
+        <span className="psc-label">Confirmed alerts</span>
+        <strong className="psc-value">{confirmedAlerts}</strong>
+        <span className="psc-detail">provider-confirmed</span>
+      </div>
+      <div className={`port-stat-card ${tierChanges > 0 ? "psc-warn" : ""}`}>
+        <span className="psc-label">Tier changes</span>
+        <strong className="psc-value">{tierChanges}</strong>
+        <span className="psc-detail">this cycle</span>
+      </div>
+    </div>
+  );
+}
+
+type FeedKind = "alert" | "tierup" | "tierdown" | "news" | "lane" | "rule";
+
+type FeedEvent = {
+  id: string;
+  kind: FeedKind;
+  ticker?: string;
+  title: string;
+  tier?: string;
+  direction?: string;
+  ts: string;
+};
+
+const KIND_META: Record<FeedKind, { icon: string; colour: string; label: string }> = {
+  alert:    { icon: "◆", colour: "var(--accent)",  label: "Confirmed alerts" },
+  tierup:   { icon: "▲", colour: "var(--buy)",     label: "Tier changes" },
+  tierdown: { icon: "▼", colour: "var(--warn)",    label: "Tier changes" },
+  news:     { icon: "◉", colour: "var(--blue)",    label: "News" },
+  lane:     { icon: "⚠", colour: "var(--sell)",   label: "Data lanes" },
+  rule:     { icon: "◈", colour: "#a07be0",        label: "My rules" }
+};
+
+type FeedFilter = "all" | "rules" | "alerts" | "tier" | "news" | "lane";
+
+const FILTER_LABELS: Record<FeedFilter, string> = {
+  all:    "All",
+  rules:  "My rules",
+  alerts: "Confirmed alerts",
+  tier:   "Tier changes",
+  news:   "News",
+  lane:   "Data lanes"
+};
+
+function ActivityFeed({
+  events,
+  filter,
+  onFilter
+}: {
+  events: FeedEvent[];
+  filter: FeedFilter;
+  onFilter: (f: FeedFilter) => void;
+}) {
+  const counts: Partial<Record<FeedFilter, number>> = { all: events.length };
+  for (const ev of events) {
+    if (ev.kind === "alert")    counts.alerts = (counts.alerts || 0) + 1;
+    if (ev.kind === "tierup" || ev.kind === "tierdown") counts.tier = (counts.tier || 0) + 1;
+    if (ev.kind === "news")     counts.news = (counts.news || 0) + 1;
+    if (ev.kind === "lane")     counts.lane = (counts.lane || 0) + 1;
+    if (ev.kind === "rule")     counts.rules = (counts.rules || 0) + 1;
+  }
+
+  const visible = filter === "all"
+    ? events
+    : events.filter((ev) => {
+        if (filter === "alerts") return ev.kind === "alert";
+        if (filter === "tier")   return ev.kind === "tierup" || ev.kind === "tierdown";
+        if (filter === "news")   return ev.kind === "news";
+        if (filter === "lane")   return ev.kind === "lane";
+        if (filter === "rules")  return ev.kind === "rule";
+        return true;
+      });
+
+  return (
+    <div className="activity-feed">
+      <div className="feed-filters">
+        {(Object.keys(FILTER_LABELS) as FeedFilter[]).map((f) => (
+          <button
+            key={f}
+            type="button"
+            className={`feed-filter-chip ${filter === f ? "active" : "secondary"}`}
+            onClick={() => onFilter(f)}
+          >
+            {FILTER_LABELS[f]}
+            {counts[f] != null && counts[f]! > 0 && (
+              <span className="feed-filter-count">{counts[f]}</span>
+            )}
+          </button>
+        ))}
+      </div>
+      {visible.length === 0 ? (
+        <div className="feed-empty">
+          {filter === "rules"
+            ? <span>No rule matches. <button type="button" className="secondary" style={{ marginLeft: 8 }}>Create a rule →</button></span>
+            : <span>No {FILTER_LABELS[filter].toLowerCase()} this cycle.</span>}
+        </div>
+      ) : (
+        <div className="feed-rows">
+          {visible.map((ev) => {
+            const meta = KIND_META[ev.kind];
+            return (
+              <div className="feed-row" key={ev.id}>
+                <span className="feed-icon" style={{ color: meta.colour }}>{meta.icon}</span>
+                <div className="feed-body">
+                  <div className="feed-title">
+                    {ev.ticker && <span className="feed-sym mono">{ev.ticker}</span>}
+                    {ev.title}
+                  </div>
+                  <div className="feed-meta">
+                    <span className="feed-ts">{fmtDate(ev.ts)}</span>
+                    {ev.tier && <TierBadge tier={ev.tier} size="sm" />}
+                    {ev.direction && <DirTag direction={ev.direction} />}
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
 
 export function AlertsMode({
   userState,
@@ -25,20 +173,32 @@ export function AlertsMode({
     min_tier: "B",
     direction: "bullish"
   });
-  const feedRows = [
-    ...(history?.rows || []).map((row) => ({
-      id: row.id || `${row.ticker}-${row.generated_at}`,
-      title: `${row.ticker || "UTA"} ${row.tier ? `Tier ${row.tier}` : "cycle"}`,
-      detail: `${row.mode || "cycle"} / ${row.direction || "n/a"} / ${fmtDate(row.generated_at || row.created_at)}`,
-      source: "cycle"
-    })),
-    ...(history?.audit_log || []).map((row, index) => ({
-      id: String(row.id || `audit-${index}`),
-      title: String(row.event || row.type || "Audit event"),
-      detail: JSON.stringify(row).slice(0, 120),
-      source: "audit"
-    }))
-  ].slice(0, 10);
+  const [feedFilter, setFeedFilter] = useState<FeedFilter>("all");
+  const [showRulesDrawer, setShowRulesDrawer] = useState(false);
+
+  // Build typed events from history rows
+  const feedEvents = useMemo((): FeedEvent[] => {
+    const rows = history?.rows || [];
+    return rows.map((row, i) => {
+      const kind: FeedKind = row.tier === "A" ? "tierup" : "tierdown";
+      return {
+        id: row.id || String(i),
+        kind,
+        ticker: row.ticker,
+        title: `Tier ${row.tier || "D"} · ${row.direction || "undetermined"}`,
+        tier: row.tier,
+        direction: row.direction,
+        ts: row.generated_at || row.created_at || new Date().toISOString()
+      };
+    });
+  }, [history]);
+
+  const needsAttention = feedEvents.filter((e) => e.tier === "A" || e.tier === "B").length;
+  const ruleMatchCount = feedEvents.filter((e) =>
+    rules.some((rule) => ruleMatches(rule, activeData))
+  ).length;
+  const confirmedAlerts = feedEvents.filter((e) => e.kind === "alert").length;
+  const tierChanges = feedEvents.filter((e) => e.kind === "tierup" || e.kind === "tierdown").length;
 
   function addRule() {
     const nextRule: UtaRule = {
@@ -61,50 +221,21 @@ export function AlertsMode({
   }
 
   return (
-    <section className="mode-stack">
-      <div className="two-column">
-        <section className="panel">
-          <SectionHeader title="Activity Feed" meta={`${feedRows.length} events`} />
-          <div className="compact-list">
-            {feedRows.map((row) => (
-              <div className="compact-row" key={row.id}>
-                <div>
-                  <b>{row.title}</b>
-                  <span>{row.detail}</span>
-                </div>
-                <Pill tone={row.source === "cycle" ? "good" : "neutral"}>{row.source}</Pill>
-              </div>
-            ))}
-            {!feedRows.length ? <p className="empty">No UTA activity yet.</p> : null}
-          </div>
-        </section>
-        <section className="panel">
-          <SectionHeader title="Live Match Preview" meta={activeData ? activeData.ticker : "no ticker"} />
-          <div className="metric-grid">
-            <MetricTile label="Ticker" value={activeData?.ticker || "N/A"} />
-            <MetricTile label="Tier" value={activeData ? `Tier ${activeData.tier}` : "N/A"} />
-            <MetricTile label="Direction" value={activeData?.direction || "N/A"} />
-          </div>
-          <div className="compact-list preview-list">
-            {rules.map((rule) => (
-              <div className="compact-row" key={rule.id}>
-                <div>
-                  <b>{rule.name}</b>
-                  <span>Min Tier {rule.min_tier} / {rule.direction}</span>
-                </div>
-                <Pill tone={ruleMatches(rule, activeData) ? "good" : "neutral"}>
-                  {ruleMatches(rule, activeData) ? "match" : "no match"}
-                </Pill>
-              </div>
-            ))}
-            {!rules.length ? <p className="empty">No rules configured.</p> : null}
-          </div>
-          <div className="action-row">
-            <button type="button" onClick={onReviewed}>Reviewed</button>
-            <button type="button" className="secondary" onClick={onIgnored}>Ignored</button>
-          </div>
-        </section>
-      </div>
+    <div className="mode-stack">
+      <AlertsStatCards
+        needsAttention={needsAttention}
+        ruleMatches={ruleMatchCount}
+        confirmedAlerts={confirmedAlerts}
+        tierChanges={tierChanges}
+      />
+      <ActivityFeed
+        events={feedEvents}
+        filter={feedFilter}
+        onFilter={setFeedFilter}
+      />
+      <button type="button" className="secondary" onClick={() => setShowRulesDrawer(true)}>
+        Rules {rules.length > 0 ? `(${rules.length})` : ""}
+      </button>
 
       <section className="panel">
         <SectionHeader title="Rule Editor" meta="user rules only" />
@@ -150,6 +281,6 @@ export function AlertsMode({
           ))}
         </div>
       </section>
-    </section>
+    </div>
   );
 }
