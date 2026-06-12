@@ -1,7 +1,7 @@
 // src/uta/src/detail-extras.tsx
 import React from "react";
 import { fmtDate, fmtMoney } from "./utils.js";
-import { SectionHeader, Pill, TierBadge } from "./components.js";
+import { SectionHeader, TierBadge } from "./components.js";
 import type { UtaTickerResult, RawPrint } from "./types.js";
 
 export function CycleHistory({ ticker }: { ticker: string }) {
@@ -45,7 +45,9 @@ export function RawPrintsDrawer({ data, open, onClose }: { data: UtaTickerResult
                 </tr>
               </thead>
               <tbody>
-                {prints.map((print: RawPrint, index: number) => (
+                {prints.length === 0 ? (
+                  <tr><td colSpan={8}>No raw prints available.</td></tr>
+                ) : prints.map((print: RawPrint, index: number) => (
                   <tr key={`${print.ts}-${index}`}>
                     <td>{fmtDate(print.ts)}</td>
                     <td>{fmtMoney(print.price)}</td>

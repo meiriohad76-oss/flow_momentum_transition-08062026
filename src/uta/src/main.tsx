@@ -3,7 +3,7 @@ import React, { FormEvent, useEffect, useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
 import "./styles.css";
 import type {
-  LaneState, EvidenceCard, ExplainRule, RawPrint, UtaTickerResult,
+  LaneState, UtaTickerResult,
   PortfolioResult, ScanRow, ScanResult, RuntimeStatus, ProviderLane,
   ProviderStatus, HistoryResult, SchedulerResult, UtaRule, UserStateResult,
   LoadState, Mode
@@ -14,7 +14,7 @@ import {
   tierRank, setupTone, setupLabel, ruleMatches, invariantWarnings,
   apiGet, apiPost
 } from "./utils.js";
-import { Pill, SectionHeader, MetricTile, TierBadge, DirTag, BandTag, DeltaChip, IndicatorGrid } from "./components.js";
+import { Pill, SectionHeader, MetricTile, TierBadge, DirTag } from "./components.js";
 import { BlufCard, CorroborationPanel, ActionsPanel, EvidenceCards, LaneHealth, DataProvenance } from "./evidence.js";
 import { TradeAnalysisPanel } from "./trade-analysis.js";
 import { CycleHistory, RawPrintsDrawer, ExplainTierPanel } from "./detail-extras.js";
