@@ -1,8 +1,8 @@
 // src/uta/src/scan.tsx
 import React, { useState } from "react";
 import { fmtNumber, fmtPct, tickerList, setupTone, setupLabel, DEFAULT_PORTFOLIO } from "./utils.js";
-import { Pill, SectionHeader } from "./components.js";
-import type { ScanResult, LoadState, UtaTickerResult } from "./types.js";
+import { Pill, SectionHeader, TierBadge, DirTag } from "./components.js";
+import type { ScanResult, ScanRow, LoadState, UtaTickerResult } from "./types.js";
 
 type UniverseOption = {
   id: string;
@@ -181,6 +181,90 @@ function SavedScans({
   );
 }
 
+function ScanFunnel({
+  screened,
+  flagged,
+  resolved,
+  total,
+  pass,
+  isRunning
+}: {
+  screened: number;
+  flagged: number;
+  resolved: number;
+  total: number;
+  pass: 1 | 2;
+  isRunning: boolean;
+}) {
+  const pass2Pct = total > 0 ? Math.round((resolved / total) * 100) : 0;
+  return (
+    <div className="scan-funnel">
+      <div className="funnel-stages">
+        <div className={`funnel-stage ${screened > 0 ? "done" : pass === 1 && isRunning ? "active" : "idle"}`}>
+          <span className="funnel-count">{screened > 0 ? screened.toLocaleString() : "—"}</span>
+          <span className="funnel-label">Screened</span>
+          {screened > 0 && <span className="funnel-check">✓</span>}
+        </div>
+        <div className="funnel-arrow">→</div>
+        <div className={`funnel-stage ${flagged > 0 ? (pass === 2 ? "active" : "done") : "idle"}`}>
+          <span className="funnel-count">{flagged > 0 ? flagged : "—"}</span>
+          <span className="funnel-label">Flagged</span>
+        </div>
+        <div className="funnel-arrow">→</div>
+        <div className={`funnel-stage ${resolved > 0 ? (resolved >= total && total > 0 ? "done" : "active") : "idle"}`}>
+          <span className="funnel-count">
+            {resolved > 0 ? `${resolved} / ${total}` : "—"}
+          </span>
+          <span className="funnel-label">Resolved</span>
+          {resolved >= total && total > 0 && <span className="funnel-check">✓</span>}
+        </div>
+      </div>
+      {pass === 2 && isRunning && (
+        <div className="funnel-progress">
+          <div className="funnel-prog-bar" style={{ width: `${pass2Pct}%` }} />
+          <span className="funnel-prog-label">Pass 2 · Resolving live prints · {pass2Pct}%</span>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ResolvingTable({
+  rows,
+  pass2Status
+}: {
+  rows: ScanRow[];
+  pass2Status: "idle" | "loading" | "ready";
+}) {
+  return (
+    <div className="resolving-table">
+      {rows.map((row) => {
+        const isResolved = !!row.result;
+        const isActive = !isResolved && pass2Status === "loading";
+        const statusClass = isResolved ? "rt-done" : isActive ? "rt-active" : "rt-queued";
+        return (
+          <div className={`rt-row ${statusClass}`} key={row.ticker}>
+            <span className="rt-ticker mono">{row.ticker}</span>
+            {isResolved && row.result ? (
+              <>
+                <TierBadge tier={row.result.tier} size="sm" />
+                <DirTag direction={row.result.direction} />
+                <span className="rt-check">✓ Resolved</span>
+              </>
+            ) : isActive ? (
+              <span className="rt-resolving">Resolving…</span>
+            ) : (
+              <span className="rt-queued-label">
+                {row.preliminary_tier ? `~ ${row.preliminary_tier} est` : "Queued"}
+              </span>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 export function ScanMode({
   scan,
   pass2,
@@ -202,6 +286,14 @@ export function ScanMode({
   const preliminaryRows = scan.data?.results || [];
   const resolvedRows = pass2.data?.results || [];
 
+  // Derived values for funnel
+  const pass1Data = scan.data;
+  const pass2Data = pass2.data;
+  const allRows: ScanRow[] = pass2Data?.results ?? pass1Data?.results ?? [];
+  const resolvedCount = allRows.filter((r) => !!r.result).length;
+  const isPass2Running = pass2.status === "loading";
+  const currentPass: 1 | 2 = pass2.status !== "idle" ? 2 : 1;
+
   function resolveTickerList(): string[] {
     if (universe === "custom") return tickerList(customTickers);
     if (universe === "portfolio") return DEFAULT_PORTFOLIO;
@@ -210,98 +302,115 @@ export function ScanMode({
 
   return (
     <section className="mode-stack">
-      <div className="scan-controls">
-        <UniverseSelector
-          value={universe}
-          onChange={setUniverse}
-          customTickers={customTickers}
-          onCustomTickersChange={setCustomTickers}
-        />
-        <DirectionFilter value={direction} onChange={setDirection} />
-        <button
-          type="button"
-          disabled={!universe || scan.status === "loading"}
-          onClick={() => onPass1(direction, resolveTickerList())}
-        >
-          {scan.status === "loading" ? "Scanning…" : "Run scan"}
-        </button>
-        <SavedScans
-          scans={savedScans || []}
-          onLoad={(s) => {
-            setUniverse(String(s.universe || ""));
-            setDirection((s.direction as "bullish" | "bearish" | "both") || "bullish");
-          }}
-        />
-      </div>
-      <div className="two-column">
-        <section className="panel">
-          <SectionHeader title="Scan Pass 1" meta={scan.data ? `${scan.data.universe_label} / ${scan.data.performance_tier}` : "preliminary"} />
-          {scan.data ? (
-            <p className="empty">
-              {scan.data.scan_policy || "Pass 1 ranks preliminary activity before pass 2 resolves trade-print evidence."}
-              {" "}
-              {scan.data.scanned_count !== undefined ? `Scanned ${scan.data.scanned_count} of ${scan.data.universe_ticker_count || scan.data.requested_ticker_count || "unknown"} names.` : ""}
-              {scan.data.universe_cache_state ? ` Universe: ${scan.data.universe_cache_state}.` : ""}
-            </p>
-          ) : null}
-          {scan.status === "loading" ? <p className="empty">{scan.message}</p> : null}
-          <div className="compact-list">
-            {preliminaryRows.map((row) => (
-              <div className="compact-row" key={row.ticker}>
-                <div>
-                  <b>{row.ticker}</b>
-                  <span>{row.scan_reason || row.label || "Preliminary activity screen - pass 2 resolves signed-flow evidence"}</span>
-                </div>
-                <div className="row-metrics">
-                  <Pill tone="warn">preliminary</Pill>
-                  <span>{row.preliminary_tier || "n/a"}</span>
-                  {row.C_screen !== undefined ? <span>{fmtNumber(row.C_screen, 2)}x C</span> : null}
-                </div>
-              </div>
-            ))}
-          </div>
-          {scan.status === "ready" && !preliminaryRows.length && (
-            <p className="empty">No preliminary scan rows yet.</p>
+      {/* Idle controls */}
+      {scan.status === "idle" && (
+        <div className="scan-controls">
+          <UniverseSelector
+            value={universe}
+            onChange={setUniverse}
+            customTickers={customTickers}
+            onCustomTickersChange={setCustomTickers}
+          />
+          <DirectionFilter value={direction} onChange={setDirection} />
+          <button
+            type="button"
+            disabled={!universe || scan.status === "loading"}
+            onClick={() => onPass1(direction, resolveTickerList())}
+          >
+            Run scan
+          </button>
+          <SavedScans
+            scans={savedScans || []}
+            onLoad={(s) => {
+              setUniverse(String(s.universe || ""));
+              setDirection((s.direction as "bullish" | "bearish" | "both") || "bullish");
+            }}
+          />
+        </div>
+      )}
+
+      {/* Running / Pass-1 done */}
+      {(scan.status === "loading" || (scan.status === "ready" && pass2.status !== "ready")) && (
+        <div className="scan-running">
+          <ScanFunnel
+            screened={pass1Data?.scanned_count ?? (scan.status === "ready" ? (pass1Data?.results?.length ?? 0) : 0)}
+            flagged={pass1Data?.shortlist_count ?? 0}
+            resolved={resolvedCount}
+            total={pass1Data?.shortlist_count ?? 0}
+            pass={currentPass}
+            isRunning={scan.status === "loading" || isPass2Running}
+          />
+          {allRows.length > 0 && (
+            <ResolvingTable rows={allRows} pass2Status={pass2.status} />
           )}
-          {scan.status === "ready" && preliminaryRows.length > 0 && (
-            <button
-              type="button"
-              className="secondary"
-              style={{ marginTop: 8 }}
-              onClick={onPass2}
-              disabled={pass2.status === "loading"}
-            >
-              {pass2.status === "loading" ? "Running Pass 2…" : `Run Pass 2 — Resolve ${preliminaryRows.length} flagged tickers`}
+          {scan.status === "ready" && pass2.status === "idle" && (
+            <button type="button" onClick={onPass2}>
+              Run Pass 2 — Resolve {pass1Data?.shortlist_count ?? 0} flagged tickers
             </button>
           )}
-        </section>
-        <section className="panel">
-          <SectionHeader title="Scan Pass 2" meta="resolved evidence" />
-          {pass2.status === "loading" ? <p className="empty">{pass2.message}</p> : null}
-          <div className="compact-list">
-            {resolvedRows.map((row) => (
-              <div className="compact-row clickable-row" key={row.ticker} onClick={() => row.result && onInspect(row.result)}>
-                <div>
-                  <b>{row.ticker}</b>
-                  <span>
-                    {row.result
-                      ? `${setupLabel(row.setup_status)} / ${row.bias || row.result.direction} / ${row.primary_trigger || "No trigger"}`
-                      : row.error || row.status || row.pass2_status || "blocked"}
-                  </span>
-                  {row.next_trigger_needed ? <small>{row.next_trigger_needed}</small> : null}
+        </div>
+      )}
+
+      {/* Results — show when pass-1 or pass-2 data available */}
+      {(scan.status === "ready" || pass2.status === "ready") && (
+        <div className="two-column">
+          <section className="panel">
+            <SectionHeader title="Scan Pass 1" meta={scan.data ? `${scan.data.universe_label} / ${scan.data.performance_tier}` : "preliminary"} />
+            {scan.data ? (
+              <p className="empty">
+                {scan.data.scan_policy || "Pass 1 ranks preliminary activity before pass 2 resolves trade-print evidence."}
+                {" "}
+                {scan.data.scanned_count !== undefined ? `Scanned ${scan.data.scanned_count} of ${scan.data.universe_ticker_count || scan.data.requested_ticker_count || "unknown"} names.` : ""}
+                {scan.data.universe_cache_state ? ` Universe: ${scan.data.universe_cache_state}.` : ""}
+              </p>
+            ) : null}
+            <div className="compact-list">
+              {preliminaryRows.map((row) => (
+                <div className="compact-row" key={row.ticker}>
+                  <div>
+                    <b>{row.ticker}</b>
+                    <span>{row.scan_reason || row.label || "Preliminary activity screen - pass 2 resolves signed-flow evidence"}</span>
+                  </div>
+                  <div className="row-metrics">
+                    <Pill tone="warn">preliminary</Pill>
+                    <span>{row.preliminary_tier || "n/a"}</span>
+                    {row.C_screen !== undefined ? <span>{fmtNumber(row.C_screen, 2)}x C</span> : null}
+                  </div>
                 </div>
-                <div className="row-metrics">
-                  <Pill tone={setupTone(row.setup_status)}>{setupLabel(row.setup_status)}</Pill>
-                  <span>{row.result ? `Tier ${row.result.tier}` : "n/a"}</span>
-                  {row.signed_pressure !== undefined && row.signed_pressure !== null ? <span>{fmtPct(row.signed_pressure)} pressure</span> : null}
-                  {row.signing_confidence !== undefined && row.signing_confidence !== null ? <span>{fmtPct(row.signing_confidence)} conf</span> : null}
+              ))}
+            </div>
+            {scan.status === "ready" && !preliminaryRows.length && (
+              <p className="empty">No preliminary scan rows yet.</p>
+            )}
+          </section>
+          <section className="panel">
+            <SectionHeader title="Scan Pass 2" meta="resolved evidence" />
+            {pass2.status === "loading" ? <p className="empty">{pass2.message}</p> : null}
+            <div className="compact-list">
+              {resolvedRows.map((row) => (
+                <div className="compact-row clickable-row" key={row.ticker} onClick={() => row.result && onInspect(row.result)}>
+                  <div>
+                    <b>{row.ticker}</b>
+                    <span>
+                      {row.result
+                        ? `${setupLabel(row.setup_status)} / ${row.bias || row.result.direction} / ${row.primary_trigger || "No trigger"}`
+                        : row.error || row.status || row.pass2_status || "blocked"}
+                    </span>
+                    {row.next_trigger_needed ? <small>{row.next_trigger_needed}</small> : null}
+                  </div>
+                  <div className="row-metrics">
+                    <Pill tone={setupTone(row.setup_status)}>{setupLabel(row.setup_status)}</Pill>
+                    <span>{row.result ? `Tier ${row.result.tier}` : "n/a"}</span>
+                    {row.signed_pressure !== undefined && row.signed_pressure !== null ? <span>{fmtPct(row.signed_pressure)} pressure</span> : null}
+                    {row.signing_confidence !== undefined && row.signing_confidence !== null ? <span>{fmtPct(row.signing_confidence)} conf</span> : null}
+                  </div>
                 </div>
-              </div>
-            ))}
-            {!resolvedRows.length ? <p className="empty">No resolved scan rows yet.</p> : null}
-          </div>
-        </section>
-      </div>
+              ))}
+              {!resolvedRows.length ? <p className="empty">No resolved scan rows yet.</p> : null}
+            </div>
+          </section>
+        </div>
+      )}
     </section>
   );
 }

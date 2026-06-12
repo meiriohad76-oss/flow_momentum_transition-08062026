@@ -2652,3 +2652,140 @@ body {
   font-size: 12px;
   padding: 0 12px;
 }
+
+/* ScanFunnel */
+.scan-funnel {
+  display: grid;
+  gap: 14px;
+}
+
+.funnel-stages {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.funnel-stage {
+  flex: 1;
+  display: grid;
+  place-items: center;
+  gap: 4px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--panel-2);
+  padding: 16px 12px;
+  position: relative;
+  transition: border-color 0.2s, background 0.2s;
+}
+
+.funnel-stage.done {
+  border-color: var(--buy);
+  background: var(--buy-bg);
+}
+
+.funnel-stage.active {
+  border-color: var(--accent-line);
+  background: var(--accent-soft);
+  animation: funnel-pulse 1.6s ease-in-out infinite;
+}
+
+@keyframes funnel-pulse {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.7; }
+}
+
+.funnel-count {
+  font-family: var(--font-mono);
+  font-size: 28px;
+  font-weight: 700;
+  color: var(--ink);
+}
+
+.funnel-label {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--ink-3);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.funnel-check {
+  position: absolute;
+  top: 8px;
+  right: 10px;
+  font-size: 13px;
+  color: var(--buy);
+  font-weight: 700;
+}
+
+.funnel-arrow {
+  color: var(--ink-3);
+  font-size: 18px;
+  flex-shrink: 0;
+}
+
+.funnel-progress {
+  position: relative;
+  height: 24px;
+  border-radius: 8px;
+  background: var(--panel-3);
+  overflow: hidden;
+}
+
+.funnel-prog-bar {
+  position: absolute;
+  inset: 0 auto 0 0;
+  background: linear-gradient(90deg, var(--accent), var(--buy));
+  transition: width 0.4s ease;
+  border-radius: 8px;
+}
+
+.funnel-prog-label {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  padding: 0 10px;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+/* ResolvingTable */
+.resolving-table {
+  display: grid;
+  gap: 4px;
+  max-height: 360px;
+  overflow-y: auto;
+}
+
+.rt-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-radius: 8px;
+  background: var(--panel-2);
+  font-size: 13px;
+}
+
+.rt-ticker { font-weight: 600; min-width: 56px; }
+
+.rt-done { border-left: 2px solid var(--buy); }
+.rt-active { border-left: 2px solid var(--accent); }
+.rt-queued { opacity: 0.6; }
+
+.rt-check { color: var(--buy); font-weight: 700; margin-left: auto; font-size: 12px; }
+
+.rt-resolving {
+  color: var(--accent);
+  font-size: 12px;
+  animation: funnel-pulse 1s ease-in-out infinite;
+}
+
+.rt-queued-label { color: var(--ink-3); font-size: 12px; margin-left: auto; }
+
+.scan-running {
+  display: grid;
+  gap: 16px;
+}
