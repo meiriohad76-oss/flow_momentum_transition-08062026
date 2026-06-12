@@ -194,9 +194,7 @@ export function AlertsMode({
   }, [history]);
 
   const needsAttention = feedEvents.filter((e) => e.tier === "A" || e.tier === "B").length;
-  const ruleMatchCount = feedEvents.filter((e) =>
-    rules.some((rule) => ruleMatches(rule, activeData))
-  ).length;
+  const ruleMatchCount = rules.filter((rule) => ruleMatches(rule, activeData)).length;
   const confirmedAlerts = feedEvents.filter((e) => e.kind === "alert").length;
   const tierChanges = feedEvents.filter((e) => e.kind === "tierup" || e.kind === "tierdown").length;
 
