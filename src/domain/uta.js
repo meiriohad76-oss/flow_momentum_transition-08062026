@@ -337,7 +337,13 @@ export function signTradePrints(normalizedResult = {}, priceContext = {}) {
     if (signedSide === "buy") buyNotional += print.notional;
     if (signedSide === "sell") sellNotional += print.notional;
     weightedConfidence += print.notional * confidence;
-    if (Number.isFinite(print.price)) previousPrice = print.price;
+    // Only update tick-rule baseline from prints that carry real price discovery.
+    // TRF/dark-pool midpoint prints and policy-excluded prints have uninformative prices
+    // (midpoint is synthetic; excluded prints may be late/odd-lot). Using them as the
+    // previousPrice baseline corrupts tick-rule signing for subsequent lit prints.
+    if (Number.isFinite(print.price) && signingMethod !== "midpoint" && signingMethod !== "policy_excluded") {
+      previousPrice = print.price;
+    }
 
     return {
       ...print,
@@ -1757,7 +1763,11 @@ function buildLiveBluf({ ticker, classifier, indicators, signing, blocks, baseli
   const c = indicators.C || {};
   const b = indicators.B || {};
   const direction = trade.pressure.direction;
-  const pressurePct = roundNumber(Number(trade.pressure.net_notional_pressure || 0) * 100, 1);
+  // Use net_signed_pressure (signed-only basis) for display — consistent with the
+  // direction decision. net_notional_pressure includes unknowns in the denominator and
+  // would show a contradictory number (e.g. "42%") alongside a bullish verdict that
+  // was fired because net_signed_pressure was 70%.
+  const pressurePct = roundNumber(Number(trade.pressure.net_signed_pressure ?? trade.pressure.net_notional_pressure ?? 0) * 100, 1);
   const directionLabel = direction === "bullish" ? "Bullish flow" : direction === "bearish" ? "Bearish flow" : "No directional edge";
   const headline = `${ticker} - ${directionLabel} - Tier ${classifier.tier} (${trade.anomaly_band})`;
   const focusText = Number(c.focus_trade_count || 0) > 0
@@ -2173,6 +2183,7 @@ function buildReplayPayload(fixture, context) {
   const analysis = analyzeReplayFixture(fixture, context);
   const basePayload = clone(fixture);
   delete basePayload.engine_inputs;
+  const replayBars = fixture.engine_inputs?.historical_sessions || [];
   const replayTradeAnalysis = buildTradeAnalysis({
     ticker: fixture.ticker,
     classifier: analysis.classifier,
@@ -2182,9 +2193,12 @@ function buildReplayPayload(fixture, context) {
     baseline: analysis.baseline,
     inputs: {
       trades: analysis.signing.prints || [],
-      bars: fixture.engine_inputs?.historical_sessions || []
+      bars: replayBars
     },
-    latestBar: fixture.engine_inputs?.price_context || null,
+    // Use the last historical bar (not price_context) so latestBar has .close, .date, etc.
+    latestBar: replayBars.at(-1) ?? null,
+    // prevBar was missing — caused prev_close and price_change_pct to always be null
+    prevBar: replayBars.at(-2) ?? null,
     corroboration: fixture.corroboration || {}
   });
   const payload = {
