@@ -40,15 +40,15 @@ function BlufFindings({ data }: { data: UtaTickerResult }) {
       status: volB >= 1.5 ? "pass" : volB >= 0.5 ? "warn" : "fail",
     },
     {
-      label: "Dollar flow (notional)",
-      value: `${fmtNumber(notR, 2)}× (${notB >= 0 ? "+" : ""}${fmtNumber(notB, 2)}σ)`,
+      label: "Dollar flow (shares × price)",
+      value: `${fmtNumber(notR, 2)}× normal (${notB >= 0 ? "+" : ""}${fmtNumber(notB, 2)}σ)`,
       note: notB >= 2.5
-        ? "Major dollar flow — institutional-scale buying or selling is likely in session"
+        ? `${fmtNumber(notR, 2)}× the typical session's dollar volume — that's ${fmtNumber(notB, 1)} standard deviations above own history. Institutional-scale money is moving through this name.`
         : notB >= 1.5
-        ? "Elevated dollar flow — unusual amount of money moving through this name"
+        ? `${fmtNumber(notR, 2)}× normal dollar volume (${fmtNumber(notB, 1)}σ) — more money than 95%+ of this ticker's own sessions. Elevated but not extreme.`
         : notB >= 0.5
-        ? `Dollar flow building toward unusual — needs +${fmtNumber(1.5 - notB, 1)}σ to confirm institutional scale`
-        : "Normal dollar flow — size of trades is in line with typical sessions. No big money detected.",
+        ? `${fmtNumber(notR, 2)}× normal — building toward unusual. Needs +${fmtNumber(1.5 - notB, 1)}σ to cross the review threshold.`
+        : `${fmtNumber(notR, 2)}× normal — in line with typical sessions. No institutional-scale dollar flow detected.`,
       status: notB >= 1.5 ? "pass" : notB >= 0.5 ? "warn" : "fail",
     },
     {
@@ -112,7 +112,11 @@ function BlufFindings({ data }: { data: UtaTickerResult }) {
     } else {
       // B-score triggered Tier C, but signed pressure < 60% — volume anomaly without directional confirmation
       const peakB = Math.max(volB, notB);
-      rec = `Major volume anomaly — ${fmtNumber(peakB, 1)}σ above ${histContext} — but NO directional edge: signed pressure is only ${fmtNumber(Math.abs(pressure) * 100, 1)}%, well below the 60% threshold. ${fmtPct(conf)} of ${dataContext} were signed (reliable), but buyers and sellers are too evenly matched to assign a direction. This is a volume event only: watch for a directional catalyst or a follow-on cycle where pressure breaks above 60%. Do not use as a directional lean.`;
+      const lastClose = ta?.activity?.latest_close;
+      const priceNote = lastClose != null
+        ? ` Last close $${fmtNumber(lastClose, 2)}. If price is declining with this volume, large money is being absorbed without an upward response — a potential sign of distribution (sellers using volume to exit into demand). If price is rising, it may be accumulation. Either way, the signed-flow model cannot yet confirm which side is in control.`
+        : "";
+      rec = `Major volume anomaly — ${fmtNumber(notR, 2)}× normal dollar flow (${fmtNumber(peakB, 1)}σ above ${histContext}) — but NO directional edge: signed pressure is only ${fmtNumber(Math.abs(pressure) * 100, 1)}%, well below the 60% threshold needed to assign a direction. Buyers and sellers are splitting the volume too evenly to confirm a side.${priceNote} Watch for a follow-on cycle where pressure breaks above 60%, or a provider alert / options sweep that confirms direction. Do not trade on direction — there is none yet.`;
     }
   } else if (tier === "B") {
     rec = `Review-worthy signal. ${dirCap}-side: ${fmtNumber(Math.abs(pressure) * 100, 1)}% signed pressure (confirmed), dollar flow ${fmtNumber(notB, 1)}σ above ${histContext} (above 1.5σ trigger)${focusCnt > 0 ? `, ${focusCnt} focus print${focusCnt !== 1 ? "s" : ""} detected` : ", no block prints yet"}. ${fmtPct(conf)} signing confidence. Validate with options flow, price action, and a provider alert before acting. One strong corroboration would qualify for Tier A.`;

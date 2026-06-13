@@ -391,13 +391,15 @@ export function IndicatorGrid({ data, portfolioMode = false }: { data: UtaTicker
       <article className="ind-chip B b">
         <span>B · vs own 20-session history</span>
         <strong style={{ color: bNColor }}>
-          {fmtNumber(bN, 2)}σ dollar flow — {bNStatus}
+          {fmtNumber(c.nr, 2)}× normal dollar flow — {bNStatus}
         </strong>
         <small>
-          vol {fmtNumber(b.volume, 2)}σ · focus {fmtNumber(b.focus, 2)}σ · pressure {fmtNumber(b.pressure, 2)}σ
+          {fmtNumber(bN, 2)}σ above own history · vol {fmtNumber(b.volume, 2)}σ · pressure {fmtNumber(b.pressure, 2)}σ
         </small>
         <small className="ind-threshold">
-          Review trigger: dollar flow ≥ 1.5σ{bNGap}
+          {bNHit
+            ? `${fmtNumber(bN, 2)}σ = statistically extreme — ${fmtNumber(c.nr, 2)}× more dollars traded than a typical session`
+            : `Review trigger: dollar flow ≥ 1.5σ${bNGap}`}
         </small>
       </article>
       <article className={`ind-chip A a ${a === null ? "na" : ""}`}>
