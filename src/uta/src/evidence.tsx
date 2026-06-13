@@ -26,7 +26,14 @@ function BlufFindings({ data }: { data: UtaTickerResult }) {
   const dirCap = dir === "bullish" ? "Buyer" : dir === "bearish" ? "Seller" : "Undetermined";
   const dirFlow = dir === "bullish" ? "buy" : dir === "bearish" ? "sell" : "undetermined";
 
-  const findings: Array<{ label: string; value: string; note: string; status: Status }> = [
+  // Detect flow/price divergence for the "Signed flow pressure" finding
+  const signedPressure = Number(ta?.pressure?.net_signed_pressure ?? pressure);
+  const priceChg = ta?.activity?.price_change_pct;
+  const priceSide = priceChg != null ? (priceChg < -1 ? "bearish" : priceChg > 1 ? "bullish" : "flat") : null;
+  const flowSideDir = signedPressure >= 0 ? "bullish" : "bearish";
+  const diverging = priceSide != null && priceSide !== "flat" && priceSide !== flowSideDir && dir !== "undetermined";
+
+  const findings: Array<{ label: string; value: string; note: string; status: Status; diverge?: boolean }> = [
     {
       label: "Trade volume",
       value: `${fmtNumber(volRatio, 2)}× (${volB >= 0 ? "+" : ""}${fmtNumber(volB, 2)}σ)`,
@@ -89,6 +96,7 @@ function BlufFindings({ data }: { data: UtaTickerResult }) {
         return baseNote;
       })(),
       status: Math.abs(pressure) >= 0.6 ? "pass" : Math.abs(pressure) >= 0.3 ? "warn" : "fail",
+      diverge: diverging,
     },
     {
       label: "Direction confidence",
@@ -156,8 +164,8 @@ function BlufFindings({ data }: { data: UtaTickerResult }) {
       <div className="bf-findings-label">Key findings</div>
       <div className="bf-findings-list">
         {findings.map((f) => (
-          <div key={f.label} className={`bf-row bf-${f.status}`}>
-            <span className="bf-mk">{STATUS_ICON[f.status]}</span>
+          <div key={f.label} className={`bf-row ${f.diverge ? "bf-diverge" : `bf-${f.status}`}`}>
+            <span className="bf-mk">{f.diverge ? "⚠" : STATUS_ICON[f.status]}</span>
             <span className="bf-label">{f.label}</span>
             <span className="bf-value">{f.value}</span>
             <span className="bf-note">{f.note}</span>
@@ -195,9 +203,15 @@ export function BlufCard({ data, portfolioMode = false }: { data: UtaTickerResul
             <Pill tone="neutral">Direction confidence {fmtPct(data.signing_confidence)}</Pill>
             {analysis?.activity?.latest_close != null && (() => {
               const chg = analysis.activity.price_change_pct;
-              const tone = chg == null ? "neutral" : chg > 0 ? "good" : chg < 0 ? "bad" : "neutral";
+              const sp = Number(analysis?.pressure?.net_signed_pressure ?? analysis?.pressure?.net_notional_pressure ?? 0);
+              const pSide = chg != null ? (chg > 1 ? "bullish" : chg < -1 ? "bearish" : "flat") : null;
+              const fSide = sp >= 0 ? "bullish" : "bearish";
+              const pillDiverging = pSide != null && pSide !== "flat" && pSide !== fSide && data.direction !== "neutral";
+              const tone = pillDiverging ? "warn" : chg == null ? "neutral" : chg > 0 ? "good" : chg < 0 ? "bad" : "neutral";
               const chgStr = chg != null ? ` (${chg > 0 ? "+" : ""}${fmtNumber(chg, 2)}%)` : "";
-              return <Pill tone={tone}>Last close ${fmtNumber(analysis.activity.latest_close, 2)}{chgStr}</Pill>;
+              const arrow = chg != null ? (chg > 0 ? " ↑" : " ↓") : "";
+              const suffix = pillDiverging ? `${arrow} — diverges from flow ⚠` : "";
+              return <Pill tone={tone}>Last close ${fmtNumber(analysis.activity.latest_close, 2)}{chgStr}{suffix}</Pill>;
             })()}
           </div>
         </div>
