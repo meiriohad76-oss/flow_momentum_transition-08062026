@@ -79,9 +79,14 @@ export type UtaTickerResult = {
     criteria?: Array<{ id: string; label: string; passed: boolean; actual: string }>;
     pressure: {
       direction: string;
-      net_notional_pressure: number;
+      net_signed_pressure?: number | null;    // signed-only basis: (buy$ - sell$) / (buy$ + sell$)
+      net_notional_pressure: number;          // total-basis: (buy$ - sell$) / all$
       net_volume_pressure?: number;
+      buy_notional?: number | null;
+      sell_notional?: number | null;
+      unsigned_notional?: number | null;
       signing_confidence: number;
+      method_breakdown?: Record<string, { count: number; notional: number; share: number }> | null;
       interpretation: string;
     };
     activity: {

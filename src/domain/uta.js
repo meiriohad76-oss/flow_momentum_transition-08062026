@@ -261,33 +261,51 @@ export function normalizeTradePrints(prints = [], policy = {}) {
 
 export function signTradePrints(normalizedResult = {}, priceContext = {}) {
   const eligible = normalizedResult.eligible || [];
-  let previousPrice = Number(priceContext.previous_trade_price);
+  // Bug fix: use prev_bar_close (prior session's close) as the tick-rule baseline.
+  // latestBar.close is the CURRENT session's price — comparing first-print-of-day
+  // against today's close is comparing past against future. Yesterday's close is correct.
+  let previousPrice = Number(priceContext.prev_bar_close ?? priceContext.previous_trade_price);
   let signedNotional = 0;
   let signedVolume = 0;
+  let buyNotional = 0;
+  let sellNotional = 0;
   let weightedConfidence = 0;
+  const methodBreakdown = {};
+  const isTrf = (venue) => /TRF|OFF|DARK/i.test(venue || "");
 
+  // First pass: classify each print
   const prints = eligible.map((print) => {
     let signedSide = "unknown";
     let signingMethod = "unknown";
-    let confidence = 0.2;
+    let confidence = 0.15; // default for no-reference case
 
     if (print.excluded_from.includes("directional_scoring")) {
+      // Policy explicitly excluded (odd-lot, late report, etc.) — no directional info
       signingMethod = "policy_excluded";
       confidence = 0;
+    } else if (isTrf(print.venue)) {
+      // Dark pool / TRF prints execute at or near midpoint by design.
+      // The quote rule would misfire here even if bid/ask is present.
+      // Force midpoint classification — direction is not determinable.
+      signingMethod = "midpoint";
+      confidence = 0.1;
     } else if (Number.isFinite(print.bid) && Number.isFinite(print.ask)) {
+      // Quote rule (Lee-Ready primary): compare trade price to bid/ask spread
       if (print.price >= print.ask) {
-        signedSide = "buy";
+        signedSide = "buy";   // buyer lifted the ask (aggressive buyer)
         signingMethod = "quote_rule";
-        confidence = 0.85;
+        confidence = 0.9;
       } else if (print.price <= print.bid) {
-        signedSide = "sell";
+        signedSide = "sell";  // seller hit the bid (aggressive seller)
         signingMethod = "quote_rule";
-        confidence = 0.85;
+        confidence = 0.9;
       } else {
+        // Price landed between bid and ask on a lit exchange — rare but possible
         signingMethod = "midpoint";
-        confidence = 0.2;
+        confidence = 0.1;
       }
     } else if (Number.isFinite(previousPrice)) {
+      // Tick rule fallback: infer from price change since last print
       if (print.price > previousPrice) {
         signedSide = "buy";
         signingMethod = "tick_fallback";
@@ -297,20 +315,30 @@ export function signTradePrints(normalizedResult = {}, priceContext = {}) {
         signingMethod = "tick_fallback";
         confidence = 0.6;
       } else {
+        // Zero-tick: price unchanged — classify via reverse tick rule in second pass
         signingMethod = "zero_tick";
-        confidence = 0.2;
+        confidence = 0.25;  // Slightly higher than midpoint; reverse tick may improve it
       }
+    } else {
+      signingMethod = "no_reference";
+      confidence = 0.1;
     }
+
+    // Track method breakdown
+    if (!methodBreakdown[signingMethod]) methodBreakdown[signingMethod] = { count: 0, notional: 0 };
+    methodBreakdown[signingMethod].count++;
+    methodBreakdown[signingMethod].notional += print.notional;
 
     const multiplier = signedSide === "buy" ? 1 : signedSide === "sell" ? -1 : 0;
     const printSignedNotional = multiplier * print.notional;
     const printSignedVolume = multiplier * print.size;
     signedNotional += printSignedNotional;
     signedVolume += printSignedVolume;
+    if (signedSide === "buy") buyNotional += print.notional;
+    if (signedSide === "sell") sellNotional += print.notional;
     weightedConfidence += print.notional * confidence;
-    if (Number.isFinite(print.price)) {
-      previousPrice = print.price;
-    }
+    if (Number.isFinite(print.price)) previousPrice = print.price;
+
     return {
       ...print,
       signed_side: signedSide,
@@ -321,23 +349,94 @@ export function signTradePrints(normalizedResult = {}, priceContext = {}) {
     };
   });
 
+  // Second pass: reverse tick rule for zero_tick prints.
+  // Lee-Ready extension: if the next different-price print goes up, this zero-tick was
+  // likely a buy; if next goes down, likely a sell. Raises confidence from 0.25 → 0.45.
+  for (let i = 0; i < prints.length; i++) {
+    if (prints[i].signing_method !== "zero_tick") continue;
+    let nextDirPrice = null;
+    for (let j = i + 1; j < prints.length; j++) {
+      if (Number.isFinite(prints[j].price) && prints[j].price !== prints[i].price) {
+        nextDirPrice = prints[j].price;
+        break;
+      }
+    }
+    if (nextDirPrice === null) continue;
+    const inferredSide = nextDirPrice > prints[i].price ? "buy" : "sell";
+    const oldSide = prints[i].signed_side;
+    const oldMult = oldSide === "buy" ? 1 : oldSide === "sell" ? -1 : 0;
+    const newMult = inferredSide === "buy" ? 1 : -1;
+    const deltaNotional = (newMult - oldMult) * prints[i].notional;
+    const deltaVolume = (newMult - oldMult) * prints[i].size;
+    signedNotional += deltaNotional;
+    signedVolume += deltaVolume;
+    if (inferredSide === "buy") buyNotional += prints[i].notional;
+    if (inferredSide === "sell") sellNotional += prints[i].notional;
+    if (oldSide === "buy") buyNotional -= prints[i].notional;
+    if (oldSide === "sell") sellNotional -= prints[i].notional;
+    const deltaConf = 0.45 - 0.25;
+    weightedConfidence += prints[i].notional * deltaConf;
+    if (!methodBreakdown["reverse_tick"]) methodBreakdown["reverse_tick"] = { count: 0, notional: 0 };
+    methodBreakdown["reverse_tick"].count++;
+    methodBreakdown["reverse_tick"].notional += prints[i].notional;
+    methodBreakdown["zero_tick"].count = Math.max(0, methodBreakdown["zero_tick"].count - 1);
+    methodBreakdown["zero_tick"].notional = Math.max(0, methodBreakdown["zero_tick"].notional - prints[i].notional);
+    prints[i] = {
+      ...prints[i],
+      signed_side: inferredSide,
+      signing_method: "reverse_tick",
+      signing_confidence: 0.45,
+      signed_notional: roundNumber(newMult * prints[i].notional, 2),
+      signed_volume: roundNumber(newMult * prints[i].size, 2)
+    };
+  }
+
   const totalNotional = sum(eligible.map((print) => print.notional));
   const totalVolume = sum(eligible.map((print) => print.size));
+  const signingConf = totalNotional > 0 ? weightedConfidence / totalNotional : 0;
+
+  // net_notional_pressure: total-basis — (buy$ - sell$) / all$, including unknowns.
+  // This preserves the original metric for historical baselines and B z-scores.
   const netNotionalPressure = totalNotional > 0 ? signedNotional / totalNotional : null;
   const netVolumePressure = totalVolume > 0 ? signedVolume / totalVolume : null;
+
+  // net_signed_pressure: signed-only basis — (buy$ - sell$) / (buy$ + sell$).
+  // This is how one-sided the LABELED prints are, independent of how many were unclassifiable.
+  // Used for direction decision: avoids the "mathematically unreachable" bug where
+  // conf < 0.60 makes the 0.60 total-basis threshold impossible to cross.
+  const signedOnlyNotional = buyNotional + sellNotional;
+  const netSignedPressure = signedOnlyNotional > 0 ? signedNotional / signedOnlyNotional : null;
+
+  // Direction: use signed-only pressure with a confidence floor.
+  // "Of the prints we COULD label, are ≥60% net one-sided?" + "did we label enough to trust it?"
   const direction =
-    Number(netNotionalPressure) >= 0.6 ? "bullish" : Number(netNotionalPressure) <= -0.6 ? "bearish" : "neutral";
+    signingConf >= 0.5 && Number(netSignedPressure) >= 0.6 ? "bullish"
+    : signingConf >= 0.5 && Number(netSignedPressure) <= -0.6 ? "bearish"
+    : "neutral";
+
+  const totalMethodBreakdown = Object.fromEntries(
+    Object.entries(methodBreakdown).map(([k, v]) => [k, {
+      count: v.count,
+      notional: roundNumber(v.notional, 2),
+      share: totalNotional > 0 ? roundNumber(v.notional / totalNotional, 3) : 0
+    }])
+  );
 
   return {
     prints,
     direction,
     total_notional: roundNumber(totalNotional, 2),
     total_volume: roundNumber(totalVolume, 2),
+    buy_notional: roundNumber(buyNotional, 2),
+    sell_notional: roundNumber(sellNotional, 2),
+    unsigned_notional: roundNumber(totalNotional - signedOnlyNotional, 2),
     signed_notional: roundNumber(signedNotional, 2),
     signed_volume: roundNumber(signedVolume, 2),
     net_notional_pressure: roundNumber(netNotionalPressure, 4),
+    net_signed_pressure: roundNumber(netSignedPressure, 4),
     net_volume_pressure: roundNumber(netVolumePressure, 4),
-    signing_confidence: totalNotional > 0 ? roundNumber(weightedConfidence / totalNotional, 3) : 0
+    signing_confidence: roundNumber(signingConf, 3),
+    method_breakdown: totalMethodBreakdown
   };
 }
 
@@ -399,9 +498,13 @@ export function computeSignalComponents({ baseline, signed, blocks } = {}) {
     focus_notional_share: blocks?.focus_notional_share ?? null,
     focus_trade_count: blocks?.focus_trade_count ?? 0,
     largest_print_multiple: blocks?.largest_print_multiple ?? null,
-    net_notional_pressure: signed?.net_notional_pressure ?? null,
+    net_notional_pressure: signed?.net_notional_pressure ?? null,       // total-basis (preserved for B z-score history)
+    net_signed_pressure: signed?.net_signed_pressure ?? null,           // signed-only basis (used for direction decisions)
     net_volume_pressure: signed?.net_volume_pressure ?? null,
     total_notional: totalNotional,
+    buy_notional: signed?.buy_notional ?? null,
+    sell_notional: signed?.sell_notional ?? null,
+    unsigned_notional: signed?.unsigned_notional ?? null,
     focus_notional: blocks?.focus_notional ?? 0,
     largest_print_notional: blocks?.largest_print_notional ?? 0
   };
@@ -478,7 +581,10 @@ export function classifyTier({ mode = "single_ticker", indicators = {}, laneStat
   const c = indicators.C || {};
   const maxB = bValues.length ? Math.max(...bValues) : null;
   const direction = signing.direction || "undetermined";
-  const signedPressure = Number(c.net_notional_pressure ?? signing.net_notional_pressure ?? 0);
+  // Use signed-only pressure (buy$ vs sell$ only) for direction threshold checks.
+  // This avoids the "mathematically unreachable" bug where total-basis pressure
+  // is capped at signing_confidence and can never reach 0.60 when conf < 0.60.
+  const signedPressure = Number(c.net_signed_pressure ?? signing.net_signed_pressure ?? c.net_notional_pressure ?? signing.net_notional_pressure ?? 0);
   const signingConfidence = Number(signing.signing_confidence || 0);
   const directionPresent = ["bullish", "bearish"].includes(direction) && Math.abs(signedPressure) >= 0.6 && signingConfidence >= 0.5;
   const blockPressureSameSide =
@@ -1444,7 +1550,9 @@ function buildTradeAnalysis({ ticker, classifier, indicators, signing, blocks, b
   const c = indicators.C || {};
   const b = indicators.B || {};
   const direction = classifier.direction || signing.direction || "undetermined";
-  const pressure = Number(signing.net_notional_pressure || 0);
+  // Use signed-only pressure for direction gate (consistent with classifyTier fix)
+  const pressure = Number(signing.net_signed_pressure ?? signing.net_notional_pressure ?? 0);
+  const pressureTotal = Number(signing.net_notional_pressure ?? 0); // total-basis preserved for display
   const absPressure = Math.abs(pressure);
   const confidence = Number(signing.signing_confidence || 0);
   const ready = baseline?.state === "ready" && inputs.trades.length > 0;
@@ -1549,9 +1657,14 @@ function buildTradeAnalysis({ ticker, classifier, indicators, signing, blocks, b
     criteria,
     pressure: {
       direction,
-      net_notional_pressure: roundNumber(pressure, 3),
+      net_signed_pressure: roundNumber(pressure, 3),         // signed-only basis: (buy$ - sell$) / (buy$ + sell$)
+      net_notional_pressure: roundNumber(pressureTotal, 3),  // total-basis: (buy$ - sell$) / all$
       net_volume_pressure: roundNumber(signing.net_volume_pressure, 3),
+      buy_notional: roundNumber(signing.buy_notional, 2),
+      sell_notional: roundNumber(signing.sell_notional, 2),
+      unsigned_notional: roundNumber(signing.unsigned_notional, 2),
       signing_confidence: roundNumber(confidence, 3),
+      method_breakdown: signing.method_breakdown ?? null,
       interpretation: why
     },
     activity: {
@@ -1745,6 +1858,7 @@ async function buildLiveManualPayload(ticker, context = {}) {
     source: "massive_reference"
   };
   const latestBar = inputs.bars.at(-1);
+  const prevBar = inputs.bars.at(-2);
   const historicalSessions = inputs.bars.slice(0, -1).map((bar) => ({
     date: bar.date,
     volume: bar.volume,
@@ -1754,7 +1868,10 @@ async function buildLiveManualPayload(ticker, context = {}) {
   }));
   const baseline = buildBaseline({ ticker, historicalSessions, clock, windowSessions: 20 });
   const normalized = normalizeTradePrints(inputs.trades, policy);
-  const signing = signTradePrints(normalized, { previous_trade_price: latestBar?.close });
+  // Bug fix: tick rule must start from the prior session's close (yesterday's close),
+  // not today's close. First print of the day compared to today's close = comparing
+  // a past print against a future price — backwards. Use prevBar.close as baseline.
+  const signing = signTradePrints(normalized, { prev_bar_close: prevBar?.close });
   const blocks = detectBlockTrf(signing, { profile, baseline });
   const componentSigned = latestBar
     ? {

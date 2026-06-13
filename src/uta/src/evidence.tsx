@@ -65,23 +65,26 @@ function BlufFindings({ data }: { data: UtaTickerResult }) {
       label: "Signed flow pressure",
       value: `${pressure >= 0 ? "+" : ""}${fmtNumber(pressure * 100, 1)}%`,
       note: (() => {
-        // Formula: netNotionalPressure = (buy_notional - sell_notional) / total_notional_ALL_prints
-        // Unsigned prints (1 - signing_confidence) contribute 0 to numerator but ARE in denominator
-        // So: buy_signed ≈ (conf + pressure) / 2, sell_signed ≈ (conf - pressure) / 2, unsigned ≈ 1 - conf
-        const unsigned = Math.round((1 - conf) * 100);
-        const buySigned = Math.round(((conf + pressure) / 2) * 100);
-        const sellSigned = Math.round(((conf - pressure) / 2) * 100);
-        const netPct = Math.round(Math.abs(pressure) * 100);
+        // Use actual buy/sell/unsigned breakdown from backend when available (post-algorithm-fix).
+        // Fall back to approximation via conf + total pressure for older backend versions.
+        const bp = ta?.pressure;
+        const totalN = bp?.buy_notional != null ? (bp.buy_notional + bp.sell_notional + (bp.unsigned_notional ?? 0)) : null;
+        const buyC  = totalN && totalN > 0 ? Math.round((bp.buy_notional      / totalN) * 100) : Math.round(((conf + pressure) / 2) * 100);
+        const sellC = totalN && totalN > 0 ? Math.round((bp.sell_notional     / totalN) * 100) : Math.round(((conf - pressure) / 2) * 100);
+        const unsC  = totalN && totalN > 0 ? Math.round(((bp.unsigned_notional ?? 0) / totalN) * 100) : Math.round((1 - conf) * 100);
+        // net_signed_pressure = (buy$ - sell$) / (buy$ + sell$) — signed-only, no unknown dilution
+        const signedPressure = Number(bp?.net_signed_pressure ?? pressure);
+        const netPct = Math.round(Math.abs(signedPressure) * 100);
         const priceChg = ta?.activity?.price_change_pct;
-        const flowSide = pressure >= 0 ? "buy" : "sell";
+        const flowSide = signedPressure >= 0 ? "buy" : "sell";
         const priceSide = priceChg != null ? (priceChg < -1 ? "bearish" : priceChg > 1 ? "bullish" : "flat") : null;
-        if (Math.abs(pressure) >= 0.6) {
-          return `Strong ${flowSide}-side pressure: net ${netPct}¢ per $1 goes to ${flowSide}ers after netting buy vs sell. ${dir.toUpperCase()} edge confirmed (threshold: ±60¢ net).`;
+        if (Math.abs(signedPressure) >= 0.6) {
+          return `Strong ${flowSide}-side pressure: ${netPct}% net of labeled trades go to ${flowSide}ers. ${dir.toUpperCase()} directional edge confirmed (threshold: ≥60% of labeled-only flow).`;
         }
-        const baseNote = `Of every $1 traded: ~${buySigned}¢ labeled buyer-driven, ~${sellSigned}¢ labeled seller-driven, ~${unsigned}¢ unknown direction. "Labeled" means the algorithm could determine who drove the trade (buyer lifting the ask vs. seller hitting the bid) using price-tick rules. The ${unsigned}¢ unknown trades executed in dark pools or at mid-market prices where neither side can be identified. Net buyer excess: ${netPct}¢ per $1 — below the 60¢ threshold needed to call a direction.`;
-        if (priceSide && priceSide !== "flat" && priceSide !== (pressure >= 0 ? "bullish" : "bearish")) {
+        const baseNote = `Of every $1 traded: ~${buyC}¢ labeled buyer-driven, ~${sellC}¢ labeled seller-driven, ~${unsC}¢ unknown direction. "Labeled" means the algorithm could determine who drove the trade (buyer lifting the ask vs. seller hitting the bid) using price-tick rules. The ${unsC}¢ unknown trades executed in dark pools or at mid-market prices where neither side can be identified. Net buyer excess among labeled trades: ${netPct}% — below the 60% threshold needed to call a direction.`;
+        if (priceSide && priceSide !== "flat" && priceSide !== (signedPressure >= 0 ? "bullish" : "bearish")) {
           const priceStr = priceChg != null ? ` (${priceChg > 0 ? "+" : ""}${fmtNumber(priceChg, 2)}% vs prior close)` : "";
-          return `${baseNote} ⚠ Price${priceStr} is moving against the labeled tilt — the ${unsigned}¢ unknown trades are likely what's driving the price. If those dark-pool and mid-market prints are sell-heavy, the real net pressure is bearish. Direction cannot be confirmed.`;
+          return `${baseNote} ⚠ Price${priceStr} is moving against the labeled tilt — the ${unsC}¢ unknown trades are likely what's driving the price. If those dark-pool and mid-market prints are sell-heavy, the real net pressure is bearish. Direction cannot be confirmed.`;
         }
         return baseNote;
       })(),
