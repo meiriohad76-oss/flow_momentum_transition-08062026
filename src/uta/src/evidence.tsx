@@ -206,7 +206,7 @@ export function BlufCard({ data, portfolioMode = false }: { data: UtaTickerResul
               const sp = Number(analysis?.pressure?.net_signed_pressure ?? analysis?.pressure?.net_notional_pressure ?? 0);
               const pSide = chg != null ? (chg > 1 ? "bullish" : chg < -1 ? "bearish" : "flat") : null;
               const fSide = sp >= 0 ? "bullish" : "bearish";
-              const pillDiverging = pSide != null && pSide !== "flat" && pSide !== fSide && data.direction !== "neutral";
+              const pillDiverging = pSide != null && pSide !== "flat" && pSide !== fSide && data.direction !== "undetermined";
               const tone = pillDiverging ? "warn" : chg == null ? "neutral" : chg > 0 ? "good" : chg < 0 ? "bad" : "neutral";
               const chgStr = chg != null ? ` (${chg > 0 ? "+" : ""}${fmtNumber(chg, 2)}%)` : "";
               const arrow = chg != null ? (chg > 0 ? " ↑" : " ↓") : "";
