@@ -164,6 +164,9 @@ export function BlufCard({ data, portfolioMode = false }: { data: UtaTickerResul
             <DirTag direction={data.direction} />
             <BandTag band={analysis?.anomaly_band} />
             <Pill tone="neutral">Direction confidence {fmtPct(data.signing_confidence)}</Pill>
+            {analysis?.activity?.latest_close != null && (
+              <Pill tone="neutral">Last close ${fmtNumber(analysis.activity.latest_close, 2)}</Pill>
+            )}
           </div>
         </div>
         <div className="bluf-aside uplabel">BLUF · as of {fmtDate(data.generated_at)}</div>

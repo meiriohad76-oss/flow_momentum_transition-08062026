@@ -368,11 +368,21 @@ export function IndicatorGrid({ data, portfolioMode = false }: { data: UtaTicker
     nnp: data.indicators.C.net_notional_pressure
   };
 
+  const dir = data.direction;
+  const isUndetermined = !dir || dir === "undetermined";
+
   const bN = Number(b.notional ?? 0);
   const bNHit = bN >= 1.5;
   const bNBuilding = bN >= 0.5 && bN < 1.5;
-  const bNColor = bNHit ? "var(--buy)" : bNBuilding ? "var(--accent)" : undefined;
-  const bNStatus = bNHit ? "↑ trigger met" : bNBuilding ? "↗ building" : "→ normal";
+  // Amber (not green) when direction is undetermined — high dollar flow but no side confirmed
+  const bNColor = bNHit
+    ? (isUndetermined ? "var(--accent)" : "var(--buy)")
+    : bNBuilding ? "var(--accent)" : undefined;
+  // Arrow reflects direction, not just magnitude; ↕ when undetermined
+  const bNArrow = isUndetermined ? "↕" : dir === "bearish" ? "↓" : "↑";
+  const bNStatus = bNHit
+    ? `${bNArrow} trigger met${isUndetermined ? " · no direction" : ""}`
+    : bNBuilding ? "↗ building" : "→ normal";
   const bNGap = bNHit ? "" : ` · ${fmtNumber(1.5 - bN, 2)}σ to trigger`;
 
   return (
@@ -380,13 +390,13 @@ export function IndicatorGrid({ data, portfolioMode = false }: { data: UtaTicker
       <article className="ind-chip B b">
         <span>B · vs own 20-session history</span>
         <strong style={{ color: bNColor }}>
-          {fmtNumber(bN, 2)}σ notional — {bNStatus}
+          {fmtNumber(bN, 2)}σ dollar flow — {bNStatus}
         </strong>
         <small>
           vol {fmtNumber(b.volume, 2)}σ · focus {fmtNumber(b.focus, 2)}σ · pressure {fmtNumber(b.pressure, 2)}σ
         </small>
         <small className="ind-threshold">
-          Review trigger: notional ≥ 1.5σ{bNGap}
+          Review trigger: dollar flow ≥ 1.5σ{bNGap}
         </small>
       </article>
       <article className={`ind-chip A a ${a === null ? "na" : ""}`}>
@@ -400,7 +410,7 @@ export function IndicatorGrid({ data, portfolioMode = false }: { data: UtaTicker
       </article>
       <article className="ind-chip C c">
         <span>C · raw magnitude vs 20-session baseline</span>
-        <strong>{fmtNumber(c.nr, 2)}× notional</strong>
+        <strong>{fmtNumber(c.nr, 2)}× dollar flow</strong>
         <small>
           vol {fmtNumber(c.vr, 2)}× · {fmtPct(c.nnp)} signed pressure · {c.fcount ?? 0} focus prints
         </small>
