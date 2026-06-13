@@ -4,6 +4,106 @@ import { fmtMoney, fmtPct, fmtNumber, fmtDate } from "./utils.js";
 import { Icon, Pill, SectionHeader, MetricTile, TierBadge, DirTag, BandTag, IndicatorGrid, VolBars, volSeriesFromResult, PressureGauge, ConfBar, MixBar, Sparkline, type MixSegment } from "./components.js";
 import type { UtaTickerResult, LaneState, EvidenceCard } from "./types.js";
 
+/** Data-driven findings panel — specific numbers, thresholds, recommendation. */
+function BlufFindings({ data }: { data: UtaTickerResult }) {
+  const B = data.indicators.B;
+  const C = data.indicators.C;
+  const ta = data.trade_analysis;
+  const tier = String(data.tier || "D").toUpperCase();
+  const conf = data.signing_confidence;
+
+  // Pull from canonical sources, fall through to trade_analysis sub-fields
+  const volRatio  = Number(C.volume_ratio  ?? ta?.activity?.volume_ratio  ?? 0);
+  const volB      = Number(B.volume_zscore  ?? ta?.activity?.volume_zscore  ?? 0);
+  const notR      = Number(C.notional_ratio ?? ta?.activity?.notional_ratio ?? 0);
+  const notB      = Number(B.notional_zscore ?? ta?.activity?.notional_zscore ?? 0);
+  const focusCnt  = Number(C.focus_trade_count ?? ta?.block_flow?.focus_trade_count ?? 0);
+  const pressure  = Number(C.net_notional_pressure ?? ta?.pressure?.net_notional_pressure ?? 0);
+
+  type Status = "pass" | "warn" | "fail";
+
+  const findings: Array<{ label: string; value: string; note: string; status: Status }> = [
+    {
+      label: "Volume vs baseline",
+      value: `${fmtNumber(volRatio, 2)}× (${volB >= 0 ? "+" : ""}${fmtNumber(volB, 2)}σ)`,
+      note: volB >= 2.5 ? "Significantly elevated" : volB >= 1.5 ? "Above baseline" : volB >= 0 ? "Near baseline" : "Below baseline",
+      status: volB >= 2.5 ? "pass" : volB >= 1.0 ? "warn" : "fail",
+    },
+    {
+      label: "Notional vs baseline",
+      value: `${fmtNumber(notR, 2)}× (${notB >= 0 ? "+" : ""}${fmtNumber(notB, 2)}σ)`,
+      note: notB >= 1.5 ? "Elevated — trigger threshold met" : notB >= 0 ? "Normal range" : "Below baseline",
+      status: notB >= 2.5 ? "pass" : notB >= 1.0 ? "warn" : "fail",
+    },
+    {
+      label: "Focus / block prints",
+      value: `${focusCnt} print${focusCnt !== 1 ? "s" : ""}`,
+      note: focusCnt >= 3 ? "Block activity confirmed" : focusCnt > 0 ? "Minimal block activity" : "None above floor",
+      status: focusCnt >= 3 ? "pass" : focusCnt > 0 ? "warn" : "fail",
+    },
+    {
+      label: "Signed pressure",
+      value: `${pressure >= 0 ? "+" : ""}${fmtNumber(pressure * 100, 1)}%`,
+      note:
+        Math.abs(pressure) >= 0.6
+          ? `Strong ${pressure > 0 ? "buy" : "sell"}-side — direction signal present`
+          : Math.abs(pressure) >= 0.3
+          ? `Moderate ${pressure > 0 ? "buy" : "sell"}-side — below 60% threshold`
+          : "Balanced flow — no directional edge",
+      status: Math.abs(pressure) >= 0.6 ? "pass" : Math.abs(pressure) >= 0.3 ? "warn" : "fail",
+    },
+    {
+      label: "Signing confidence",
+      value: fmtPct(conf),
+      note: conf >= 0.5 ? "Reliable — direction can be trusted" : `Low (need ≥50%) — direction is indicative only`,
+      status: conf >= 0.5 ? "pass" : "fail",
+    },
+  ];
+
+  // Client-side recommendation from actual data
+  let rec = "";
+  const ticker = data.ticker;
+  if (tier === "D") {
+    if (volRatio < 1.0 && notR < 1.0) {
+      rec = `${ticker} is quiet — volume (${fmtNumber(volRatio, 2)}×) and notional (${fmtNumber(notR, 2)}×) are both below the 20-session baseline. No unusual activity. No action warranted.`;
+    } else if (notB < 1.5 && Math.abs(pressure) < 0.3) {
+      rec = `${ticker} has some activity but hasn't crossed thresholds. Watch for notional B-score ≥ 1.5σ (now ${fmtNumber(notB, 1)}σ) or signed pressure ≥ 60% (now ${fmtNumber(Math.abs(pressure) * 100, 1)}%). Re-analyze on a catalyst.`;
+    } else {
+      rec = `${ticker} shows elevated components but cannot establish a directional edge. Signing confidence ${fmtPct(conf)} is ${conf >= 0.5 ? "above" : "below"} the 50% floor. Monitor and re-analyze.`;
+    }
+  } else if (tier === "C") {
+    rec = `Context-level signal. ${data.direction === "bullish" ? "Buy" : data.direction === "bearish" ? "Sell" : "Undetermined"}-side pressure at ${fmtNumber(Math.abs(pressure) * 100, 1)}% with ${fmtPct(conf)} signing confidence. Use as background context only — not a trade prompt without further corroboration.`;
+  } else if (tier === "B") {
+    rec = `Review-level signal. ${data.direction === "bullish" ? "Buyer" : "Seller"}-side flow — notional ${fmtNumber(notB, 1)}σ above own history, ${fmtPct(conf)} signing confidence. Validate with options flow, news, and price action before acting.`;
+  } else if (tier === "A") {
+    rec = `Actionable signal. ${data.direction === "bullish" ? "Buyer" : "Seller"}-side flow at ${fmtNumber(Math.abs(pressure) * 100, 1)}% pressure, ${fmtPct(conf)} confidence, notional ${fmtNumber(notB, 1)}σ above history. Corroborate, check exposure limits, and follow execution protocol.`;
+  }
+
+  const STATUS_ICON: Record<Status, string> = { pass: "✓", warn: "!", fail: "✗" };
+
+  return (
+    <div className="bluf-findings">
+      <div className="bf-findings-label">Key findings</div>
+      <div className="bf-findings-list">
+        {findings.map((f) => (
+          <div key={f.label} className={`bf-row bf-${f.status}`}>
+            <span className="bf-mk">{STATUS_ICON[f.status]}</span>
+            <span className="bf-label">{f.label}</span>
+            <span className="bf-value">{f.value}</span>
+            <span className="bf-note">{f.note}</span>
+          </div>
+        ))}
+      </div>
+      {rec && (
+        <div className="bf-rec">
+          <span className="bf-rec-label">Recommendation</span>
+          <span className="bf-rec-text">{rec}</span>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function BlufCard({ data, portfolioMode = false }: { data: UtaTickerResult; portfolioMode?: boolean }) {
   const analysis = data.trade_analysis;
   const rows = [
@@ -28,6 +128,7 @@ export function BlufCard({ data, portfolioMode = false }: { data: UtaTickerResul
         <div className="bluf-aside uplabel">BLUF · as of {fmtDate(data.generated_at)}</div>
       </div>
       <IndicatorGrid data={data} portfolioMode={portfolioMode} />
+      <BlufFindings data={data} />
       <div className="bluf-grid">
         {rows.map(([label, value]) => (
           <div className="bluf-row" key={label}>

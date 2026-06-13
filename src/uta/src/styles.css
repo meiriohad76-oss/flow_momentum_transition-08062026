@@ -1880,13 +1880,17 @@ body {
 }
 
 .cyc-cell {
-  display: grid;
-  place-items: center;
-  height: 24px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1px;
+  height: 44px;
   border-radius: 5px;
   font-family: var(--font-mono);
   font-size: 10.5px;
   font-weight: 600;
+  cursor: default;
 }
 
 .cyc-A {
@@ -3349,4 +3353,138 @@ body {
   font-size: 12px;
   font-weight: 600;
   margin-top: 4px;
+}
+
+/* ── Cycle History ribbon timestamps ──────────────────────────────────── */
+.cyc-cell {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1px;
+  height: 44px;
+  border-radius: 5px;
+  font-family: var(--font-mono);
+  cursor: default;
+}
+
+.cyc-dir {
+  font-size: 9px;
+  opacity: 0.65;
+  line-height: 1;
+}
+
+.cyc-letter {
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.cyc-ts {
+  font-size: 8.5px;
+  font-weight: 400;
+  opacity: 0.7;
+  line-height: 1;
+  white-space: nowrap;
+  font-family: var(--font-ui);
+}
+
+/* ── BlufFindings: data-driven key findings panel ──────────────────────── */
+.bluf-findings {
+  border-top: 1px solid var(--grid-line);
+  border-bottom: 1px solid var(--grid-line);
+  padding: 14px 0 0;
+  display: grid;
+  gap: 10px;
+}
+
+.bf-findings-label {
+  padding: 0 var(--pad);
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--ink-3);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.bf-findings-list {
+  display: grid;
+  gap: 1px;
+}
+
+.bf-row {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 9em) minmax(0, 7em) 1fr;
+  align-items: baseline;
+  gap: 6px;
+  padding: 7px var(--pad);
+  font-size: 13px;
+  border-left: 2px solid transparent;
+}
+
+.bf-pass { border-color: var(--buy, #22c55e); background: color-mix(in srgb, var(--buy, #22c55e) 6%, transparent); }
+.bf-warn { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 6%, transparent); }
+.bf-fail { border-color: var(--ink-3); background: transparent; }
+
+.bf-mk {
+  font-size: 11px;
+  font-weight: 700;
+  font-family: var(--font-mono);
+  text-align: center;
+}
+.bf-pass .bf-mk { color: var(--buy, #22c55e); }
+.bf-warn .bf-mk { color: var(--accent); }
+.bf-fail .bf-mk { color: var(--ink-3); }
+
+.bf-label {
+  color: var(--ink-2);
+  font-size: 12.5px;
+}
+
+.bf-value {
+  color: var(--ink);
+  font-weight: 600;
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+}
+
+.bf-note {
+  color: var(--ink-3);
+  font-size: 12px;
+}
+
+.bf-rec {
+  display: flex;
+  gap: 8px;
+  padding: 10px var(--pad) 14px;
+  background: var(--panel-2);
+  border-top: 1px solid var(--grid-line);
+  align-items: flex-start;
+}
+
+.bf-rec-label {
+  flex-shrink: 0;
+  font-size: 10.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--ink-3);
+  padding-top: 1px;
+}
+
+.bf-rec-text {
+  font-size: 13px;
+  color: var(--ink);
+  line-height: 1.55;
+}
+
+@media (max-width: 600px) {
+  .bf-row {
+    grid-template-columns: 18px minmax(0, 1fr) minmax(0, 6em);
+    grid-template-rows: auto auto;
+  }
+  .bf-note {
+    grid-column: 2 / -1;
+    font-size: 11px;
+  }
 }

@@ -33,9 +33,27 @@ export function CycleHistory({
     return 15;
   }
 
+  function formatCycleTs(ts: string | undefined): string {
+    if (!ts) return "—";
+    try {
+      const d = new Date(ts);
+      const now = new Date();
+      const sameDay = d.toDateString() === now.toDateString();
+      if (sameDay) {
+        return d
+          .toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", hour12: true })
+          .replace(" AM", "a")
+          .replace(" PM", "p");
+      }
+      return d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+    } catch {
+      return "—";
+    }
+  }
+
   return (
     <section className="panel cyc">
-      <SectionHeader title="Cycle History" meta={`last ${rows.length} cycles`} />
+      <SectionHeader title="Cycle History" meta={`last ${rows.length} cycles · oldest → newest`} />
       <div className="cyc-bars">
         {rows.map((row, i) => {
           const isUp = row.direction === "bullish";
@@ -58,13 +76,18 @@ export function CycleHistory({
         {rows.map((row, i) => {
           const tier = (row.tier || "D").toUpperCase();
           const isNow = i === rows.length - 1;
+          const isUp = row.direction === "bullish";
+          const isDown = row.direction === "bearish";
+          const ts = row.generated_at || row.created_at;
           return (
             <div
               key={i}
               className={`cyc-cell cyc-${tier} ${isNow ? "cyc-now" : ""}`}
-              title={fmtDate(row.generated_at || row.created_at)}
+              title={`Tier ${tier} · ${row.direction || "undetermined"} · ${fmtDate(ts)}`}
             >
-              {tier}
+              <span className="cyc-dir">{isUp ? "↑" : isDown ? "↓" : "·"}</span>
+              <span className="cyc-letter">{tier}</span>
+              <span className="cyc-ts">{formatCycleTs(ts)}</span>
             </div>
           );
         })}
