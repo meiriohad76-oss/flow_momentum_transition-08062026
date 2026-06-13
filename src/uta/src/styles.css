@@ -685,10 +685,6 @@ td {
   border-color: rgba(241, 199, 91, 0.42);
 }
 
-.ind-chip.c {
-  border-color: rgba(196, 206, 217, 0.28);
-}
-
 .metric-grid.four {
   grid-template-columns: repeat(4, minmax(0, 1fr));
 }
@@ -1499,10 +1495,6 @@ body {
 
 .ind-chip.B {
   --ind-key: var(--accent);
-}
-
-.ind-chip.C {
-  --ind-key: var(--ink-3);
 }
 
 /* Merged B+C chip — spans 2 of the 3 grid columns */

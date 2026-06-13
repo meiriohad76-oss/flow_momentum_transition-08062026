@@ -377,9 +377,7 @@ export function IndicatorGrid({ data, portfolioMode = false }: { data: UtaTicker
   const C = aliases?.C || {
     vr: data.indicators.C.volume_ratio,
     nr: data.indicators.C.notional_ratio,
-    fshare: data.indicators.C.focus_notional_share,
     fcount: data.indicators.C.focus_trade_count,
-    nnp: data.indicators.C.net_notional_pressure
   };
 
   const dir = data.direction;
@@ -413,11 +411,11 @@ export function IndicatorGrid({ data, portfolioMode = false }: { data: UtaTicker
           <span style={{ color: panelColor }}>{fmtNumber(C.nr, 2)}×</span>
           {" "}normal dollar flow{" "}
           <span className="ind-sigma" style={{ color: panelColor }}>
-            {bN >= 0 ? "+" : ""}{fmtNumber(bN, 2)}σ
+            {bestB >= 0 ? "+" : ""}{fmtNumber(bestB, 2)}σ
           </span>
         </strong>
         <small>
-          vol {fmtNumber(C.vr, 2)}× · notional {fmtNumber(C.nr, 2)}× · {C.fcount ?? 0} focus print{C.fcount !== 1 ? "s" : ""}
+          vol {fmtNumber(bV, 2)}σ · notional {fmtNumber(bN, 2)}σ · {C.fcount ?? 0} focus print{C.fcount !== 1 ? "s" : ""}
         </small>
         <small className="ind-threshold" style={{ color: panelColor }}>
           ● {statusText}
