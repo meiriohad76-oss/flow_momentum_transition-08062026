@@ -41,6 +41,13 @@ function sum(values) {
   return values.reduce((total, value) => total + (Number.isFinite(Number(value)) ? Number(value) : 0), 0);
 }
 
+// Off-exchange venue classifier — shared by signTradePrints and detectBlockTrf.
+// Anchored to start-of-string to avoid substring matches (e.g. "HOFFMAN" ≠ "OFF").
+const OFF_EXCHANGE_VENUE_RE = /^(TRF|OFF|DARK)/i;
+function isOffExchangeVenue(venue) {
+  return OFF_EXCHANGE_VENUE_RE.test(venue || "");
+}
+
 function median(values) {
   const sorted = values.map(Number).filter(Number.isFinite).sort((a, b) => a - b);
   if (!sorted.length) {
@@ -265,13 +272,16 @@ export function signTradePrints(normalizedResult = {}, priceContext = {}) {
   // latestBar.close is the CURRENT session's price — comparing first-print-of-day
   // against today's close is comparing past against future. Yesterday's close is correct.
   let previousPrice = Number(priceContext.prev_bar_close ?? priceContext.previous_trade_price);
+  // Guard against 0: Number(null ?? null) === 0 and Number.isFinite(0) === true, so a
+  // missing context would spuriously sign the first print as "buy" whenever price > 0.
+  if (!Number.isFinite(previousPrice) || previousPrice <= 0) previousPrice = NaN;
   let signedNotional = 0;
   let signedVolume = 0;
   let buyNotional = 0;
   let sellNotional = 0;
   let weightedConfidence = 0;
   const methodBreakdown = {};
-  const isTrf = (venue) => /TRF|OFF|DARK/i.test(venue || "");
+  // isOffExchangeVenue is defined at module level (shared with detectBlockTrf)
 
   // First pass: classify each print
   const prints = eligible.map((print) => {
@@ -283,7 +293,7 @@ export function signTradePrints(normalizedResult = {}, priceContext = {}) {
       // Policy explicitly excluded (odd-lot, late report, etc.) — no directional info
       signingMethod = "policy_excluded";
       confidence = 0;
-    } else if (isTrf(print.venue)) {
+    } else if (isOffExchangeVenue(print.venue)) {
       // Dark pool / TRF prints execute at or near midpoint by design.
       // The quote rule would misfire here even if bid/ask is present.
       // Force midpoint classification — direction is not determinable.
@@ -358,30 +368,36 @@ export function signTradePrints(normalizedResult = {}, priceContext = {}) {
   // Second pass: reverse tick rule for zero_tick prints.
   // Lee-Ready extension: if the next different-price print goes up, this zero-tick was
   // likely a buy; if next goes down, likely a sell. Raises confidence from 0.25 → 0.45.
-  for (let i = 0; i < prints.length; i++) {
-    if (prints[i].signing_method !== "zero_tick") continue;
-    let nextDirPrice = null;
-    for (let j = i + 1; j < prints.length; j++) {
-      if (Number.isFinite(prints[j].price) && prints[j].price !== prints[i].price) {
-        nextDirPrice = prints[j].price;
-        break;
+  //
+  // Precompute nextDiffPrice[i] in a single backward scan — O(N) instead of O(N²).
+  const nextDiffPriceArr = new Array(prints.length).fill(null);
+  for (let k = prints.length - 2; k >= 0; k--) {
+    const currPrice = prints[k].price;
+    const nextPrice = prints[k + 1].price;
+    if (Number.isFinite(nextPrice) && nextPrice !== currPrice) {
+      nextDiffPriceArr[k] = nextPrice;
+    } else {
+      // Inherit the lookahead from the right — but skip if it equals our own price
+      const candidate = nextDiffPriceArr[k + 1];
+      if (candidate !== null && candidate !== currPrice) {
+        nextDiffPriceArr[k] = candidate;
       }
     }
+  }
+
+  for (let i = 0; i < prints.length; i++) {
+    if (prints[i].signing_method !== "zero_tick") continue;
+    const nextDirPrice = nextDiffPriceArr[i];
     if (nextDirPrice === null) continue;
     const inferredSide = nextDirPrice > prints[i].price ? "buy" : "sell";
-    const oldSide = prints[i].signed_side;
-    const oldMult = oldSide === "buy" ? 1 : oldSide === "sell" ? -1 : 0;
+    // zero_tick prints always have signed_side === "unknown" (oldMult === 0), so the
+    // delta simplifies to newMult * notional. Dead oldSide branches removed.
     const newMult = inferredSide === "buy" ? 1 : -1;
-    const deltaNotional = (newMult - oldMult) * prints[i].notional;
-    const deltaVolume = (newMult - oldMult) * prints[i].size;
-    signedNotional += deltaNotional;
-    signedVolume += deltaVolume;
+    signedNotional += newMult * prints[i].notional;
+    signedVolume += newMult * prints[i].size;
     if (inferredSide === "buy") buyNotional += prints[i].notional;
-    if (inferredSide === "sell") sellNotional += prints[i].notional;
-    if (oldSide === "buy") buyNotional -= prints[i].notional;
-    if (oldSide === "sell") sellNotional -= prints[i].notional;
-    const deltaConf = 0.45 - 0.25;
-    weightedConfidence += prints[i].notional * deltaConf;
+    else sellNotional += prints[i].notional;
+    weightedConfidence += prints[i].notional * 0.20;  // deltaConf = 0.45 - 0.25
     if (!methodBreakdown["reverse_tick"]) methodBreakdown["reverse_tick"] = { count: 0, notional: 0 };
     methodBreakdown["reverse_tick"].count++;
     methodBreakdown["reverse_tick"].notional += prints[i].notional;
@@ -457,7 +473,7 @@ export function detectBlockTrf(signedResult = {}, { profile = {}, baseline = nul
     return !blockedByPolicy && print.notional >= focusFloor;
   });
   const totalNotional = sum(eligible.map((print) => print.notional));
-  const trfNotional = sum(eligible.filter((print) => /TRF|OFF/i.test(print.venue)).map((print) => print.notional));
+  const trfNotional = sum(eligible.filter((print) => isOffExchangeVenue(print.venue)).map((print) => print.notional));
   const focusNotional = sum(focusPrints.map((print) => print.notional));
   const largest = eligible.reduce((max, print) => (print.notional > (max?.notional || 0) ? print : max), null);
   return {
