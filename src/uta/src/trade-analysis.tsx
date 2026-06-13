@@ -1,7 +1,7 @@
 // src/uta/src/trade-analysis.tsx
 import React from "react";
 import { fmtMoney, fmtPct, fmtNumber } from "./utils.js";
-import { Pill, SectionHeader, BandTag } from "./components.js";
+import { Pill, SectionHeader, BandTag, Tooltip, ThresholdBar } from "./components.js";
 import type { UtaTickerResult } from "./types.js";
 
 function toneForBias(bias?: string) {
@@ -109,6 +109,80 @@ function TATile({
   );
 }
 
+// ── Criterion glossary — explains technical terms on hover ───────────────
+const CRITERION_TIPS: Array<{ match: string; tip: string }> = [
+  { match: "b anomaly",    tip: "B-score (B indicator): how many standard deviations above its own 20-session average this ticker's flow is. 0σ = average; 1.5σ = elevated; 2.5σ = highly unusual. Compared against the ticker's own history — not other stocks." },
+  { match: "sigma",        tip: "σ (sigma / standard deviation): a statistical measure of how far a value is from its own average. 1σ covers ~68% of typical sessions; 2σ covers ~95%. Values above 1.5σ are considered statistically unusual." },
+  { match: "notional",     tip: "Notional = shares traded × price per share. Measures the dollar-scale of activity, not just trade count. 1.5× notional means 50% more dollar volume than the typical session for this ticker." },
+  { match: "signed pressure", tip: "Signed pressure: of all tracked dollar volume, what % is directionally assigned to buyers vs sellers. ≥60% means one side strongly dominates. Computed by signing each trade using quote-side and tick-rule methods." },
+  { match: "raw c",        tip: "C indicator (raw magnitude): direct ratios vs session baseline. Volume ratio = today's trade count ÷ baseline average. Focus prints = individual trades at or above the institutional size floor ($1M+)." },
+  { match: "focus",        tip: "Focus / block prints: individual trades at or above the institutional-size floor. Confirms that position-size money is moving — not just retail order flow. ≥3 prints is the block activity threshold." },
+  { match: "lanes",        tip: "Data lanes: the required data sources for the analysis — baseline daily bars and live trade prints. Both must be available and fresh for a valid result." },
+];
+
+function getCriterionTip(label: string): string | undefined {
+  const lower = label.toLowerCase();
+  for (const { match, tip } of CRITERION_TIPS) {
+    if (lower.includes(match)) return tip;
+  }
+  return undefined;
+}
+
+/** Parse (value, threshold, unit) from an API criterion row so we can render a ThresholdBar. */
+function parseCriterionBar(label: string, actual: string): { value: number; threshold: number; unit: string } | null {
+  // B-score: "max 0.84 sigma" or similar in actual; "1.5 sigma" in label
+  const maxSigma = actual.match(/max\s*([\d.]+)\s*sigma/i) ?? actual.match(/\b([\d.]+)\s*sigma\b/i);
+  const threshSigma = label.match(/([\d.]+)\s*sigma/i);
+  if (maxSigma && threshSigma) {
+    return { value: parseFloat(maxSigma[1]), threshold: parseFloat(threshSigma[1]), unit: "σ" };
+  }
+  // Ratio: "1.19x" in actual, "1.5x" in label
+  const ratioActual = actual.match(/^([\d.]+)x\b/i);
+  const ratioThresh = label.match(/([\d.]+)x\b/i);
+  if (ratioActual && ratioThresh) {
+    return { value: parseFloat(ratioActual[1]), threshold: parseFloat(ratioThresh[1]), unit: "×" };
+  }
+  // Percent: "64.1% something" in actual, "60%" in label
+  const pctActual = actual.match(/^([\d.]+)%/);
+  const pctThresh = label.match(/([\d.]+)%/);
+  if (pctActual && pctThresh) {
+    return { value: parseFloat(pctActual[1]), threshold: parseFloat(pctThresh[1]), unit: "%" };
+  }
+  return null;
+}
+
+/** Single criterion row with tooltip + optional threshold bar. */
+function CriterionRow({ item }: { item: { id: string; label: string; passed: boolean; actual: string } }) {
+  const tip = getCriterionTip(item.label);
+  const barData = !item.passed ? parseCriterionBar(item.label, item.actual) : null;
+  return (
+    <div className={`criteria ${item.passed ? "pass" : "fail"}`}>
+      <b>{item.passed ? "✓" : "×"}</b>
+      <span>
+        <span className="crit-label-row">
+          {tip ? (
+            <Tooltip text={tip}>
+              <span className="crit-label">{item.label}</span>
+              <span className="crit-help-icon" aria-hidden="true">?</span>
+            </Tooltip>
+          ) : (
+            <span className="crit-label">{item.label}</span>
+          )}
+        </span>
+        <small>{item.actual}</small>
+        {barData && (
+          <ThresholdBar
+            value={barData.value}
+            threshold={barData.threshold}
+            unit={barData.unit}
+            showLabels={false}
+          />
+        )}
+      </span>
+    </div>
+  );
+}
+
 export function TradeAnalysisPanel({ data }: { data: UtaTickerResult }) {
   const analysis = data.trade_analysis;
   if (!analysis) return null;
@@ -154,32 +228,47 @@ export function TradeAnalysisPanel({ data }: { data: UtaTickerResult }) {
         </div>
       </div>
 
-      {/* Metric tiles with threshold-based color */}
+      {/* Metric tiles — color-coded, each with mini threshold bar */}
       <div className="ta-tiles">
-        <TATile
-          label="Signed pressure"
-          value={`${fmtNumber(pressurePct, 1)}%`}
-          detail={`${analysis.pressure.direction} · ${fmtNumber(pressurePct, 1)}% of dollars ${analysis.bias === "bullish" ? "buy" : analysis.bias === "bearish" ? "sell" : "mixed"}-directed`}
-          tone={pressurePct >= 60 ? "good" : pressurePct >= 30 ? "warn" : "neutral"}
-        />
-        <TATile
-          label="Signing confidence"
-          value={fmtPct(conf)}
-          detail={conf >= 0.5 ? "reliable — direction trustworthy" : "low — direction uncertain"}
-          tone={conf >= 0.5 ? "good" : "bad"}
-        />
-        <TATile
-          label="Vol × / Notional ×"
-          value={`${fmtNumber(volR, 2)}× / ${fmtNumber(notR, 2)}×`}
-          detail={`vs ${analysis.activity.baseline_sessions || 20}-session baseline`}
-          tone={notR >= 1.5 ? "good" : notR >= 1.0 ? "warn" : "neutral"}
-        />
-        <TATile
-          label="Focus / block prints"
-          value={focusCount}
-          detail={focusCount > 0 ? `${fmtMoney(analysis.block_flow.focus_notional)} notional` : "none above institutional floor"}
-          tone={focusCount >= 3 ? "good" : focusCount > 0 ? "warn" : "neutral"}
-        />
+        <div className="ta-tile">
+          <span className="ta-tile-label">
+            <Tooltip text="Signed pressure: of all tracked dollar volume, what % is buyer-directed vs seller-directed. ≥60% means one side strongly dominates. Below 60%: no directional edge.">
+              Signed pressure <span className="crit-help-icon">?</span>
+            </Tooltip>
+          </span>
+          <strong className="ta-tile-value" style={{ color: pressurePct >= 60 ? "var(--buy)" : pressurePct >= 30 ? "var(--accent)" : undefined }}>{fmtNumber(pressurePct, 1)}%</strong>
+          <small className="ta-tile-detail">{analysis.pressure.direction} · of all tracked dollar flow</small>
+          <ThresholdBar value={pressurePct} threshold={60} max={100} unit="%" />
+        </div>
+        <div className="ta-tile">
+          <span className="ta-tile-label">
+            <Tooltip text="Signing confidence: what % of trades could be reliably assigned a buy or sell direction using quote-side and tick-rule methods. Below 50%: too many ambiguous prints to trust the direction label.">
+              Signing confidence <span className="crit-help-icon">?</span>
+            </Tooltip>
+          </span>
+          <strong className="ta-tile-value" style={{ color: conf >= 0.5 ? "var(--buy)" : "var(--sell)" }}>{fmtPct(conf)}</strong>
+          <small className="ta-tile-detail">{conf >= 0.5 ? "reliable — direction trustworthy" : "low — direction uncertain"}</small>
+          <ThresholdBar value={conf * 100} threshold={50} max={100} unit="%" />
+        </div>
+        <div className="ta-tile">
+          <span className="ta-tile-label">
+            <Tooltip text="Notional (dollar volume) = shares × price. Measures the dollar scale of activity vs the typical session. 1.5× means 50% more dollar volume than the ticker's own 20-session average.">
+              Notional × (dollar flow) <span className="crit-help-icon">?</span>
+            </Tooltip>
+          </span>
+          <strong className="ta-tile-value" style={{ color: notR >= 1.5 ? "var(--buy)" : notR >= 1.0 ? "var(--accent)" : undefined }}>{fmtNumber(notR, 2)}×</strong>
+          <small className="ta-tile-detail">vol {fmtNumber(volR, 2)}× · vs {analysis.activity.baseline_sessions || 20}-session baseline</small>
+          <ThresholdBar value={notR} threshold={1.5} max={3} unit="×" />
+        </div>
+        <div className="ta-tile">
+          <span className="ta-tile-label">
+            <Tooltip text="Focus / block prints: individual trades at or above the institutional-size floor. Confirms that position-size money is active, not just retail flow. ≥3 prints is the block activity threshold.">
+              Focus / block prints <span className="crit-help-icon">?</span>
+            </Tooltip>
+          </span>
+          <strong className="ta-tile-value" style={{ color: focusCount >= 3 ? "var(--buy)" : focusCount > 0 ? "var(--accent)" : undefined }}>{focusCount}</strong>
+          <small className="ta-tile-detail">{focusCount > 0 ? `${fmtMoney(analysis.block_flow.focus_notional)} notional` : "none above institutional floor"}</small>
+        </div>
       </div>
 
       <div className="trade-analysis-body">
@@ -191,13 +280,7 @@ export function TradeAnalysisPanel({ data }: { data: UtaTickerResult }) {
           <h3>Trigger criteria</h3>
           <div className="criteria-list">
             {(analysis.criteria || []).map((item) => (
-              <div className={`criteria ${item.passed ? "pass" : "fail"}`} key={item.id}>
-                <b>{item.passed ? "✓" : "×"}</b>
-                <span>
-                  {item.label}
-                  <small>{item.actual}</small>
-                </span>
-              </div>
+              <CriterionRow key={item.id} item={item} />
             ))}
           </div>
         </div>

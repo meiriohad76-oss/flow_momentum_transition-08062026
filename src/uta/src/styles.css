@@ -3677,3 +3677,139 @@ body {
 @media (max-width: 720px) {
   .ta-tiles { grid-template-columns: repeat(2, 1fr); }
 }
+
+/* ── Tooltip (pure CSS, no JS) ────────────────────────────────────────── */
+.tt-wrap {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  cursor: help;
+  outline: none;
+}
+
+.tt-body {
+  visibility: hidden;
+  opacity: 0;
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 50%;
+  transform: translateX(-50%);
+  width: 240px;
+  padding: 9px 11px;
+  background: var(--panel-3, #1a2332);
+  border: 1px solid var(--border-strong, #2a3a4a);
+  border-radius: 7px;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.4);
+  font-size: 12px;
+  font-family: var(--font-ui);
+  color: var(--ink-2);
+  line-height: 1.5;
+  z-index: 200;
+  pointer-events: none;
+  transition: opacity 0.12s ease, visibility 0.12s;
+  white-space: normal;
+  text-align: left;
+}
+
+.tt-wide .tt-body { width: 300px; }
+
+/* Arrow */
+.tt-body::after {
+  content: "";
+  position: absolute;
+  top: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  border: 5px solid transparent;
+  border-top-color: var(--border-strong, #2a3a4a);
+}
+
+.tt-wrap:hover .tt-body,
+.tt-wrap:focus .tt-body {
+  visibility: visible;
+  opacity: 1;
+}
+
+/* Help icon shown inside Tooltip children */
+.crit-help-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--panel-3);
+  border: 1px solid var(--border);
+  font-size: 9px;
+  font-weight: 700;
+  color: var(--ink-3);
+  font-family: var(--font-ui);
+  vertical-align: middle;
+  margin-left: 3px;
+  flex-shrink: 0;
+}
+
+.tt-wrap:hover .crit-help-icon,
+.tt-wrap:focus .crit-help-icon {
+  background: var(--accent-soft);
+  color: var(--accent);
+  border-color: var(--accent-line);
+}
+
+/* Criterion label row (label + help icon inline) */
+.crit-label-row {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  margin-bottom: 3px;
+}
+
+.crit-label {
+  font-size: 13px;
+  color: var(--ink);
+  font-weight: 600;
+}
+
+/* ── ThresholdBar ────────────────────────────────────────────────────── */
+.thresh-bar {
+  margin-top: 5px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.thresh-track {
+  position: relative;
+  height: 4px;
+  background: var(--panel-3, #1a2332);
+  border-radius: 99px;
+  overflow: visible;
+}
+
+.thresh-fill {
+  height: 100%;
+  border-radius: 99px;
+  transition: width 0.3s ease;
+}
+
+.thresh-mark {
+  position: absolute;
+  top: -3px;
+  bottom: -3px;
+  width: 2px;
+  background: var(--ink-3);
+  border-radius: 1px;
+  transform: translateX(-50%);
+}
+
+.thresh-labels {
+  display: flex;
+  justify-content: space-between;
+  font-size: 10px;
+  font-family: var(--font-mono);
+}
+
+.thresh-target {
+  color: var(--ink-3);
+}

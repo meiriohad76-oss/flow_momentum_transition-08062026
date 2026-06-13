@@ -155,6 +155,60 @@ export function Sparkline({
   );
 }
 
+/**
+ * Hover tooltip — pure CSS, no JS. Place around any element to add
+ * explanatory text on hover/focus. Keep `text` to 2-3 sentences.
+ */
+export function Tooltip({ text, children, wide = false }: { text: string; children: React.ReactNode; wide?: boolean }) {
+  return (
+    <span className={`tt-wrap${wide ? " tt-wide" : ""}`} tabIndex={0} aria-label={text}>
+      {children}
+      <span className="tt-body" role="tooltip">{text}</span>
+    </span>
+  );
+}
+
+/**
+ * Thin inline bar that shows a value's progress toward a threshold.
+ * A vertical marker line sits at the threshold position.
+ * Green when passed, accent when building (≥50%), muted when far off.
+ */
+export function ThresholdBar({
+  value,
+  threshold,
+  max,
+  unit = "",
+  showLabels = true,
+}: {
+  value: number;
+  threshold: number;
+  max?: number;
+  unit?: string;
+  showLabels?: boolean;
+}) {
+  const effectiveMax = max ?? Math.max(threshold * 1.8, value * 1.2);
+  const valuePct  = Math.min(100, (value / effectiveMax) * 100);
+  const threshPct = Math.min(98, (threshold / effectiveMax) * 100);
+  const passed    = value >= threshold;
+  const building  = value >= threshold * 0.5;
+  const fillColor = passed ? "var(--buy, #22c55e)" : building ? "var(--accent)" : "var(--ink-3)";
+  const fmt = (n: number) => n < 10 ? n.toFixed(2) : n.toFixed(1);
+  return (
+    <div className="thresh-bar">
+      <div className="thresh-track">
+        <div className="thresh-fill" style={{ width: `${valuePct}%`, background: fillColor }} />
+        <div className="thresh-mark" style={{ left: `${threshPct}%` }} title={`threshold: ${fmt(threshold)}${unit}`} />
+      </div>
+      {showLabels && (
+        <div className="thresh-labels">
+          <span style={{ color: fillColor }}>{fmt(value)}{unit}</span>
+          <span className="thresh-target">target ≥{fmt(threshold)}{unit}</span>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function ConfBar({
   value,
   label
