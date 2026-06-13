@@ -1440,7 +1440,7 @@ function bandFromMetrics(indicators = {}) {
   return "Normal";
 }
 
-function buildTradeAnalysis({ ticker, classifier, indicators, signing, blocks, baseline, inputs, latestBar, corroboration = {} }) {
+function buildTradeAnalysis({ ticker, classifier, indicators, signing, blocks, baseline, inputs, latestBar, prevBar, corroboration = {} }) {
   const c = indicators.C || {};
   const b = indicators.B || {};
   const direction = classifier.direction || signing.direction || "undetermined";
@@ -1557,6 +1557,15 @@ function buildTradeAnalysis({ ticker, classifier, indicators, signing, blocks, b
     activity: {
       latest_bar_date: latestBar?.date || null,
       latest_close: Number.isFinite(latestClose) && latestClose > 0 ? roundNumber(latestClose, 2) : null,
+      prev_close: (() => {
+        const p = Number(prevBar?.close || 0);
+        return Number.isFinite(p) && p > 0 ? roundNumber(p, 2) : null;
+      })(),
+      price_change_pct: (() => {
+        const prev = Number(prevBar?.close || 0);
+        if (!Number.isFinite(prev) || prev <= 0 || !Number.isFinite(latestClose) || latestClose <= 0) return null;
+        return roundNumber(((latestClose - prev) / prev) * 100, 2);
+      })(),
       volume_ratio: roundNumber(volumeRatio, 3),
       notional_ratio: roundNumber(notionalRatio, 3),
       volume_zscore: roundNumber(b.volume_zscore, 2),
@@ -1629,7 +1638,8 @@ function buildLiveBluf({ ticker, classifier, indicators, signing, blocks, baseli
     blocks,
     baseline,
     inputs,
-    latestBar: inputs.bars.at(-1)
+    latestBar: inputs.bars.at(-1),
+    prevBar: inputs.bars.at(-2)
   });
   const c = indicators.C || {};
   const b = indicators.B || {};

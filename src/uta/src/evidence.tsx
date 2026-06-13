@@ -113,10 +113,16 @@ function BlufFindings({ data }: { data: UtaTickerResult }) {
       // B-score triggered Tier C, but signed pressure < 60% — volume anomaly without directional confirmation
       const peakB = Math.max(volB, notB);
       const lastClose = ta?.activity?.latest_close;
-      const priceNote = lastClose != null
-        ? ` Last close $${fmtNumber(lastClose, 2)}. If price is declining with this volume, large money is being absorbed without an upward response — a potential sign of distribution (sellers using volume to exit into demand). If price is rising, it may be accumulation. Either way, the signed-flow model cannot yet confirm which side is in control.`
-        : "";
-      rec = `Major volume anomaly — ${fmtNumber(notR, 2)}× normal dollar flow (${fmtNumber(peakB, 1)}σ above ${histContext}) — but NO directional edge: signed pressure is only ${fmtNumber(Math.abs(pressure) * 100, 1)}%, well below the 60% threshold needed to assign a direction. Buyers and sellers are splitting the volume too evenly to confirm a side.${priceNote} Watch for a follow-on cycle where pressure breaks above 60%, or a provider alert / options sweep that confirms direction. Do not trade on direction — there is none yet.`;
+      const priceChgPct = ta?.activity?.price_change_pct;
+      const priceNote = (() => {
+        if (lastClose == null) return "";
+        const priceStr = `$${fmtNumber(lastClose, 2)}`;
+        if (priceChgPct == null) return ` Last close ${priceStr}. Check whether price is rising or falling with this volume — the direction of price vs the volume anomaly is the key missing piece.`;
+        if (priceChgPct < -1) return ` Last close ${priceStr} (${fmtNumber(priceChgPct, 2)}% vs prior close). Price is falling while volume is extreme — this looks like DISTRIBUTION: large money may be selling into demand, which is why signed pressure is split. Watch for pressure to break below 40% (net sell-side) to confirm.`;
+        if (priceChgPct > 1) return ` Last close ${priceStr} (+${fmtNumber(priceChgPct, 2)}% vs prior close). Price is rising with extreme volume — possible ACCUMULATION: large money buying, but the signed flow is too balanced to confirm. Watch for pressure to break above 60% (net buy-side) to confirm.`;
+        return ` Last close ${priceStr} (${fmtNumber(priceChgPct, 2)}% vs prior close). Price is roughly flat despite extreme volume — indeterminate. Watch for a directional break.`;
+      })();
+      rec = `Major volume anomaly — ${fmtNumber(notR, 2)}× normal dollar flow (${fmtNumber(peakB, 1)}σ above ${histContext}) — but NO directional edge: signed pressure is only ${fmtNumber(Math.abs(pressure) * 100, 1)}%, well below the 60% threshold needed to assign a direction. Buyers and sellers are splitting the volume too evenly to confirm a side.${priceNote} Do not trade on direction — there is none yet.`;
     }
   } else if (tier === "B") {
     rec = `Review-worthy signal. ${dirCap}-side: ${fmtNumber(Math.abs(pressure) * 100, 1)}% signed pressure (confirmed), dollar flow ${fmtNumber(notB, 1)}σ above ${histContext} (above 1.5σ trigger)${focusCnt > 0 ? `, ${focusCnt} focus print${focusCnt !== 1 ? "s" : ""} detected` : ", no block prints yet"}. ${fmtPct(conf)} signing confidence. Validate with options flow, price action, and a provider alert before acting. One strong corroboration would qualify for Tier A.`;
@@ -168,9 +174,12 @@ export function BlufCard({ data, portfolioMode = false }: { data: UtaTickerResul
             <DirTag direction={data.direction} />
             <BandTag band={analysis?.anomaly_band} />
             <Pill tone="neutral">Direction confidence {fmtPct(data.signing_confidence)}</Pill>
-            {analysis?.activity?.latest_close != null && (
-              <Pill tone="neutral">Last close ${fmtNumber(analysis.activity.latest_close, 2)}</Pill>
-            )}
+            {analysis?.activity?.latest_close != null && (() => {
+              const chg = analysis.activity.price_change_pct;
+              const tone = chg == null ? "neutral" : chg > 0 ? "good" : chg < 0 ? "bad" : "neutral";
+              const chgStr = chg != null ? ` (${chg > 0 ? "+" : ""}${fmtNumber(chg, 2)}%)` : "";
+              return <Pill tone={tone}>Last close ${fmtNumber(analysis.activity.latest_close, 2)}{chgStr}</Pill>;
+            })()}
           </div>
         </div>
         <div className="bluf-aside uplabel">BLUF · as of {fmtDate(data.generated_at)}</div>

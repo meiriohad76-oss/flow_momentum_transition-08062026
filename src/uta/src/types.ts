@@ -87,6 +87,8 @@ export type UtaTickerResult = {
     activity: {
       latest_bar_date?: string | null;
       latest_close?: number | null;
+      prev_close?: number | null;
+      price_change_pct?: number | null;
       volume_ratio?: number | null;
       notional_ratio?: number | null;
       volume_zscore?: number | null;
