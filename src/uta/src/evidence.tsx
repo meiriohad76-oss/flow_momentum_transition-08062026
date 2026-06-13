@@ -65,19 +65,22 @@ function BlufFindings({ data }: { data: UtaTickerResult }) {
       label: "Signed flow pressure",
       value: `${pressure >= 0 ? "+" : ""}${fmtNumber(pressure * 100, 1)}%`,
       note: (() => {
-        // Convert net pressure to buy/sell cents on the dollar: b - (1-b) = pressure → b = (1 + pressure) / 2
-        const buyShare = Math.round(((1 + pressure) / 2) * 100);
-        const sellShare = 100 - buyShare;
+        // net_notional_pressure is a net ratio: (buy$ - sell$) / total$
+        // 0 = balanced, +1 = all buying, -1 = all selling
+        // Threshold ≥0.60 net = 80% buy / 20% sell in gross terms
+        const netPct = Math.round(Math.abs(pressure) * 100);
+        const buyGross = Math.round(((1 + pressure) / 2) * 100);
+        const sellGross = 100 - buyGross;
         const priceChg = ta?.activity?.price_change_pct;
         const flowSide = pressure >= 0 ? "buy" : "sell";
         const priceSide = priceChg != null ? (priceChg < -1 ? "bearish" : priceChg > 1 ? "bullish" : "flat") : null;
         if (Math.abs(pressure) >= 0.6) {
-          return `${Math.round(Math.abs(pressure) * 10)} of every 10 classified dollars are ${flowSide}-directed (${buyShare}¢ buy / ${sellShare}¢ sell) — ${dir.toUpperCase()} directional edge confirmed`;
+          return `${netPct}% net ${flowSide}-side pressure (${buyGross}¢ buy / ${sellGross}¢ sell per $1) — exceeds the 60% net threshold. ${dir.toUpperCase()} directional edge confirmed.`;
         }
-        const baseNote = `Of every $1 of classified flow: ${buyShare}¢ to buyers, ${sellShare}¢ to sellers — too balanced for a directional edge (needs ≥60¢ one-sided).`;
+        const baseNote = `Net ${flowSide}-side pressure: ${netPct}% (${buyGross}¢ buy / ${sellGross}¢ sell per classified $1). Directional edge needs ≥60% net pressure — equivalent to an 80¢/20¢ buy/sell split.`;
         if (priceSide && priceSide !== "flat" && priceSide !== (pressure >= 0 ? "bullish" : "bearish")) {
           const priceStr = priceChg != null ? ` (${priceChg > 0 ? "+" : ""}${fmtNumber(priceChg, 2)}% vs prior close)` : "";
-          return `${baseNote} ⚠ Price${priceStr} and signed flow are in TENSION — price is ${priceSide} while signed prints tilt ${pressure >= 0 ? "buy" : "sell"}. Likely cause: heavy selling on unsigned/mid-market prints driving price, while visible prints skew buy. Direction is unreliable.`;
+          return `${baseNote} ⚠ Price${priceStr} and signed flow are in TENSION — price is ${priceSide} while classified prints tilt ${flowSide}. Likely cause: heavy selling on unsigned/mid-market prints driving price down, while the signable prints skew buy. Direction is unreliable.`;
         }
         return baseNote;
       })(),
