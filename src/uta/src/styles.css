@@ -3563,6 +3563,21 @@ body {
 .corr-w-moderate  { background: color-mix(in srgb, var(--accent) 12%, transparent); color: var(--accent); }
 .corr-w-contextual { background: var(--panel-3); color: var(--ink-3); }
 
+/* corr-row.neg = computed negative (✗) */
+.corr-row.neg .corr-icon { color: var(--sell, #ef4444); }
+
+/* auto / manual source badge */
+.corr-source {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  padding: 1px 6px;
+  border-radius: 4px;
+}
+.corr-src-auto   { background: color-mix(in srgb, var(--accent) 10%, transparent); color: var(--accent); }
+.corr-src-manual { background: var(--panel-3); color: var(--ink-3); }
+
 .corr-hint {
   display: block;
   font-size: 12px;
