@@ -1505,6 +1505,19 @@ body {
   --ind-key: var(--ink-3);
 }
 
+/* Merged B+C chip — spans 2 of the 3 grid columns */
+.ind-chip.bc {
+  grid-column: span 2;
+  --ind-key: var(--accent);
+}
+
+/* σ value inline with the hero ratio — slightly smaller */
+.ind-sigma {
+  font-size: 13px;
+  font-family: var(--font-mono);
+  opacity: 0.9;
+}
+
 .ind-chip.na {
   opacity: 0.62;
 }

@@ -365,15 +365,16 @@ export function MixBar({ segments }: { segments: MixSegment[] }) {
 export function IndicatorGrid({ data, portfolioMode = false }: { data: UtaTickerResult; portfolioMode?: boolean }) {
   // Tier D has no indicators — suppress the grid entirely
   if (String(data.tier || "D").toUpperCase() === "D") return null;
+
   const a = data.indicators.A;
   const aliases = data.trade_analysis?.indicator_aliases;
-  const b = aliases?.B || {
+  const B = aliases?.B || {
     volume: data.indicators.B.volume_zscore,
     notional: data.indicators.B.notional_zscore,
     focus: data.indicators.B.focus_notional_share_zscore,
     pressure: data.indicators.B.net_notional_pressure_zscore
   };
-  const c = aliases?.C || {
+  const C = aliases?.C || {
     vr: data.indicators.C.volume_ratio,
     nr: data.indicators.C.notional_ratio,
     fshare: data.indicators.C.focus_notional_share,
@@ -382,39 +383,48 @@ export function IndicatorGrid({ data, portfolioMode = false }: { data: UtaTicker
   };
 
   const dir = data.direction;
-  // Treat anything that isn't explicitly bullish/bearish as undetermined (matches DirTag logic)
   const isUndetermined = dir !== "bullish" && dir !== "bearish";
 
-  const bN = Number(b.notional ?? 0);
-  const bNHit = bN >= 1.5;
-  const bNBuilding = bN >= 0.5 && bN < 1.5;
-  // Amber (not green) when direction is undetermined — high dollar flow but no side confirmed
-  const bNColor = bNHit
-    ? (isUndetermined ? "var(--accent)" : "var(--buy)")
-    : bNBuilding ? "var(--accent)" : undefined;
-  // Arrow reflects direction, not just magnitude; ↕ when undetermined
-  const bNArrow = isUndetermined ? "↕" : dir === "bearish" ? "↓" : "↑";
-  const bNStatus = bNHit
-    ? `${bNArrow} trigger met${isUndetermined ? " · no direction" : ""}`
-    : bNBuilding ? "↗ building" : "→ normal";
-  const bNGap = bNHit ? "" : ` · ${fmtNumber(1.5 - bN, 2)}σ to trigger`;
+  // Best B-score drives the panel color
+  const bN = Number(B.notional ?? 0);
+  const bV = Number(B.volume ?? 0);
+  const bestB = Math.max(bN, bV);
+  const triggered = bestB >= 1.5;
+  const building = bestB >= 0.5 && bestB < 1.5;
+
+  // Green when triggered with direction, amber when triggered-undetermined or building, grey otherwise
+  const panelColor = triggered
+    ? isUndetermined ? "var(--warn)" : "var(--buy)"
+    : building ? "var(--warn)" : "var(--ink-3)";
+
+  const dirArrow = isUndetermined ? "↕" : dir === "bearish" ? "↓" : "↑";
+  const statusText = triggered
+    ? `${dirArrow} Above 1.5σ review threshold${isUndetermined ? " · no direction" : ""}`
+    : building
+    ? `↗ Building — need +${fmtNumber(1.5 - bestB, 2)}σ to trigger`
+    : `→ Normal — ${fmtNumber(1.5 - bestB, 2)}σ below the 1.5σ review trigger`;
 
   return (
     <div className="indicator-summary ind-summary">
-      <article className="ind-chip B b">
-        <span>B · vs own 20-session history</span>
-        <strong style={{ color: bNColor }}>
-          {fmtNumber(c.nr, 2)}× normal dollar flow — {bNStatus}
+      {/* B+C merged: spans 2 of the 3 grid columns */}
+      <article className="ind-chip B bc">
+        <span>B+C · vs own 20-session history</span>
+        <strong>
+          <span style={{ color: panelColor }}>{fmtNumber(C.nr, 2)}×</span>
+          {" "}normal dollar flow{" "}
+          <span className="ind-sigma" style={{ color: panelColor }}>
+            {bN >= 0 ? "+" : ""}{fmtNumber(bN, 2)}σ
+          </span>
         </strong>
         <small>
-          {fmtNumber(bN, 2)}σ above own history · vol {fmtNumber(b.volume, 2)}σ · pressure {fmtNumber(b.pressure, 2)}σ
+          vol {fmtNumber(C.vr, 2)}× · notional {fmtNumber(C.nr, 2)}× · {C.fcount ?? 0} focus print{C.fcount !== 1 ? "s" : ""}
         </small>
-        <small className="ind-threshold">
-          {bNHit
-            ? `${fmtNumber(bN, 2)}σ = statistically extreme — ${fmtNumber(c.nr, 2)}× more dollars traded than a typical session`
-            : `Review trigger: dollar flow ≥ 1.5σ${bNGap}`}
+        <small className="ind-threshold" style={{ color: panelColor }}>
+          ● {statusText}
         </small>
       </article>
+
+      {/* A lane unchanged */}
       <article className={`ind-chip A a ${a === null ? "na" : ""}`}>
         <span>{portfolioMode ? "A · relative to your portfolio today" : "A · universe percentile"}</span>
         <strong>{a === null ? "N/A" : fmtPct((a as Record<string, unknown>).volume_percentile)}</strong>
@@ -422,13 +432,6 @@ export function IndicatorGrid({ data, portfolioMode = false }: { data: UtaTicker
           {a === null
             ? "Peer ranking not available in single-ticker mode — run Portfolio Scan to compare against universe"
             : String((a as Record<string, unknown>).scope_label || "peer ranked context")}
-        </small>
-      </article>
-      <article className="ind-chip C c">
-        <span>C · raw magnitude vs 20-session baseline</span>
-        <strong>{fmtNumber(c.nr, 2)}× dollar flow</strong>
-        <small>
-          vol {fmtNumber(c.vr, 2)}× · {fmtPct(c.nnp)} signed pressure · {c.fcount ?? 0} focus prints
         </small>
       </article>
     </div>
