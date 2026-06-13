@@ -74,12 +74,14 @@ function BlufFindings({ data }: { data: UtaTickerResult }) {
     {
       label: "Direction confidence",
       value: fmtPct(conf),
-      note: conf >= 0.7
+      note: dir === "undetermined"
+        ? `${fmtPct(conf)} of prints signed (above 50% reliability floor) — signing quality is fine. But signed pressure is only ${fmtNumber(Math.abs(pressure) * 100, 1)}%, below the 60% threshold needed to assign a direction. Volume anomaly confirmed; side is NOT.`
+        : conf >= 0.7
         ? `High — ${fmtPct(conf)} of prints were reliably assigned a side. Direction is trustworthy.`
         : conf >= 0.5
         ? `Above floor — ${fmtPct(conf)} of prints signed. Direction is meaningful but not conclusive.`
         : `Low — only ${fmtPct(conf)} of prints could be signed. Direction signal should not be trusted.`,
-      status: conf >= 0.5 ? "pass" : "fail",
+      status: dir === "undetermined" ? (conf >= 0.5 ? "warn" : "fail") : (conf >= 0.5 ? "pass" : "fail"),
     },
   ];
 
@@ -100,11 +102,18 @@ function BlufFindings({ data }: { data: UtaTickerResult }) {
       rec = `${ticker} has some elevated components but hasn't met tier thresholds. Dollar flow B-score is ${fmtNumber(notB, 1)}σ (review trigger: 1.5σ, needs +${fmtNumber(Math.max(0, 1.5 - notB), 1)}σ). Signed pressure is ${fmtNumber(Math.abs(pressure) * 100, 1)}% (trigger: 60%). Both need to confirm together for a tier signal. Monitor and re-analyze.`;
     }
   } else if (tier === "C") {
+    const pressureOK = Math.abs(pressure) >= 0.6;
     const missing: string[] = [];
     if (notB < 1.5) missing.push(`dollar flow (${fmtNumber(notB, 1)}σ, needs 1.5σ)`);
     if (focusCnt === 0) missing.push("block prints (0 above floor)");
     const missingStr = missing.length ? `Not confirmed: ${missing.join(" and ")}. ` : "";
-    rec = `${dirCap}-side edge confirmed from ${dataContext}: ${fmtNumber(Math.abs(pressure) * 100, 1)}% of tracked dollars are ${dirFlow}-directed (≥60% threshold met), with ${fmtPct(conf)} signing reliability. ${missingStr}This is a directional bias signal — the flow composition points ${dir}, but total dollar volume is not yet at unusual levels vs ${histContext}. Context-tier only: use as a directional lean, not a trade trigger.`;
+    if (pressureOK) {
+      rec = `${dirCap}-side edge confirmed from ${dataContext}: ${fmtNumber(Math.abs(pressure) * 100, 1)}% of tracked dollars are ${dirFlow}-directed (≥60% threshold met), with ${fmtPct(conf)} signing reliability. ${missingStr}This is a directional bias signal — the flow composition points ${dir}, but total dollar volume is not yet at unusual levels vs ${histContext}. Context-tier only: use as a directional lean, not a trade trigger.`;
+    } else {
+      // B-score triggered Tier C, but signed pressure < 60% — volume anomaly without directional confirmation
+      const peakB = Math.max(volB, notB);
+      rec = `Major volume anomaly — ${fmtNumber(peakB, 1)}σ above ${histContext} — but NO directional edge: signed pressure is only ${fmtNumber(Math.abs(pressure) * 100, 1)}%, well below the 60% threshold. ${fmtPct(conf)} of ${dataContext} were signed (reliable), but buyers and sellers are too evenly matched to assign a direction. This is a volume event only: watch for a directional catalyst or a follow-on cycle where pressure breaks above 60%. Do not use as a directional lean.`;
+    }
   } else if (tier === "B") {
     rec = `Review-worthy signal. ${dirCap}-side: ${fmtNumber(Math.abs(pressure) * 100, 1)}% signed pressure (confirmed), dollar flow ${fmtNumber(notB, 1)}σ above ${histContext} (above 1.5σ trigger)${focusCnt > 0 ? `, ${focusCnt} focus print${focusCnt !== 1 ? "s" : ""} detected` : ", no block prints yet"}. ${fmtPct(conf)} signing confidence. Validate with options flow, price action, and a provider alert before acting. One strong corroboration would qualify for Tier A.`;
   } else if (tier === "A") {
@@ -178,15 +187,23 @@ export function CorroborationPanel({ data }: { data: UtaTickerResult }) {
   if (String(data.tier || "D").toUpperCase() === "D") return null;
   const corr = data.trade_analysis?.corroboration || {};
   const strongCount = corr.independent_strong_count || 0;
+  const isUndetermined = data.direction === "undetermined" || !data.direction;
 
-  // Each row: [label, confirmed, tier-weight, what to check]
+  // Each row: [label, confirmed, tier-weight, hint when unconfirmed]
+  // Hints are adapted for undetermined direction to avoid implying a side exists
   const rows: Array<[string, boolean | undefined, string, string]> = [
-    ["Price action aligned",       corr.price_action_aligned,        "Strong",      "Did price move with or before the flow signal? Check chart."],
-    ["Provider alert confirmed",   corr.provider_alert_confirmed,     "Strong",      "Did a UOA / block alert provider fire on this ticker today?"],
-    ["Options flow aligned",       corr.options_flow_aligned,         "Strong",      "Is options flow (calls/puts) directionally matching the signed pressure?"],
-    ["Pre-market + regular elevated", corr.premarket_regular_elevated, "Moderate",   "Was volume elevated in both pre-market and the regular session?"],
-    ["News catalyst present",      corr.news_catalyst_present,        "Contextual",  "Is there earnings, guidance, analyst action, or a macro event today?"],
-    ["Macro regime supports",      corr.macro_regime_supports,        "Contextual",  "Does the broader sector or market regime support the trade direction?"],
+    ["Price action aligned",          corr.price_action_aligned,         "Strong",     isUndetermined
+      ? "Did price move unusually (gap, surge, spike) before or with the volume event? Look for price confirmation of the magnitude, not a direction."
+      : "Did price move with or before the flow signal? Check chart."],
+    ["Provider alert confirmed",      corr.provider_alert_confirmed,      "Strong",     "Did a UOA / block alert provider fire on this ticker today? Any direction."],
+    ["Options flow aligned",          corr.options_flow_aligned,          "Strong",     isUndetermined
+      ? "Is there unusual options volume (calls or puts)? Look for extreme sweep activity or large prints either side — direction is not yet established."
+      : "Is options flow (calls/puts) directionally matching the signed pressure?"],
+    ["Pre-market + regular elevated", corr.premarket_regular_elevated,    "Moderate",   "Was volume elevated in both pre-market and the regular session?"],
+    ["News catalyst present",         corr.news_catalyst_present,         "Contextual", "Is there earnings, guidance, analyst action, or a macro event today?"],
+    ["Macro regime supports",         corr.macro_regime_supports,         "Contextual", isUndetermined
+      ? "Is there a sector or macro catalyst that could explain unusual volume without a directional bias (e.g., event risk, rebalancing, index event)?"
+      : "Does the broader sector or market regime support the trade direction?"],
   ];
 
   return (
@@ -200,6 +217,14 @@ export function CorroborationPanel({ data }: { data: UtaTickerResult }) {
         Confirming even one "Strong" item raises conviction and may qualify for Tier A.
         "Moderate" and "Contextual" items support the case but are never required.
       </p>
+      {isUndetermined && (
+        <p className="corr-gap corr-undetermined-note">
+          <b>⚠ Volume anomaly — direction not established.</b>{" "}
+          Signed pressure ({fmtNumber(Math.abs(Number(data.indicators?.C?.net_notional_pressure ?? 0)) * 100, 1)}%) is below the 60% directional threshold.
+          Focus corroboration on <em>confirming the scale of activity</em> (provider alerts, options volume, price reaction) rather than directional fit.
+          Watch for a catalyst that breaks the pressure imbalance.
+        </p>
+      )}
       <div className="corr-list">
         {rows.map(([label, passed, weight, hint]) => (
           <div className={`corr-row ${passed ? "on" : "off"}`} key={label}>
@@ -217,7 +242,9 @@ export function CorroborationPanel({ data }: { data: UtaTickerResult }) {
       {strongCount === 0 && (
         <p className="corr-gap">
           No strong confirmations yet — this signal stays at Tier {data.tier} until at least one is confirmed.
-          Check price action, provider alerts, and options flow first (highest independence).
+          {isUndetermined
+            ? " Check provider alerts and options volume first — look for scale confirmation, not direction."
+            : " Check price action, provider alerts, and options flow first (highest independence)."}
         </p>
       )}
     </section>
