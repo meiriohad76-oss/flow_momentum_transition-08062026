@@ -79,8 +79,21 @@ export function DirTag({ direction }: { direction?: string }) {
   return <span className={`dir-tag ${dir === "bullish" ? "bull" : dir === "bearish" ? "bear" : "undet"} ${dir}`}>{arrow} {label}</span>;
 }
 
+const BAND_TIPS: Record<string, string> = {
+  extreme:  "Extreme: volume is 5σ+ above this ticker's own history — a once-in-thousands-of-sessions event statistically.",
+  high:     "High: volume is 3–5σ above this ticker's own history — unusual but seen occasionally in active names.",
+  elevated: "Elevated: volume is 2–3σ above this ticker's own history — above average but not yet statistically rare.",
+  normal:   "Normal: volume is within 2σ of this ticker's own history — a typical session.",
+};
+
 export function BandTag({ band }: { band?: string }) {
-  return <span className={`band-tag ${String(band || "normal").toLowerCase()}`}>{band || "Normal"}</span>;
+  const key = String(band || "normal").toLowerCase();
+  const tip = BAND_TIPS[key] || "";
+  return (
+    <Tooltip text={tip}>
+      <span className={`band-tag ${key}`}>{band || "Normal"}</span>
+    </Tooltip>
+  );
 }
 
 export function DeltaChip({ delta, unit = "σ" }: { delta: number; unit?: string }) {

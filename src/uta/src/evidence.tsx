@@ -64,23 +64,35 @@ function BlufFindings({ data }: { data: UtaTickerResult }) {
     {
       label: "Signed flow pressure",
       value: `${pressure >= 0 ? "+" : ""}${fmtNumber(pressure * 100, 1)}%`,
-      note: Math.abs(pressure) >= 0.6
-        ? `${Math.round(Math.abs(pressure) * 10)} of 10 tracked dollars are ${dirFlow}-directed — ${dir.toUpperCase()} directional edge confirmed`
-        : Math.abs(pressure) >= 0.3
-        ? `Moderate ${dirFlow}-side tilt — buyers and sellers are active, ${dirFlow}s slightly ahead. Not yet a clear edge.`
-        : "Flow is balanced — no side dominates. Direction is ambiguous from signed flow alone.",
+      note: (() => {
+        // Convert net pressure to buy/sell cents on the dollar: b - (1-b) = pressure → b = (1 + pressure) / 2
+        const buyShare = Math.round(((1 + pressure) / 2) * 100);
+        const sellShare = 100 - buyShare;
+        const priceChg = ta?.activity?.price_change_pct;
+        const flowSide = pressure >= 0 ? "buy" : "sell";
+        const priceSide = priceChg != null ? (priceChg < -1 ? "bearish" : priceChg > 1 ? "bullish" : "flat") : null;
+        if (Math.abs(pressure) >= 0.6) {
+          return `${Math.round(Math.abs(pressure) * 10)} of every 10 classified dollars are ${flowSide}-directed (${buyShare}¢ buy / ${sellShare}¢ sell) — ${dir.toUpperCase()} directional edge confirmed`;
+        }
+        const baseNote = `Of every $1 of classified flow: ${buyShare}¢ to buyers, ${sellShare}¢ to sellers — too balanced for a directional edge (needs ≥60¢ one-sided).`;
+        if (priceSide && priceSide !== "flat" && priceSide !== (pressure >= 0 ? "bullish" : "bearish")) {
+          const priceStr = priceChg != null ? ` (${priceChg > 0 ? "+" : ""}${fmtNumber(priceChg, 2)}% vs prior close)` : "";
+          return `${baseNote} ⚠ Price${priceStr} and signed flow are in TENSION — price is ${priceSide} while signed prints tilt ${pressure >= 0 ? "buy" : "sell"}. Likely cause: heavy selling on unsigned/mid-market prints driving price, while visible prints skew buy. Direction is unreliable.`;
+        }
+        return baseNote;
+      })(),
       status: Math.abs(pressure) >= 0.6 ? "pass" : Math.abs(pressure) >= 0.3 ? "warn" : "fail",
     },
     {
       label: "Direction confidence",
       value: fmtPct(conf),
       note: dir === "undetermined"
-        ? `${fmtPct(conf)} of prints signed (above 50% reliability floor) — signing quality is fine. But signed pressure is only ${fmtNumber(Math.abs(pressure) * 100, 1)}%, below the 60% threshold needed to assign a direction. Volume anomaly confirmed; side is NOT.`
+        ? `${fmtPct(conf)} of prints were tagged buy or sell — the other ${fmtPct(1 - conf)} couldn't be classified (mid-market prints, opaque venues, no tick reference). Signing quality meets the 50% floor, but signed pressure is only ${fmtNumber(Math.abs(pressure) * 100, 1)}% — below the 60% threshold. Volume anomaly confirmed; direction is NOT.`
         : conf >= 0.7
-        ? `High — ${fmtPct(conf)} of prints were reliably assigned a side. Direction is trustworthy.`
+        ? `High — ${fmtPct(conf)} of prints reliably assigned a side. Direction signal is trustworthy.`
         : conf >= 0.5
-        ? `Above floor — ${fmtPct(conf)} of prints signed. Direction is meaningful but not conclusive.`
-        : `Low — only ${fmtPct(conf)} of prints could be signed. Direction signal should not be trusted.`,
+        ? `${fmtPct(conf)} of prints signed — above the 50% reliability floor. Direction is meaningful. The other ${fmtPct(1 - conf)} couldn't be classified (mid-market / opaque venue prints).`
+        : `Low — only ${fmtPct(conf)} of prints could be signed. The remaining ${fmtPct(1 - conf)} are unclassified. Direction signal should not be trusted.`,
       status: dir === "undetermined" ? (conf >= 0.5 ? "warn" : "fail") : (conf >= 0.5 ? "pass" : "fail"),
     },
   ];
