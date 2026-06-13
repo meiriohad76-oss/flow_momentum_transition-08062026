@@ -190,7 +190,7 @@ export function CorroborationPanel({ data }: { data: UtaTickerResult }) {
   if (String(data.tier || "D").toUpperCase() === "D") return null;
   const corr = data.trade_analysis?.corroboration || {};
   const strongCount = corr.independent_strong_count || 0;
-  const isUndetermined = data.direction === "undetermined" || !data.direction;
+  const isUndetermined = data.direction !== "bullish" && data.direction !== "bearish";
 
   // Each row: [label, confirmed, tier-weight, hint when unconfirmed]
   // Hints are adapted for undetermined direction to avoid implying a side exists

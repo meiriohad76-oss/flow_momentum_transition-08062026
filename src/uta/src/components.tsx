@@ -369,7 +369,8 @@ export function IndicatorGrid({ data, portfolioMode = false }: { data: UtaTicker
   };
 
   const dir = data.direction;
-  const isUndetermined = !dir || dir === "undetermined";
+  // Treat anything that isn't explicitly bullish/bearish as undetermined (matches DirTag logic)
+  const isUndetermined = dir !== "bullish" && dir !== "bearish";
 
   const bN = Number(b.notional ?? 0);
   const bNHit = bN >= 1.5;
