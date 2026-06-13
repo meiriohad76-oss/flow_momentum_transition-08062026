@@ -26,36 +26,55 @@ function BlufFindings({ data }: { data: UtaTickerResult }) {
     {
       label: "Volume vs baseline",
       value: `${fmtNumber(volRatio, 2)}× (${volB >= 0 ? "+" : ""}${fmtNumber(volB, 2)}σ)`,
-      note: volB >= 2.5 ? "Significantly elevated" : volB >= 1.5 ? "Above baseline" : volB >= 0 ? "Near baseline" : "Below baseline",
-      status: volB >= 2.5 ? "pass" : volB >= 1.0 ? "warn" : "fail",
+      note: volB >= 2.5
+        ? "Significantly elevated — strong unusual volume signal"
+        : volB >= 1.5
+        ? "Above review threshold — volume is notably elevated"
+        : volB >= 0.5
+        ? `Building — needs +${fmtNumber(1.5 - volB, 1)}σ more to reach review threshold`
+        : "Near or below session baseline — no volume signal",
+      status: volB >= 1.5 ? "pass" : volB >= 0.5 ? "warn" : "fail",
     },
     {
       label: "Notional vs baseline",
       value: `${fmtNumber(notR, 2)}× (${notB >= 0 ? "+" : ""}${fmtNumber(notB, 2)}σ)`,
-      note: notB >= 1.5 ? "Elevated — trigger threshold met" : notB >= 0 ? "Normal range" : "Below baseline",
-      status: notB >= 2.5 ? "pass" : notB >= 1.0 ? "warn" : "fail",
+      note: notB >= 2.5
+        ? "Significantly elevated — primary trigger met with high confidence"
+        : notB >= 1.5
+        ? "Review trigger met — notional dollar flow is elevated vs own history"
+        : notB >= 0.5
+        ? `Building — needs +${fmtNumber(1.5 - notB, 1)}σ to trigger review (threshold: 1.5σ)`
+        : "Normal range — no unusual notional flow vs own 20-session history",
+      status: notB >= 1.5 ? "pass" : notB >= 0.5 ? "warn" : "fail",
     },
     {
       label: "Focus / block prints",
       value: `${focusCnt} print${focusCnt !== 1 ? "s" : ""}`,
-      note: focusCnt >= 3 ? "Block activity confirmed" : focusCnt > 0 ? "Minimal block activity" : "None above floor",
+      note: focusCnt >= 3
+        ? "Block activity confirmed — institutional-size trades present"
+        : focusCnt > 0
+        ? `${focusCnt} large print${focusCnt !== 1 ? "s" : ""} found — below block threshold (≥3 prints)`
+        : "None above floor — no institutional-size prints in this session",
       status: focusCnt >= 3 ? "pass" : focusCnt > 0 ? "warn" : "fail",
     },
     {
       label: "Signed pressure",
       value: `${pressure >= 0 ? "+" : ""}${fmtNumber(pressure * 100, 1)}%`,
-      note:
-        Math.abs(pressure) >= 0.6
-          ? `Strong ${pressure > 0 ? "buy" : "sell"}-side — direction signal present`
-          : Math.abs(pressure) >= 0.3
-          ? `Moderate ${pressure > 0 ? "buy" : "sell"}-side — below 60% threshold`
-          : "Balanced flow — no directional edge",
+      note: Math.abs(pressure) >= 0.6
+        ? `Strong ${pressure > 0 ? "buy" : "sell"}-side — direction confirmed (threshold ≥60% met)`
+        : Math.abs(pressure) >= 0.3
+        ? `Moderate ${pressure > 0 ? "buy" : "sell"}-side — needs ${fmtNumber((0.6 - Math.abs(pressure)) * 100, 0)}% more to cross 60% trigger`
+        : "Balanced — buy/sell flow is mixed, no directional edge established",
       status: Math.abs(pressure) >= 0.6 ? "pass" : Math.abs(pressure) >= 0.3 ? "warn" : "fail",
     },
     {
       label: "Signing confidence",
       value: fmtPct(conf),
-      note: conf >= 0.5 ? "Reliable — direction can be trusted" : `Low (need ≥50%) — direction is indicative only`,
+      note: conf >= 0.7
+        ? "High confidence — direction signal is reliable"
+        : conf >= 0.5
+        ? `Above 50% floor — direction is trustworthy (${fmtPct(conf)} of prints agree)`
+        : `Low — ${fmtPct(conf)} agreement, need ≥50% to trust direction (${fmtNumber((0.5 - conf) * 100, 0)}% short)`,
       status: conf >= 0.5 ? "pass" : "fail",
     },
   ];
@@ -145,29 +164,49 @@ export function CorroborationPanel({ data }: { data: UtaTickerResult }) {
   // Tier D has no computed corroboration — show nothing
   if (String(data.tier || "D").toUpperCase() === "D") return null;
   const corr = data.trade_analysis?.corroboration || {};
-  const rows = [
-    ["Price action aligned", corr.price_action_aligned, "Strong"],
-    ["Provider alert confirmed", corr.provider_alert_confirmed, "Strong"],
-    ["Options flow aligned", corr.options_flow_aligned, "Strong"],
-    ["Pre-market + regular elevated", corr.premarket_regular_elevated, "Moderate"],
-    ["News catalyst present", corr.news_catalyst_present, "Contextual"],
-    ["Macro regime supports", corr.macro_regime_supports, "Contextual"]
-  ] as const;
+  const strongCount = corr.independent_strong_count || 0;
+
+  // Each row: [label, confirmed, tier-weight, what to check]
+  const rows: Array<[string, boolean | undefined, string, string]> = [
+    ["Price action aligned",       corr.price_action_aligned,        "Strong",      "Did price move with or before the flow signal? Check chart."],
+    ["Provider alert confirmed",   corr.provider_alert_confirmed,     "Strong",      "Did a UOA / block alert provider fire on this ticker today?"],
+    ["Options flow aligned",       corr.options_flow_aligned,         "Strong",      "Is options flow (calls/puts) directionally matching the signed pressure?"],
+    ["Pre-market + regular elevated", corr.premarket_regular_elevated, "Moderate",   "Was volume elevated in both pre-market and the regular session?"],
+    ["News catalyst present",      corr.news_catalyst_present,        "Contextual",  "Is there earnings, guidance, analyst action, or a macro event today?"],
+    ["Macro regime supports",      corr.macro_regime_supports,        "Contextual",  "Does the broader sector or market regime support the trade direction?"],
+  ];
+
   return (
     <section className="panel">
-      <SectionHeader title="Corroboration" meta={`${corr.independent_strong_count || 0} strong confirmations`} />
+      <SectionHeader
+        title="Corroboration"
+        meta={`${strongCount} of 3 strong signals confirmed · Tier A needs ≥ 1`}
+      />
+      <p className="corr-intro">
+        These signals are <b>not auto-calculated</b> — verify each manually after an analysis.
+        Confirming even one "Strong" item raises conviction and may qualify for Tier A.
+        "Moderate" and "Contextual" items support the case but are never required.
+      </p>
       <div className="corr-list">
-        {rows.map(([label, passed, level]) => (
+        {rows.map(([label, passed, weight, hint]) => (
           <div className={`corr-row ${passed ? "on" : "off"}`} key={label}>
-            <span>{passed ? "✓" : "–"}</span>
-            <div>
-              <b>{label}</b>
-              <small>{level} independence</small>
+            <span className="corr-icon">{passed ? "✓" : "○"}</span>
+            <div className="corr-body">
+              <div className="corr-label-row">
+                <b>{label}</b>
+                <span className={`corr-weight corr-w-${weight.toLowerCase()}`}>{weight}</span>
+              </div>
+              <small className="corr-hint">{passed ? "Confirmed ✓" : hint}</small>
             </div>
           </div>
         ))}
       </div>
-      <p>{corr.note || "Tier A requires at least one independent strong corroboration. Optional lanes never penalize when absent."}</p>
+      {strongCount === 0 && (
+        <p className="corr-gap">
+          No strong confirmations yet — this signal stays at Tier {data.tier} until at least one is confirmed.
+          Check price action, provider alerts, and options flow first (highest independence).
+        </p>
+      )}
     </section>
   );
 }

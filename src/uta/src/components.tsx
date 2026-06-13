@@ -313,22 +313,43 @@ export function IndicatorGrid({ data, portfolioMode = false }: { data: UtaTicker
     fcount: data.indicators.C.focus_trade_count,
     nnp: data.indicators.C.net_notional_pressure
   };
+
+  const bN = Number(b.notional ?? 0);
+  const bNHit = bN >= 1.5;
+  const bNBuilding = bN >= 0.5 && bN < 1.5;
+  const bNColor = bNHit ? "var(--buy)" : bNBuilding ? "var(--accent)" : undefined;
+  const bNStatus = bNHit ? "↑ trigger met" : bNBuilding ? "↗ building" : "→ normal";
+  const bNGap = bNHit ? "" : ` · ${fmtNumber(1.5 - bN, 2)}σ to trigger`;
+
   return (
     <div className="indicator-summary ind-summary">
       <article className="ind-chip B b">
-        <span>B · vs own history</span>
-        <strong>{fmtNumber(b.notional, 2)}σ notional</strong>
-        <small>{fmtNumber(b.volume, 2)}σ vol · {fmtNumber(b.focus, 2)}σ focus · {fmtNumber(b.pressure, 2)}σ pressure</small>
+        <span>B · vs own 20-session history</span>
+        <strong style={{ color: bNColor }}>
+          {fmtNumber(bN, 2)}σ notional — {bNStatus}
+        </strong>
+        <small>
+          vol {fmtNumber(b.volume, 2)}σ · focus {fmtNumber(b.focus, 2)}σ · pressure {fmtNumber(b.pressure, 2)}σ
+        </small>
+        <small className="ind-threshold">
+          Review trigger: notional ≥ 1.5σ{bNGap}
+        </small>
       </article>
       <article className={`ind-chip A a ${a === null ? "na" : ""}`}>
-        <span>{portfolioMode ? "A - relative to your portfolio today" : "A - universe percentile"}</span>
+        <span>{portfolioMode ? "A · relative to your portfolio today" : "A · universe percentile"}</span>
         <strong>{a === null ? "N/A" : fmtPct((a as Record<string, unknown>).volume_percentile)}</strong>
-        <small>{a === null ? "single-ticker mode by design" : String((a as Record<string, unknown>).scope_label || "peer ranked context")}</small>
+        <small>
+          {a === null
+            ? "Peer ranking not available in single-ticker mode — run Portfolio Scan to compare against universe"
+            : String((a as Record<string, unknown>).scope_label || "peer ranked context")}
+        </small>
       </article>
       <article className="ind-chip C c">
-        <span>C · raw magnitude</span>
-        <strong>{fmtNumber(c.nr, 2)}x notional</strong>
-        <small>{fmtNumber(c.vr, 2)}x vol · {fmtPct(c.nnp)} pressure · {c.fcount ?? 0} focus prints</small>
+        <span>C · raw magnitude vs 20-session baseline</span>
+        <strong>{fmtNumber(c.nr, 2)}× notional</strong>
+        <small>
+          vol {fmtNumber(c.vr, 2)}× · {fmtPct(c.nnp)} signed pressure · {c.fcount ?? 0} focus prints
+        </small>
       </article>
     </div>
   );
