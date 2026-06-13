@@ -243,31 +243,71 @@ export function CorroborationPanel({ data }: { data: UtaTickerResult }) {
   // Rows: [label, value, weight, hint-when-unconfirmed, source]
   // source: "auto" = backend computes from bar/print data | "manual" = requires external check
   const priceChg = data.trade_analysis?.activity?.price_change_pct;
-  const rows: Array<[string, boolean | undefined, string, string, "auto" | "manual"]> = [
-    ["Price action aligned",          corr.price_action_aligned,         "Strong",
-      isUndetermined
-        ? `Price moved ${priceChg != null ? `${priceChg > 0 ? "+" : ""}${fmtNumber(priceChg, 2)}% vs prior close` : "an unknown amount"} with this volume event. Was the move unusually large? Check chart for gap, surge, or spike.`
-        : "Did price move in the flow direction before or with the volume signal? Check chart.",
-      "auto"],
-    ["Provider alert confirmed",      corr.provider_alert_confirmed,      "Strong",
-      "Check your UOA / block-flow alert provider (e.g. Unusual Whales, BlackBoxStocks). Did they fire on this ticker today?",
-      "manual"],
-    ["Options flow aligned",          corr.options_flow_aligned,          "Strong",
-      isUndetermined
-        ? "Check options flow for unusual call or put volume. Are sweeps hitting either side? Volume alone (not direction) confirms scale."
-        : "Is options flow directionally matching signed pressure? Look for unusual call or put sweeps.",
-      "manual"],
-    ["Pre-market + regular elevated", corr.premarket_regular_elevated,    "Moderate",
-      "Was volume elevated in pre-market AND the regular session? Sustained multi-session elevation is stronger than a single spike.",
-      "auto"],
-    ["News catalyst present",         corr.news_catalyst_present,         "Contextual",
-      "Check earnings, guidance revision, analyst action, or macro event calendar for today. Any known catalyst?",
-      "manual"],
-    ["Macro regime supports",         corr.macro_regime_supports,         "Contextual",
-      isUndetermined
-        ? "Is there a sector, index, or macro event that could explain elevated volume without a directional bias (rebalancing, event risk, index reconstitution)?"
-        : "Does the sector / macro backdrop support the trade direction? Check sector ETF and broad market regime.",
-      "manual"],
+
+  function getCorrDataLine(id: string, passed: boolean | undefined): { dataLine: string; interpText: string } {
+    const today = new Date().toLocaleDateString("en-US", { month: "short", day: "numeric" });
+    const sp = Number(data.trade_analysis?.pressure?.net_signed_pressure ?? data.trade_analysis?.pressure?.net_notional_pressure ?? 0);
+    const dirWord = data.direction === "bullish" ? "bullish" : data.direction === "bearish" ? "bearish" : "undetermined";
+    switch (id) {
+      case "price_action": {
+        if (priceChg == null) return { dataLine: "Price change not available — check chart manually", interpText: "Compare the price move to the flow signal on the chart." };
+        const chgStr = `${priceChg >= 0 ? "+" : ""}${fmtNumber(priceChg, 2)}%`;
+        const flowDir = sp >= 0 ? "bullish" : "bearish";
+        const diverges = (priceChg > 1 && flowDir === "bearish") || (priceChg < -1 && flowDir === "bullish");
+        if (!isUndetermined && diverges) return {
+          dataLine: `Price ${chgStr} vs prior close — moving AGAINST ${dirWord} flow ⚠`,
+          interpText: `A price move against the flow direction may indicate distribution (selling into strength) or a false signal. Watch for price to stall or reverse before treating this as a confirmed ${dirWord} setup.`
+        };
+        return {
+          dataLine: `Price ${chgStr} vs prior close — moves with ${dirWord} flow ✓`,
+          interpText: "Price and flow direction agree — a corroborating signal. Strongest when the price move preceded the volume spike."
+        };
+      }
+      case "provider_alert":
+        return {
+          dataLine: `Check ${data.ticker} on your UOA / block-flow provider for today`,
+          interpText: "Any alert — regardless of direction — confirms institutional-scale activity. Direction is secondary to scale here."
+        };
+      case "options_flow":
+        return {
+          dataLine: isUndetermined
+            ? `Check ${data.ticker} options chain for unusual volume on either side`
+            : `Look for ${data.direction === "bullish" ? "call" : "put"} sweeps or unusual volume in ${data.ticker} options`,
+          interpText: isUndetermined
+            ? "Volume alone (not direction) confirms scale — any large options sweep is a corroboration."
+            : `Directional match to ${dirWord} flow. Look for aggressive sweep buying, not just elevated open interest.`
+        };
+      case "premarket_regular":
+        if (passed === true) return { dataLine: "Both sessions elevated vs own history", interpText: "Sustained multi-session elevation is stronger than a single spike — meaningful confirmation." };
+        if (passed === false) return { dataLine: "Single session only — not both", interpText: "A single-session spike is weaker than sustained flow across pre-market and regular hours." };
+        return { dataLine: "Could not auto-compute — bar data may be unavailable", interpText: "Check whether pre-market and the regular session both showed elevated activity vs this ticker's own history." };
+      case "news_catalyst":
+        return {
+          dataLine: `Check ${data.ticker} events for ${today}`,
+          interpText: "Earnings, guidance revisions, analyst actions, or macro events. A known catalyst reduces edge — informed flow is harder to trade against."
+        };
+      case "macro_regime":
+        return {
+          dataLine: isUndetermined
+            ? "Check if volume reflects index rebalancing or event risk"
+            : `Check sector ETF and broad market regime for ${dirWord} support`,
+          interpText: isUndetermined
+            ? "Could elevated volume reflect index rebalancing, sector rotation, or event risk rather than a directional bet?"
+            : `Aligned macro context raises conviction; opposing macro lowers it. Check the sector ETF and broad market direction.`
+        };
+      default:
+        return { dataLine: "", interpText: passed === true ? "Confirmed" : passed === false ? "Not confirmed" : "Check required" };
+    }
+  }
+
+  // [id, label, passed, weight, source]
+  const rows: Array<[string, string, boolean | undefined, string, "auto" | "manual"]> = [
+    ["price_action",       "Price action aligned",           corr.price_action_aligned,        "Strong",      "auto"],
+    ["provider_alert",     "Provider alert confirmed",        corr.provider_alert_confirmed,     "Strong",      "manual"],
+    ["options_flow",       "Options flow aligned",            corr.options_flow_aligned,         "Strong",      "manual"],
+    ["premarket_regular",  "Pre-market + regular elevated",   corr.premarket_regular_elevated,   "Moderate",    "auto"],
+    ["news_catalyst",      "News catalyst present",           corr.news_catalyst_present,        "Contextual",  "manual"],
+    ["macro_regime",       "Macro regime supports",           corr.macro_regime_supports,        "Contextual",  "manual"],
   ];
 
   return (
@@ -277,39 +317,41 @@ export function CorroborationPanel({ data }: { data: UtaTickerResult }) {
         meta={`${strongCount} of 3 strong signals confirmed · Tier A needs ≥ 1`}
       />
       <p className="corr-intro">
-        <b>Auto</b> signals are computed from bar and print data.
-        <b> Manual</b> signals require an external check after each analysis.
         Confirming even one <b>Strong</b> item raises conviction and may qualify for Tier A.
+        <b> Auto</b> signals are computed from bar/print data. <b>Manual</b> signals require an external check.
       </p>
       {isUndetermined && (
         <p className="corr-gap corr-undetermined-note">
           <b>⚠ Volume anomaly — direction not established.</b>{" "}
           Signed pressure ({fmtNumber(Math.abs(Number(data.indicators?.C?.net_notional_pressure ?? 0)) * 100, 1)}%) is below the 60% directional threshold.
-          Focus corroboration on <em>confirming the scale of activity</em> (provider alerts, options volume, price reaction) rather than directional fit.
-          Watch for a catalyst that breaks the pressure imbalance.
+          Focus on confirming <em>scale</em> (provider alerts, options volume, price reaction), not direction.
         </p>
       )}
       <div className="corr-list">
-        {rows.map(([label, passed, weight, hint, source]) => {
-          const icon = passed === true ? "✓" : passed === false ? "✗" : "○";
-          const rowClass = passed === true ? "on" : passed === false ? "neg" : "off";
-          const hintText = passed === true
-            ? "Confirmed ✓"
+        {rows.map(([id, label, passed, weight, source]) => {
+          const isStrong = weight === "Strong";
+          const isModerate = weight === "Moderate";
+          const icon = passed === true ? "✓" : passed === false ? "✗" : isStrong ? "○" : "ℹ";
+          const iconColor = passed === true
+            ? "var(--buy)"
             : passed === false
-            ? `Not confirmed. ${hint}`
-            : source === "auto"
-            ? `Not computed — data lane may be unavailable. ${hint}`
-            : hint;
+            ? isStrong ? "var(--sell)" : "var(--ink-3)"
+            : isStrong ? "var(--warn)" : "var(--ink-3)";
+          const rowClass = isStrong
+            ? passed === true ? "strong-confirmed" : passed === false ? "strong-false" : "strong-missing"
+            : isModerate ? "corr-moderate" : "corr-contextual";
+          const { dataLine, interpText } = getCorrDataLine(id, passed);
           return (
-            <div className={`corr-row ${rowClass}`} key={label}>
-              <span className="corr-icon">{icon}</span>
+            <div className={`corr-row ${rowClass}`} key={id}>
+              <span className="corr-icon" style={{ color: iconColor }}>{icon}</span>
               <div className="corr-body">
                 <div className="corr-label-row">
                   <b>{label}</b>
                   <span className={`corr-weight corr-w-${weight.toLowerCase()}`}>{weight}</span>
                   <span className={`corr-source corr-src-${source}`}>{source}</span>
                 </div>
-                <small className="corr-hint">{hintText}</small>
+                {dataLine && <div className="corr-data-line">{dataLine}</div>}
+                <p className="corr-interp">{interpText}</p>
               </div>
             </div>
           );

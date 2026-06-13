@@ -3577,6 +3577,27 @@ body {
 /* corr-row.neg = computed negative (✗) */
 .corr-row.neg .corr-icon { color: var(--sell, #ef4444); }
 
+/* Corroboration row color states */
+.corr-row.strong-confirmed { border-left-color: var(--buy);  background: var(--buy-soft); }
+.corr-row.strong-missing   { border-left-color: var(--warn); background: var(--warn-bg); }
+.corr-row.strong-false     { border-left-color: var(--sell); background: var(--sell-soft); }
+.corr-row.corr-moderate    { border-left-color: transparent; }
+.corr-row.corr-contextual  { border-left-color: transparent; opacity: 0.85; }
+
+/* Data line (specific numbers for this ticker) */
+.corr-data-line {
+  font-size: 0.82rem;
+  font-weight: 600;
+  margin: 4px 0 2px;
+}
+
+/* Interpretation text (what it means) */
+.corr-interp {
+  font-size: 0.78rem;
+  color: var(--ink-3);
+  line-height: 1.45;
+}
+
 /* auto / manual source badge */
 .corr-source {
   font-size: 10px;
