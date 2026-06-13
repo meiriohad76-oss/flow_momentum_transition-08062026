@@ -259,7 +259,7 @@ export function CorroborationPanel({ data }: { data: UtaTickerResult }) {
           interpText: `A price move against the flow direction may indicate distribution (selling into strength) or a false signal. Watch for price to stall or reverse before treating this as a confirmed ${dirWord} setup.`
         };
         return {
-          dataLine: `Price ${chgStr} vs prior close — moves with ${dirWord} flow ✓`,
+          dataLine: `Price ${chgStr} vs prior close — moves WITH ${dirWord} flow ✓`,
           interpText: "Price and flow direction agree — a corroborating signal. Strongest when the price move preceded the volume spike."
         };
       }
@@ -331,7 +331,8 @@ export function CorroborationPanel({ data }: { data: UtaTickerResult }) {
         {rows.map(([id, label, passed, weight, source]) => {
           const isStrong = weight === "Strong";
           const isModerate = weight === "Moderate";
-          const icon = passed === true ? "✓" : passed === false ? "✗" : isStrong ? "○" : "ℹ";
+          const isContextual = weight === "Contextual";
+          const icon = isContextual ? "ℹ" : passed === true ? "✓" : passed === false ? "✗" : "○";
           const iconColor = passed === true
             ? "var(--buy)"
             : passed === false

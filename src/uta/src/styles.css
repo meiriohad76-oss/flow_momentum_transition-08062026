@@ -3588,14 +3588,14 @@ body {
 .corr-data-line {
   font-size: 0.82rem;
   font-weight: 600;
-  margin: 4px 0 2px;
+  margin-bottom: 2px;
 }
 
 /* Interpretation text (what it means) */
 .corr-interp {
   font-size: 0.78rem;
   color: var(--ink-3);
-  line-height: 1.45;
+  line-height: 1.4;
 }
 
 /* auto / manual source badge */
