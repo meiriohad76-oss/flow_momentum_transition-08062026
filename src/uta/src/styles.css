@@ -3355,14 +3355,23 @@ body {
   margin-top: 4px;
 }
 
-/* ── Cycle History ribbon timestamps ──────────────────────────────────── */
+/* ── Cycle History SVG + ribbon ───────────────────────────────────────── */
+.cyc-svg {
+  display: block;
+  padding: 0 var(--pad, 16px);
+  box-sizing: border-box;
+}
+
+/* Override old grid-based cyc-cell — flex:1 fills ribbon evenly */
 .cyc-cell {
+  flex: 1;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
   gap: 1px;
   height: 44px;
+  min-width: 0;
   border-radius: 5px;
   font-family: var(--font-mono);
   cursor: default;

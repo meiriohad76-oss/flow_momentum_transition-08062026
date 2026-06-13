@@ -22,80 +22,93 @@ function BlufFindings({ data }: { data: UtaTickerResult }) {
 
   type Status = "pass" | "warn" | "fail";
 
+  const dir = data.direction === "bullish" ? "bullish" : data.direction === "bearish" ? "bearish" : "undetermined";
+  const dirCap = dir === "bullish" ? "Buyer" : dir === "bearish" ? "Seller" : "Undetermined";
+  const dirFlow = dir === "bullish" ? "buy" : dir === "bearish" ? "sell" : "undetermined";
+
   const findings: Array<{ label: string; value: string; note: string; status: Status }> = [
     {
-      label: "Volume vs baseline",
+      label: "Trade volume",
       value: `${fmtNumber(volRatio, 2)}× (${volB >= 0 ? "+" : ""}${fmtNumber(volB, 2)}σ)`,
       note: volB >= 2.5
-        ? "Significantly elevated — strong unusual volume signal"
+        ? "Significantly more trades than usual — market is unusually active in this name"
         : volB >= 1.5
-        ? "Above review threshold — volume is notably elevated"
+        ? "Above typical — elevated trading activity vs own 20-session history"
         : volB >= 0.5
-        ? `Building — needs +${fmtNumber(1.5 - volB, 1)}σ more to reach review threshold`
-        : "Near or below session baseline — no volume signal",
+        ? "Modestly elevated — slightly more active than average, direction confirmed separately"
+        : "Quiet session — activity at or below normal. Direction found in flow composition, not volume.",
       status: volB >= 1.5 ? "pass" : volB >= 0.5 ? "warn" : "fail",
     },
     {
-      label: "Notional vs baseline",
+      label: "Dollar flow (notional)",
       value: `${fmtNumber(notR, 2)}× (${notB >= 0 ? "+" : ""}${fmtNumber(notB, 2)}σ)`,
       note: notB >= 2.5
-        ? "Significantly elevated — primary trigger met with high confidence"
+        ? "Major dollar flow — institutional-scale buying or selling is likely in session"
         : notB >= 1.5
-        ? "Review trigger met — notional dollar flow is elevated vs own history"
+        ? "Elevated dollar flow — unusual amount of money moving through this name"
         : notB >= 0.5
-        ? `Building — needs +${fmtNumber(1.5 - notB, 1)}σ to trigger review (threshold: 1.5σ)`
-        : "Normal range — no unusual notional flow vs own 20-session history",
+        ? `Dollar flow building toward unusual — needs +${fmtNumber(1.5 - notB, 1)}σ to confirm institutional scale`
+        : "Normal dollar flow — size of trades is in line with typical sessions. No big money detected.",
       status: notB >= 1.5 ? "pass" : notB >= 0.5 ? "warn" : "fail",
     },
     {
-      label: "Focus / block prints",
+      label: "Block / focus prints",
       value: `${focusCnt} print${focusCnt !== 1 ? "s" : ""}`,
       note: focusCnt >= 3
-        ? "Block activity confirmed — institutional-size trades present"
+        ? `${focusCnt} institutional-size trades confirmed — block buyers or sellers are active`
         : focusCnt > 0
-        ? `${focusCnt} large print${focusCnt !== 1 ? "s" : ""} found — below block threshold (≥3 prints)`
-        : "None above floor — no institutional-size prints in this session",
+        ? `${focusCnt} large print${focusCnt !== 1 ? "s" : ""} detected but below block threshold — early signal, not confirmed`
+        : "No single trade above the institutional floor — no confirmed block activity this session",
       status: focusCnt >= 3 ? "pass" : focusCnt > 0 ? "warn" : "fail",
     },
     {
-      label: "Signed pressure",
+      label: "Signed flow pressure",
       value: `${pressure >= 0 ? "+" : ""}${fmtNumber(pressure * 100, 1)}%`,
       note: Math.abs(pressure) >= 0.6
-        ? `Strong ${pressure > 0 ? "buy" : "sell"}-side — direction confirmed (threshold ≥60% met)`
+        ? `${Math.round(Math.abs(pressure) * 10)} of 10 tracked dollars are ${dirFlow}-directed — ${dir.toUpperCase()} directional edge confirmed`
         : Math.abs(pressure) >= 0.3
-        ? `Moderate ${pressure > 0 ? "buy" : "sell"}-side — needs ${fmtNumber((0.6 - Math.abs(pressure)) * 100, 0)}% more to cross 60% trigger`
-        : "Balanced — buy/sell flow is mixed, no directional edge established",
+        ? `Moderate ${dirFlow}-side tilt — buyers and sellers are active, ${dirFlow}s slightly ahead. Not yet a clear edge.`
+        : "Flow is balanced — no side dominates. Direction is ambiguous from signed flow alone.",
       status: Math.abs(pressure) >= 0.6 ? "pass" : Math.abs(pressure) >= 0.3 ? "warn" : "fail",
     },
     {
-      label: "Signing confidence",
+      label: "Direction confidence",
       value: fmtPct(conf),
       note: conf >= 0.7
-        ? "High confidence — direction signal is reliable"
+        ? `High — ${fmtPct(conf)} of prints were reliably assigned a side. Direction is trustworthy.`
         : conf >= 0.5
-        ? `Above 50% floor — direction is trustworthy (${fmtPct(conf)} of prints agree)`
-        : `Low — ${fmtPct(conf)} agreement, need ≥50% to trust direction (${fmtNumber((0.5 - conf) * 100, 0)}% short)`,
+        ? `Above floor — ${fmtPct(conf)} of prints signed. Direction is meaningful but not conclusive.`
+        : `Low — only ${fmtPct(conf)} of prints could be signed. Direction signal should not be trusted.`,
       status: conf >= 0.5 ? "pass" : "fail",
     },
   ];
 
-  // Client-side recommendation from actual data
+  // Client-side diagnosis — what the data says, what's missing, what to watch
   let rec = "";
   const ticker = data.ticker;
+  const analyzedPrints = (ta as unknown as Record<string, unknown>)?.activity?.analyzed_prints as number | undefined;
+  const baselineSessions = (ta as unknown as Record<string, unknown>)?.activity?.baseline_sessions as number | undefined;
+  const dataContext = analyzedPrints ? `${analyzedPrints} prints` : "live prints";
+  const histContext = baselineSessions ? `${baselineSessions}-session history` : "own history";
+
   if (tier === "D") {
     if (volRatio < 1.0 && notR < 1.0) {
-      rec = `${ticker} is quiet — volume (${fmtNumber(volRatio, 2)}×) and notional (${fmtNumber(notR, 2)}×) are both below the 20-session baseline. No unusual activity. No action warranted.`;
-    } else if (notB < 1.5 && Math.abs(pressure) < 0.3) {
-      rec = `${ticker} has some activity but hasn't crossed thresholds. Watch for notional B-score ≥ 1.5σ (now ${fmtNumber(notB, 1)}σ) or signed pressure ≥ 60% (now ${fmtNumber(Math.abs(pressure) * 100, 1)}%). Re-analyze on a catalyst.`;
+      rec = `${ticker} is quiet. Both trade count (${fmtNumber(volRatio, 2)}×) and dollar flow (${fmtNumber(notR, 2)}×) are below baseline — this is a slow session. The signed flow (${fmtNumber(Math.abs(pressure) * 100, 1)}%) hasn't reached the 60% directional threshold either. Nothing to act on. Re-analyze if volume spikes or a catalyst appears.`;
+    } else if (Math.abs(pressure) >= 0.6 && conf < 0.5) {
+      rec = `${ticker} shows ${dirFlow}-side pressure (${fmtNumber(Math.abs(pressure) * 100, 1)}%) but signing confidence is only ${fmtPct(conf)} — below the 50% reliability floor. The direction signal exists but cannot be trusted with this confidence level. Dollar flow is ${fmtNumber(notB, 1)}σ (needs 1.5σ). Re-analyze after more prints accumulate.`;
     } else {
-      rec = `${ticker} shows elevated components but cannot establish a directional edge. Signing confidence ${fmtPct(conf)} is ${conf >= 0.5 ? "above" : "below"} the 50% floor. Monitor and re-analyze.`;
+      rec = `${ticker} has some elevated components but hasn't met tier thresholds. Dollar flow B-score is ${fmtNumber(notB, 1)}σ (review trigger: 1.5σ, needs +${fmtNumber(Math.max(0, 1.5 - notB), 1)}σ). Signed pressure is ${fmtNumber(Math.abs(pressure) * 100, 1)}% (trigger: 60%). Both need to confirm together for a tier signal. Monitor and re-analyze.`;
     }
   } else if (tier === "C") {
-    rec = `Context-level signal. ${data.direction === "bullish" ? "Buy" : data.direction === "bearish" ? "Sell" : "Undetermined"}-side pressure at ${fmtNumber(Math.abs(pressure) * 100, 1)}% with ${fmtPct(conf)} signing confidence. Use as background context only — not a trade prompt without further corroboration.`;
+    const missing: string[] = [];
+    if (notB < 1.5) missing.push(`dollar flow (${fmtNumber(notB, 1)}σ, needs 1.5σ)`);
+    if (focusCnt === 0) missing.push("block prints (0 above floor)");
+    const missingStr = missing.length ? `Not confirmed: ${missing.join(" and ")}. ` : "";
+    rec = `${dirCap}-side edge confirmed from ${dataContext}: ${fmtNumber(Math.abs(pressure) * 100, 1)}% of tracked dollars are ${dirFlow}-directed (≥60% threshold met), with ${fmtPct(conf)} signing reliability. ${missingStr}This is a directional bias signal — the flow composition points ${dir}, but total dollar volume is not yet at unusual levels vs ${histContext}. Context-tier only: use as a directional lean, not a trade trigger.`;
   } else if (tier === "B") {
-    rec = `Review-level signal. ${data.direction === "bullish" ? "Buyer" : "Seller"}-side flow — notional ${fmtNumber(notB, 1)}σ above own history, ${fmtPct(conf)} signing confidence. Validate with options flow, news, and price action before acting.`;
+    rec = `Review-worthy signal. ${dirCap}-side: ${fmtNumber(Math.abs(pressure) * 100, 1)}% signed pressure (confirmed), dollar flow ${fmtNumber(notB, 1)}σ above ${histContext} (above 1.5σ trigger)${focusCnt > 0 ? `, ${focusCnt} focus print${focusCnt !== 1 ? "s" : ""} detected` : ", no block prints yet"}. ${fmtPct(conf)} signing confidence. Validate with options flow, price action, and a provider alert before acting. One strong corroboration would qualify for Tier A.`;
   } else if (tier === "A") {
-    rec = `Actionable signal. ${data.direction === "bullish" ? "Buyer" : "Seller"}-side flow at ${fmtNumber(Math.abs(pressure) * 100, 1)}% pressure, ${fmtPct(conf)} confidence, notional ${fmtNumber(notB, 1)}σ above history. Corroborate, check exposure limits, and follow execution protocol.`;
+    rec = `Actionable signal. ${dirCap}-side: ${fmtNumber(Math.abs(pressure) * 100, 1)}% pressure, ${fmtNumber(notB, 1)}σ dollar flow above ${histContext}, ${focusCnt} focus print${focusCnt !== 1 ? "s" : ""}. ${fmtPct(conf)} signing confidence. At least one independent corroboration confirmed. Check exposure limits, follow execution protocol, and set your stop before acting.`;
   }
 
   const STATUS_ICON: Record<Status, string> = { pass: "✓", warn: "!", fail: "✗" };

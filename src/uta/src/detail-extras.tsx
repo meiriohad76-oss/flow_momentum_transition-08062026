@@ -25,12 +25,13 @@ export function CycleHistory({
     );
   }
 
-  function tierHeight(tier: string): number {
+  /** Bar height fraction 0–1 per tier */
+  function tierFrac(tier: string): number {
     const t = String(tier || "D").toUpperCase();
-    if (t === "A") return 90;
-    if (t === "B") return 65;
-    if (t === "C") return 40;
-    return 15;
+    if (t === "A") return 0.88;
+    if (t === "B") return 0.62;
+    if (t === "C") return 0.38;
+    return 0.12;
   }
 
   function formatCycleTs(ts: string | undefined): string {
@@ -51,27 +52,51 @@ export function CycleHistory({
     }
   }
 
+  // SVG bar chart — avoids all CSS absolute-positioning conflicts
+  const SVG_H = 72;
+  const COLS = 12; // always render 12 slots so the scale is consistent
+  const COL_W = 10; // viewBox units per column
+  const SVG_W = COLS * COL_W;
+  const MID = SVG_H / 2;
+
   return (
     <section className="panel cyc">
-      <SectionHeader title="Cycle History" meta={`last ${rows.length} cycles · oldest → newest`} />
-      <div className="cyc-bars">
+      <SectionHeader title="Cycle History" meta={`last ${rows.length} cycle${rows.length !== 1 ? "s" : ""} · oldest → newest`} />
+
+      {/* SVG bar chart — fully geometry-controlled */}
+      <svg
+        className="cyc-svg"
+        viewBox={`0 0 ${SVG_W} ${SVG_H}`}
+        style={{ width: "100%", height: SVG_H, display: "block" }}
+        preserveAspectRatio="none"
+        aria-label="Cycle history"
+      >
+        {/* midline */}
+        <line x1={0} y1={MID} x2={SVG_W} y2={MID} stroke="var(--border-strong, #2a3540)" strokeWidth="0.6" />
+
         {rows.map((row, i) => {
+          const tier = String(row.tier || "D").toUpperCase();
           const isUp = row.direction === "bullish";
-          const heightPct = tierHeight(row.tier || "D");
-          const barStyle = isUp
-            ? { bottom: "50%", height: `${heightPct}%` }
-            : { top: "50%", height: `${heightPct}%` };
+          const isDown = row.direction === "bearish";
+          const frac = tierFrac(tier);
+          const maxH = MID - 3;
+          const barH = Math.max(2, frac * maxH);
+          const fill = isUp ? "var(--buy, #22c55e)" : isDown ? "var(--sell, #ef4444)" : "var(--ink-3)";
+          const opacity = tier === "D" ? 0.45 : 1;
+          // place in last `rows.length` slots (right-aligned in 12-slot grid)
+          const slot = COLS - rows.length + i;
+          const x = slot * COL_W + COL_W * 0.15;
+          const bW = COL_W * 0.70;
+          const y = isUp ? MID - barH : MID;
           return (
-            <div className="cyc-bar-col" key={i}>
-              <div
-                className={`cyc-bar ${isUp ? "up" : "dn"}`}
-                style={barStyle}
-                title={`${row.tier || "D"} · ${row.direction || "—"} · ${fmtDate(row.generated_at || row.created_at)}`}
-              />
-            </div>
+            <rect key={i} x={x} y={y} width={bW} height={barH} rx="1.5" fill={fill} opacity={opacity}>
+              <title>Tier {tier} · {row.direction || "—"} · {fmtDate(row.generated_at || row.created_at)}</title>
+            </rect>
           );
         })}
-      </div>
+      </svg>
+
+      {/* Ribbon: tier + direction + timestamp per cell */}
       <div className="cyc-ribbon">
         {rows.map((row, i) => {
           const tier = (row.tier || "D").toUpperCase();
