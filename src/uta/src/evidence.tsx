@@ -30,8 +30,7 @@ function BlufFindings({ data }: { data: UtaTickerResult }) {
   const signedPressure = Number(ta?.pressure?.net_signed_pressure ?? pressure);
   const priceChg = ta?.activity?.price_change_pct;
   const priceSide = priceChg != null ? (priceChg < -1 ? "bearish" : priceChg > 1 ? "bullish" : "flat") : null;
-  const flowSideDir = signedPressure >= 0 ? "bullish" : "bearish";
-  const diverging = priceSide != null && priceSide !== "flat" && priceSide !== flowSideDir && dir !== "undetermined";
+  const diverging = priceSide != null && priceSide !== "flat" && priceSide !== dir && dir !== "undetermined";
 
   const findings: Array<{ label: string; value: string; note: string; status: Status; diverge?: boolean }> = [
     {
@@ -86,7 +85,12 @@ function BlufFindings({ data }: { data: UtaTickerResult }) {
         const flowSide = signedPressure >= 0 ? "buy" : "sell";
         const priceSide = priceChg != null ? (priceChg < -1 ? "bearish" : priceChg > 1 ? "bullish" : "flat") : null;
         if (Math.abs(signedPressure) >= 0.6) {
-          return `Strong ${flowSide}-side pressure: ${netPct}% net of labeled trades go to ${flowSide}ers. ${dir.toUpperCase()} directional edge confirmed (threshold: ≥60% of labeled-only flow).`;
+          const confirmedNote = `Strong ${flowSide}-side pressure: ${netPct}% net of labeled trades go to ${flowSide}ers. ${dir.toUpperCase()} directional edge confirmed (threshold: ≥60% of labeled-only flow).`;
+          if (diverging && priceSide != null && priceSide !== "flat") {
+            const priceStr = priceChg != null ? ` (${priceChg > 0 ? "+" : ""}${fmtNumber(priceChg, 2)}% vs prior close)` : "";
+            return `${confirmedNote} ⚠ Price${priceStr} is moving against the confirmed ${dir} flow — possible distribution or false signal. Monitor for price reversal.`;
+          }
+          return confirmedNote;
         }
         const baseNote = `Of every $1 traded: ~${buyC}¢ labeled buyer-driven, ~${sellC}¢ labeled seller-driven, ~${unsC}¢ unknown direction. "Labeled" means the algorithm could determine who drove the trade (buyer lifting the ask vs. seller hitting the bid) using price-tick rules. The ${unsC}¢ unknown trades executed in dark pools or at mid-market prices where neither side can be identified. Net buyer excess among labeled trades: ${netPct}% — below the 60% threshold needed to call a direction.`;
         if (priceSide && priceSide !== "flat" && priceSide !== (signedPressure >= 0 ? "bullish" : "bearish")) {
@@ -203,10 +207,8 @@ export function BlufCard({ data, portfolioMode = false }: { data: UtaTickerResul
             <Pill tone="neutral">Direction confidence {fmtPct(data.signing_confidence)}</Pill>
             {analysis?.activity?.latest_close != null && (() => {
               const chg = analysis.activity.price_change_pct;
-              const sp = Number(analysis?.pressure?.net_signed_pressure ?? analysis?.pressure?.net_notional_pressure ?? 0);
               const pSide = chg != null ? (chg > 1 ? "bullish" : chg < -1 ? "bearish" : "flat") : null;
-              const fSide = sp >= 0 ? "bullish" : "bearish";
-              const pillDiverging = pSide != null && pSide !== "flat" && pSide !== fSide && data.direction !== "undetermined";
+              const pillDiverging = pSide != null && pSide !== "flat" && pSide !== data.direction && data.direction !== "undetermined";
               const tone = pillDiverging ? "warn" : chg == null ? "neutral" : chg > 0 ? "good" : chg < 0 ? "bad" : "neutral";
               const chgStr = chg != null ? ` (${chg > 0 ? "+" : ""}${fmtNumber(chg, 2)}%)` : "";
               const arrow = chg != null ? (chg > 0 ? " ↑" : " ↓") : "";
