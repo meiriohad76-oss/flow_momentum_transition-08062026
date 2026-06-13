@@ -78,10 +78,10 @@ function BlufFindings({ data }: { data: UtaTickerResult }) {
         if (Math.abs(pressure) >= 0.6) {
           return `Strong ${flowSide}-side pressure: net ${netPct}¢ per $1 goes to ${flowSide}ers after netting buy vs sell. ${dir.toUpperCase()} edge confirmed (threshold: ±60¢ net).`;
         }
-        const baseNote = `Of every $1 of total dollar flow: ~${buySigned}¢ clearly buy-signed, ~${sellSigned}¢ clearly sell-signed, ~${unsigned}¢ unclassified. Net ${flowSide}-side: ${netPct}¢ per $1. Directional edge needs ≥60¢ net — the ${unsigned}¢ unclassified portion is the unknown.`;
+        const baseNote = `Of every $1 traded: ~${buySigned}¢ labeled buyer-driven, ~${sellSigned}¢ labeled seller-driven, ~${unsigned}¢ unknown direction. "Labeled" means the algorithm could determine who drove the trade (buyer lifting the ask vs. seller hitting the bid) using price-tick rules. The ${unsigned}¢ unknown trades executed in dark pools or at mid-market prices where neither side can be identified. Net buyer excess: ${netPct}¢ per $1 — below the 60¢ threshold needed to call a direction.`;
         if (priceSide && priceSide !== "flat" && priceSide !== (pressure >= 0 ? "bullish" : "bearish")) {
           const priceStr = priceChg != null ? ` (${priceChg > 0 ? "+" : ""}${fmtNumber(priceChg, 2)}% vs prior close)` : "";
-          return `${baseNote} ⚠ Price${priceStr} contradicts the signed tilt — if the unclassified ${unsigned}¢ is sell-heavy, true net pressure would flip bearish. Direction is unreliable until more prints are classifiable.`;
+          return `${baseNote} ⚠ Price${priceStr} is moving against the labeled tilt — the ${unsigned}¢ unknown trades are likely what's driving the price. If those dark-pool and mid-market prints are sell-heavy, the real net pressure is bearish. Direction cannot be confirmed.`;
         }
         return baseNote;
       })(),
@@ -91,12 +91,12 @@ function BlufFindings({ data }: { data: UtaTickerResult }) {
       label: "Direction confidence",
       value: fmtPct(conf),
       note: dir === "undetermined"
-        ? `${fmtPct(conf)} of prints were tagged buy or sell — the other ${fmtPct(1 - conf)} couldn't be classified (mid-market prints, opaque venues, no tick reference). Signing quality meets the 50% floor, but signed pressure is only ${fmtNumber(Math.abs(pressure) * 100, 1)}% — below the 60% threshold. Volume anomaly confirmed; direction is NOT.`
+        ? `${fmtPct(conf)} of trades could be labeled buyer-driven or seller-driven — the other ${fmtPct(1 - conf)} traded in dark pools or at mid-market prices where direction can't be determined. Even with ${fmtPct(conf)} labeled, the net buyer/seller split is only ${fmtNumber(Math.abs(pressure) * 100, 1)}% — below the 60% needed to call a direction. Volume anomaly confirmed; direction is NOT.`
         : conf >= 0.7
-        ? `High — ${fmtPct(conf)} of prints reliably assigned a side. Direction signal is trustworthy.`
+        ? `High — ${fmtPct(conf)} of trades were labeled buyer- or seller-driven. Direction signal is trustworthy.`
         : conf >= 0.5
-        ? `${fmtPct(conf)} of prints signed — above the 50% reliability floor. Direction is meaningful. The other ${fmtPct(1 - conf)} couldn't be classified (mid-market / opaque venue prints).`
-        : `Low — only ${fmtPct(conf)} of prints could be signed. The remaining ${fmtPct(1 - conf)} are unclassified. Direction signal should not be trusted.`,
+        ? `${fmtPct(conf)} of trades labeled (above the 50% minimum). Direction is meaningful but not ideal — the other ${fmtPct(1 - conf)} traded in dark pools or at mid-market where buyer vs. seller can't be determined.`
+        : `Low — only ${fmtPct(conf)} of trades could be labeled. The remaining ${fmtPct(1 - conf)} have unknown direction (dark pools, mid-market). Direction signal should not be trusted.`,
       status: dir === "undetermined" ? (conf >= 0.5 ? "warn" : "fail") : (conf >= 0.5 ? "pass" : "fail"),
     },
   ];
