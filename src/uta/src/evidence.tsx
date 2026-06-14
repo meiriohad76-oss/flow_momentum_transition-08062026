@@ -541,6 +541,53 @@ function BlockOffExchangeBody({ data }: { data: UtaTickerResult }) {
   const pressureColor = pressure > 0 ? "var(--buy)" : "var(--sell)";
   const bFocusZ = Number(B.focus_notional_share_zscore ?? 0);
 
+  // Divergence: price moving against block flow direction
+  const priceChgBlock = ta?.activity?.price_change_pct;
+  const priceSideBlock = priceChgBlock != null
+    ? (priceChgBlock > 1 ? "bullish" : priceChgBlock < -1 ? "bearish" : "flat")
+    : null;
+  const divergingBlock = priceSideBlock != null
+    && priceSideBlock !== "flat"
+    && priceSideBlock !== data.direction
+    && data.direction !== "undetermined";
+
+  function buildWatchPoints(): string[] {
+    const points: string[] = [];
+    if (focusCount === 0) {
+      points.push(
+        `Monitor for the first block print above the ${floorLabel} floor — a single institutional-size trade would shift this to an early signal.`
+      );
+    } else if (focusCount === 1) {
+      points.push(
+        "Watch for a second block print to confirm direction. One print can be noise — two in the same direction is a pattern."
+      );
+      if (divergingBlock) {
+        points.push(
+          "Price is moving against the block flow — watch for price to stall or reverse before acting on this signal."
+        );
+      }
+    } else if (focusCount === 2) {
+      points.push(
+        "Block signal is building. Confirm direction aligns with options flow or a provider alert before sizing up."
+      );
+      if (Math.abs(pressure) >= 0.6) {
+        points.push(
+          `Directional read is ${data.direction} with ${fmtNumber(Math.abs(pressure) * 100, 1)}% signed pressure — wait for price to confirm.`
+        );
+      }
+    } else {
+      points.push(
+        `Block activity confirmed across ${focusCount} prints. Direction is ${data.direction}.`
+      );
+      if (Math.abs(pressure) >= 0.6) {
+        points.push(
+          `Signed pressure at ${fmtNumber(Math.abs(pressure) * 100, 1)}% confirms the ${data.direction} edge — check corroboration before acting.`
+        );
+      }
+    }
+    return points;
+  }
+
   return (
     <div className="ev-body-inner">
       {/* Hero metrics with inline sub-labels */}
@@ -591,6 +638,26 @@ function BlockOffExchangeBody({ data }: { data: UtaTickerResult }) {
           </span>
         </div>
       </div>
+
+        {/* What to watch next */}
+        <div className="block-watch">
+          <div className="block-watch-title">What to watch next</div>
+          <ul>
+            {buildWatchPoints().map((point, i) => (
+              <li key={i}>{point}</li>
+            ))}
+          </ul>
+        </div>
+
+        {/* Verification checklist — read-only reminder protocol */}
+        <div className="block-checklist">
+          <div className="bc-title">Checklist before acting</div>
+          <ul>
+            <li>Block direction aligns with signed flow pressure?</li>
+            <li>Price has confirmed the direction (within 1–2 sessions)?</li>
+            <li>At least one corroboration signal confirmed (provider alert, options flow, or price action)?</li>
+          </ul>
+        </div>
     </div>
   );
 }
