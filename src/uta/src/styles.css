@@ -2449,6 +2449,45 @@ body {
   letter-spacing: -0.01em;
 }
 
+/* Bidirectional pressure bar for Market Flow Trend panel */
+.pres-bar { margin: 4px 0 0; }
+.pres-bar-track {
+  position: relative;
+  height: 10px;
+  background: var(--panel-3);
+  border-radius: 5px;
+  overflow: hidden;
+}
+/* Hairline center divider */
+.pres-bar-track::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 0;
+  width: 1px;
+  height: 100%;
+  background: var(--border-strong);
+}
+.pres-bar-fill {
+  position: absolute;
+  top: 0;
+  height: 100%;
+  border-radius: 5px;
+}
+.pres-bar-labels {
+  display: flex;
+  justify-content: space-between;
+  font-size: 10px;
+  color: var(--ink-3);
+  margin-top: 5px;
+}
+.pres-interp {
+  font-size: 12.5px;
+  color: var(--ink-2);
+  line-height: 1.45;
+  margin: 10px 0 12px;
+}
+
 @media (max-width: 720px) {
   .ev-stat-row {
     grid-template-columns: 1fr;

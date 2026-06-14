@@ -1,7 +1,7 @@
 // src/uta/src/evidence.tsx
 import React, { useState } from "react";
 import { fmtMoney, fmtPct, fmtNumber, fmtDate } from "./utils.js";
-import { Icon, Pill, SectionHeader, MetricTile, TierBadge, DirTag, BandTag, IndicatorGrid, VolBars, volSeriesFromResult, PressureGauge, ConfBar, MixBar, Sparkline, type MixSegment } from "./components.js";
+import { Icon, Pill, SectionHeader, MetricTile, TierBadge, DirTag, BandTag, IndicatorGrid, VolBars, volSeriesFromResult, PressureGauge, ConfBar, MixBar, type MixSegment } from "./components.js";
 import type { UtaTickerResult, LaneState, EvidenceCard } from "./types.js";
 
 /** Data-driven findings panel — specific numbers, thresholds, recommendation. */
@@ -666,19 +666,64 @@ function MarketFlowTrendBody({ data }: { data: UtaTickerResult }) {
   const C = data.indicators.C;
   const netPressure = Number(C.net_notional_pressure ?? 0);
   const bScore = Number(B.notional_zscore ?? 0);
-  const syntheticValues = [0, netPressure * 0.4, netPressure * 0.7, netPressure * bScore * 0.3, netPressure];
-  const trend = netPressure > 0.1 ? "Building" : netPressure < -0.1 ? "Fading" : "Flat";
-  const trendColour = trend === "Building" ? "var(--buy)" : trend === "Fading" ? "var(--sell)" : undefined;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const analyzedPrints = (data.trade_analysis as any)?.activity?.analyzed_prints ?? "N/A";
+
+  // Pressure bar: track spans -100% to +100% (200% range).
+  // Fill extends from the center (50% of track width) left (sell) or right (buy).
+  // At |pressure| = 1.0 (100%), fill width = 50% of track = half the bar.
+  const fillPct = Math.min(Math.abs(netPressure) * 50, 50);
+  const fillColor = netPressure > 0 ? "var(--buy)" : netPressure < 0 ? "var(--sell)" : "var(--ink-3)";
+  const fillStyle: React.CSSProperties = netPressure >= 0
+    ? { left: "50%", width: `${fillPct}%`, background: fillColor }
+    : { right: "50%", width: `${fillPct}%`, background: fillColor };
+
+  // Plain-English interpretation sentence
+  const absPressure = Math.abs(netPressure);
+  const n = Math.round(absPressure * 10);
+  const side = netPressure > 0 ? "buyers" : "sellers";
+  const interpText = absPressure >= 0.6
+    ? `Strong ${netPressure > 0 ? "buy" : "sell"}-side edge — ${n} of every 10 labeled dollars flowed to ${side} this session.`
+    : absPressure >= 0.1
+    ? `Flow is tilted ${netPressure > 0 ? "buy" : "sell"}-side but below the 60% confirmation threshold.`
+    : "Buy and sell flow are roughly balanced — no directional edge in the flow composition.";
+
+  // B-score contextual detail
+  const bScoreDetail = Math.abs(bScore) >= 1.5
+    ? `${bScore > 0 ? "elevated" : "depressed"} vs own history`
+    : Math.abs(bScore) >= 0.5
+    ? "slightly off own baseline"
+    : "within normal range";
+
   return (
     <div className="ev-body-inner">
-      <div className="ev-trend-label" style={{ color: trendColour || "var(--ink-2)" }}>{trend}</div>
-      <Sparkline values={syntheticValues} baseline={0} colour={trendColour} height={56} />
+      <div className="pres-bar">
+        <div className="pres-bar-track">
+          <div className="pres-bar-fill" style={fillStyle} />
+        </div>
+        <div className="pres-bar-labels">
+          <span>Sell −100%</span>
+          <span>0</span>
+          <span>Buy +100%</span>
+        </div>
+      </div>
+      <p className="pres-interp">{interpText}</p>
       <div className="ev-stat-row">
-        <MetricTile label="Pressure delta" value={`${fmtNumber(netPressure * 100, 1)}%`} detail="net notional" />
-        <MetricTile label="B-score" value={`${fmtNumber(bScore, 2)}σ`} detail="notional z-score" />
-        <MetricTile label="Analyzed prints" value={analyzedPrints} detail="this session" />
+        <MetricTile
+          label="Net pressure"
+          value={`${netPressure >= 0 ? "+" : ""}${fmtNumber(netPressure * 100, 1)}%`}
+          detail="net of labeled trades"
+        />
+        <MetricTile
+          label="B-score"
+          value={`${fmtNumber(bScore, 2)}σ`}
+          detail={bScoreDetail}
+        />
+        <MetricTile
+          label="Prints analyzed"
+          value={String(analyzedPrints)}
+          detail="since market open"
+        />
       </div>
     </div>
   );
