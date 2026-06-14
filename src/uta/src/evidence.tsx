@@ -165,6 +165,12 @@ function BlufFindings({ data }: { data: UtaTickerResult }) {
   return (
     <div className="bluf-findings">
       <div className="bf-findings-label">Key findings</div>
+      {rec && (
+        <div className="bf-rec">
+          <span className="bf-rec-label">Recommendation</span>
+          <span className="bf-rec-text">{rec}</span>
+        </div>
+      )}
       <div className="bf-findings-list">
         {findings.map((f) => (
           <div key={f.label} className={`bf-row ${f.diverge ? "bf-diverge" : `bf-${f.status}`}`}>
@@ -175,27 +181,45 @@ function BlufFindings({ data }: { data: UtaTickerResult }) {
           </div>
         ))}
       </div>
-      {rec && (
-        <div className="bf-rec">
-          <span className="bf-rec-label">Recommendation</span>
-          <span className="bf-rec-text">{rec}</span>
-        </div>
-      )}
     </div>
   );
 }
 
 export function BlufCard({ data, portfolioMode = false }: { data: UtaTickerResult; portfolioMode?: boolean }) {
   const analysis = data.trade_analysis;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const bf = (analysis as any)?.block_flow ?? null;
+  const B = data.indicators.B;
+  const C = data.indicators.C;
+
   const rows = [
     ["What happened", data.bluf.what_happened],
     ["Why it matters", data.bluf.why_it_matters],
     ["What to check", data.bluf.what_to_check],
     ["Limitations", data.bluf.limitations]
   ];
+
+  // Tier band color — left border + tint on bluf-head
+  const tierStr = String(data.tier || "D").toUpperCase();
+  const tierBorderColor = tierStr === "A" ? "var(--buy)" : tierStr === "B" ? "var(--warn)" : "var(--ink-3)";
+  const tierBg = tierStr === "A" ? "var(--buy-soft)" : tierStr === "B" ? "var(--warn-bg)" : "transparent";
+
+  // Key stats for the stat row
+  const bV = Number(B.volume_zscore ?? 0);
+  const bN = Number(B.notional_zscore ?? 0);
+  const bestB = Math.max(bV, bN);
+  const signedPressure = Number(analysis?.pressure?.net_signed_pressure ?? C.net_notional_pressure ?? 0);
+  const focusCount = Number(bf?.focus_trade_count ?? C.focus_trade_count ?? 0);
+
+  const pressureColor = Math.abs(signedPressure) < 0.1
+    ? "var(--ink-3)"
+    : signedPressure > 0 ? "var(--buy)" : "var(--sell)";
+  const volColor = bestB >= 1.5 ? "var(--buy)" : bestB >= 0.5 ? "var(--warn)" : "var(--ink-3)";
+  const focusColor = focusCount >= 3 ? "var(--buy)" : focusCount >= 1 ? "var(--warn)" : "var(--ink-3)";
+
   return (
     <section className="panel card bluf bluf-card" data-ux-source="ux design/evidence.jsx:BlufCard">
-      <div className="bluf-head">
+      <div className="bluf-head" style={{ borderLeft: `4px solid ${tierBorderColor}`, background: tierBg }}>
         <TierBadge tier={data.tier} size="lg" />
         <div>
           <span className="crumb">{portfolioMode ? "Portfolio detail" : "Single ticker"} / BLUF</span>
@@ -218,6 +242,34 @@ export function BlufCard({ data, portfolioMode = false }: { data: UtaTickerResul
         </div>
         <div className="bluf-aside uplabel">BLUF · as of {fmtDate(data.generated_at)}</div>
       </div>
+
+      {/* Key stats row: verdict numbers before any text */}
+      <div className="bluf-stats-row">
+        <div className="bluf-stat-tile">
+          <span className="st-label">Signed pressure</span>
+          <span className="st-value" style={{ color: pressureColor }}>
+            {signedPressure >= 0 ? "+" : ""}{fmtNumber(signedPressure * 100, 1)}%
+          </span>
+          <span className="st-detail">
+            {signedPressure > 0 ? "buy-side" : signedPressure < 0 ? "sell-side" : "balanced"}
+          </span>
+        </div>
+        <div className="bluf-stat-tile">
+          <span className="st-label">Volume (σ)</span>
+          <span className="st-value" style={{ color: volColor }}>
+            {bestB >= 0 ? "+" : ""}{fmtNumber(bestB, 2)}σ
+          </span>
+          <span className="st-detail">vs own 20-session history</span>
+        </div>
+        <div className="bluf-stat-tile">
+          <span className="st-label">Focus prints</span>
+          <span className="st-value" style={{ color: focusColor }}>
+            {focusCount}
+          </span>
+          <span className="st-detail">{focusCount === 1 ? "print" : "prints"} above floor</span>
+        </div>
+      </div>
+
       <IndicatorGrid data={data} portfolioMode={portfolioMode} />
       <BlufFindings data={data} />
       <div className="bluf-grid">

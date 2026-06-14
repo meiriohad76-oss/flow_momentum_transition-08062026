@@ -3516,6 +3516,39 @@ body {
   line-height: 1.55;
 }
 
+/* BLUF key stats row — large colored numbers below the tier band */
+.bluf-stats-row {
+  display: flex;
+  gap: 0;
+  border-bottom: 1px solid var(--border);
+}
+.bluf-stat-tile {
+  display: flex;
+  flex-direction: column;
+  padding: 12px 20px;
+  border-right: 1px solid var(--border);
+  min-width: 120px;
+}
+.bluf-stat-tile:last-child { border-right: none; }
+.bluf-stat-tile .st-label {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--ink-3);
+  margin-bottom: 4px;
+}
+.bluf-stat-tile .st-value {
+  font-size: 24px;
+  font-weight: 700;
+  font-family: var(--font-mono);
+  line-height: 1;
+  margin-bottom: 4px;
+}
+.bluf-stat-tile .st-detail {
+  font-size: 11px;
+  color: var(--ink-3);
+}
+
 @media (max-width: 600px) {
   .bf-row {
     grid-template-columns: 18px minmax(0, 1fr) minmax(0, 6em);
