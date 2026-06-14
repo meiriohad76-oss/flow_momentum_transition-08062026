@@ -443,38 +443,101 @@ function BlockOffExchangeBody({ data }: { data: UtaTickerResult }) {
   const bf = ta?.block_flow;
   const C = data.indicators.C;
   const B = data.indicators.B;
+
   const trfShare = Number(bf?.trf_share ?? C.focus_notional_share ?? 0);
   const litShare = 1 - trfShare;
+  const focusCount = Number(bf?.focus_trade_count ?? C.focus_trade_count ?? 0);
+  const pressure = Number(C.net_notional_pressure ?? 0);
+
+  // Infer the institutional floor from largest_print_notional / largest_print_multiple.
+  // The backend computes largest_print_multiple = notional / floor; we reverse it here.
+  const inferredFloor: number | null =
+    bf?.largest_print_notional && bf?.largest_print_multiple
+      ? bf.largest_print_notional / bf.largest_print_multiple
+      : null;
+  const floorLabel = inferredFloor != null ? fmtMoney(inferredFloor) : "$500K";
+
+  // Venue split bar
   const venueMix: MixSegment[] = [
-    { label: "Off-exchange / focus", value: trfShare, colour: "var(--accent)" },
+    { label: "Off-exchange / TRF / dark pool", value: trfShare, colour: "var(--accent)" },
     { label: "Lit exchange", value: litShare, colour: "var(--border-strong)" }
   ];
+
+  // Narrative sentence
+  function buildNarrative(): string {
+    if (focusCount === 0) return "No institutional-size prints detected this session — monitor for block activity.";
+    const focusStr = bf?.focus_notional ? fmtMoney(bf.focus_notional) : `${focusCount} print${focusCount !== 1 ? "s" : ""}`;
+    const multipleStr = bf?.largest_print_multiple ? ` · ${fmtNumber(bf.largest_print_multiple, 1)}× the ${floorLabel} floor` : "";
+    const venueDesc = trfShare < 0.05
+      ? "entirely on lit exchanges"
+      : trfShare > 0.95
+      ? "entirely off-exchange (dark pool / TRF)"
+      : `${fmtNumber(trfShare * 100, 0)}% off-exchange, ${fmtNumber((1 - trfShare) * 100, 0)}% lit`;
+    const pressurePct = Math.abs(pressure) * 100;
+    const dirDesc = pressurePct >= 60
+      ? `The print${focusCount !== 1 ? "s were" : " was"} ${fmtNumber(pressurePct, 1)}% net ${pressure > 0 ? "buy" : "sell"}-directed`
+      : `Buy/sell split is too even to confirm direction (${pressure >= 0 ? "+" : ""}${fmtNumber(pressure * 100, 1)}%)`;
+    const watchLine = focusCount === 1
+      ? "With only 1 focus trade, the directional read is preliminary — watch for a second block print to confirm."
+      : focusCount === 2
+      ? "Two block prints detected — directional signal is building."
+      : `Block activity confirmed across ${focusCount} prints.`;
+    return `${focusCount} institutional-size print${focusCount !== 1 ? "s" : ""} (${focusStr}${multipleStr}) executed ${venueDesc}. ${dirDesc}. ${watchLine}`;
+  }
+
+  const pressureStr = `${pressure > 0 ? "+" : ""}${fmtNumber(pressure * 100, 1)}%`;
+  const pressureColor = pressure > 0 ? "var(--buy)" : "var(--sell)";
+  const bFocusZ = Number(B.focus_notional_share_zscore ?? 0);
+
   return (
     <div className="ev-body-inner">
+      {/* Hero metrics with inline sub-labels */}
       <div className="ev-block-hero">
         <div>
           <div className="uplabel">Focus notional</div>
-          <div className="mono ev-hero-val">{fmtMoney(bf?.focus_notional ?? C.focus_trade_count)}</div>
+          <div className="mono ev-hero-val">{fmtMoney(bf?.focus_notional ?? 0)}</div>
+          <div className="ev-hero-sub">{focusCount} print{focusCount !== 1 ? "s" : ""} above floor</div>
         </div>
         <div>
-          <div className="uplabel">Focus share</div>
+          <div className="uplabel">TRF / dark pool share</div>
           <div className="mono ev-hero-val">{fmtNumber(trfShare * 100, 0)}%</div>
+          <div className="ev-hero-sub">{trfShare < 0.05 ? "All lit exchange" : `${fmtNumber(trfShare * 100, 0)}% off-exchange`}</div>
         </div>
         <div>
           <div className="uplabel">Largest print</div>
-          <div className="mono ev-hero-val">{bf?.largest_print_multiple ? `${fmtNumber(bf.largest_print_multiple, 1)}×` : fmtMoney(bf?.largest_print_notional)}</div>
+          <div className="mono ev-hero-val">
+            {bf?.largest_print_multiple ? `${fmtNumber(bf.largest_print_multiple, 1)}×` : fmtMoney(bf?.largest_print_notional ?? 0)}
+          </div>
+          <div className="ev-hero-sub">the {floorLabel} floor</div>
         </div>
       </div>
+
+      {/* Narrative: ties all hero numbers together in plain English */}
+      <p className="ev-block-narrative">{buildNarrative()}</p>
+
+      {/* Venue split bar */}
       <div className="uplabel" style={{ marginBottom: 6 }}>Venue split (by notional)</div>
       <MixBar segments={venueMix} />
+
+      {/* KV rows with inline context */}
       <div className="ev-kv-list">
-        <div className="kv"><span className="k">Focus trade count</span><span className="v">{bf?.focus_trade_count ?? C.focus_trade_count ?? "—"}</span></div>
-        <div className="kv"><span className="k">Block directional pressure</span>
-          <span className="v" style={{ color: Number(C.net_notional_pressure) > 0 ? "var(--buy)" : "var(--sell)" }}>
-            {Number(C.net_notional_pressure ?? 0) > 0 ? "+" : ""}{fmtNumber(Number(C.net_notional_pressure ?? 0) * 100, 1)}%
+        <div className="kv">
+          <span className="k">Focus trade count</span>
+          <span className="v">{focusCount} print{focusCount !== 1 ? "s" : ""} above the {floorLabel} institutional floor</span>
+        </div>
+        <div className="kv">
+          <span className="k">Block directional pressure</span>
+          <span className="v" style={{ color: pressureColor }}>
+            {pressureStr} ({focusCount} focus print{focusCount !== 1 ? "s" : ""}, signed {pressure > 0 ? "buy" : "sell"})
           </span>
         </div>
-        <div className="kv"><span className="k">B-score (focus share)</span><span className="v">{fmtNumber(B.focus_notional_share_zscore, 2)}σ</span></div>
+        <div className="kv">
+          <span className="k">B-score (focus share)</span>
+          <span className="v">
+            {fmtNumber(B.focus_notional_share_zscore, 2)}σ — focus share is{" "}
+            {Math.abs(bFocusZ) >= 1.5 ? "elevated" : "normal"} vs 20-session history
+          </span>
+        </div>
       </div>
     </div>
   );

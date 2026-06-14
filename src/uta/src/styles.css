@@ -3240,6 +3240,25 @@ body {
   margin-top: 2px;
 }
 
+/* Sub-label under each hero metric in the block panel */
+.ev-hero-sub {
+  font-size: 11px;
+  color: var(--ink-3);
+  margin-top: 3px;
+  line-height: 1.3;
+}
+
+.ev-block-narrative {
+  font-size: 12.5px;
+  color: var(--ink-2);
+  line-height: 1.5;
+  margin: 10px 0 12px;
+  padding: 8px 10px;
+  background: var(--panel-3);
+  border-radius: var(--radius-sm);
+  border-left: 3px solid var(--border-strong);
+}
+
 /* Directional pressure gauge axis labels */
 .ev-gauge-labels {
   display: flex;
