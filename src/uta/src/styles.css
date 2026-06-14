@@ -2443,12 +2443,6 @@ body {
   margin: 0;
 }
 
-.ev-trend-label {
-  font-size: 20px;
-  font-weight: 700;
-  letter-spacing: -0.01em;
-}
-
 /* Bidirectional pressure bar for Market Flow Trend panel */
 .pres-bar { margin: 4px 0 0; }
 .pres-bar-track {

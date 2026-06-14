@@ -683,7 +683,7 @@ function MarketFlowTrendBody({ data }: { data: UtaTickerResult }) {
   const n = Math.round(absPressure * 10);
   const side = netPressure > 0 ? "buyers" : "sellers";
   const interpText = absPressure >= 0.6
-    ? `Strong ${netPressure > 0 ? "buy" : "sell"}-side edge — ${n} of every 10 labeled dollars flowed to ${side} this session.`
+    ? `Strong ${netPressure > 0 ? "buy" : "sell"}-side edge — ${n} of every 10 total dollars was net ${netPressure > 0 ? "buy" : "sell"}-side this session.`
     : absPressure >= 0.1
     ? `Flow is tilted ${netPressure > 0 ? "buy" : "sell"}-side but below the 60% confirmation threshold.`
     : "Buy and sell flow are roughly balanced — no directional edge in the flow composition.";
