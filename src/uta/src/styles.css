@@ -895,8 +895,7 @@ td {
   color: var(--muted);
 }
 
-.criteria.pass > b,
-.corr-row.on > span {
+.criteria.pass > b {
   background: var(--green-bg);
   color: var(--green);
 }
@@ -3541,10 +3540,7 @@ body {
   color: var(--ink-3);
 }
 
-.corr-row.on .corr-icon {
-  background: var(--green-bg, color-mix(in srgb, var(--buy, #22c55e) 15%, transparent));
-  color: var(--buy, #22c55e);
-}
+
 
 .corr-body {
   display: flex;
@@ -3573,9 +3569,6 @@ body {
 .corr-w-strong    { background: color-mix(in srgb, var(--buy, #22c55e) 12%, transparent); color: var(--buy, #22c55e); }
 .corr-w-moderate  { background: color-mix(in srgb, var(--accent) 12%, transparent); color: var(--accent); }
 .corr-w-contextual { background: var(--panel-3); color: var(--ink-3); }
-
-/* corr-row.neg = computed negative (✗) */
-.corr-row.neg .corr-icon { color: var(--sell, #ef4444); }
 
 /* Corroboration row color states */
 .corr-row.strong-confirmed { border-left-color: var(--buy);  background: var(--buy-soft); }
@@ -3609,18 +3602,6 @@ body {
 }
 .corr-src-auto   { background: color-mix(in srgb, var(--accent) 10%, transparent); color: var(--accent); }
 .corr-src-manual { background: var(--panel-3); color: var(--ink-3); }
-
-.corr-hint {
-  display: block;
-  font-size: 12px;
-  color: var(--ink-3);
-  line-height: 1.45;
-}
-
-.corr-row.on .corr-hint {
-  color: var(--buy, #22c55e);
-  font-weight: 500;
-}
 
 .corr-gap {
   margin: 10px 0 0;

@@ -83,7 +83,6 @@ function BlufFindings({ data }: { data: UtaTickerResult }) {
         const netPct = Math.round(Math.abs(signedPressure) * 100);
         const priceChg = ta?.activity?.price_change_pct;
         const flowSide = signedPressure >= 0 ? "buy" : "sell";
-        const priceSide = priceChg != null ? (priceChg < -1 ? "bearish" : priceChg > 1 ? "bullish" : "flat") : null;
         if (Math.abs(signedPressure) >= 0.6) {
           const confirmedNote = `Strong ${flowSide}-side pressure: ${netPct}% net of labeled trades go to ${flowSide}ers. ${dir.toUpperCase()} directional edge confirmed (threshold: ≥60% of labeled-only flow).`;
           if (diverging && priceSide != null && priceSide !== "flat") {
