@@ -551,6 +551,57 @@ function BlockOffExchangeBody({ data }: { data: UtaTickerResult }) {
     && priceSideBlock !== data.direction
     && data.direction !== "undetermined";
 
+  const PRINT_TIP = "A print is a single trade execution recorded to the tape. A focus print is a trade whose notional value exceeds the institutional floor.";
+  const P = (s: string) => <abbr title={PRINT_TIP}>{s}</abbr>;
+
+  function buildVerdict(): { headline: string; clause: React.ReactNode; subLine: string | null; color: string; bg: string } {
+    const dir = data.direction === "bullish" ? "bullish" : data.direction === "bearish" ? "bearish" : "undetermined";
+    const dirLabel = dir !== "undetermined" ? `${dir} ` : "";
+    const pressurePct = fmtNumber(Math.abs(pressure) * 100, 1);
+    const buySell = pressure > 0 ? "buy" : "sell";
+    const subLine = divergingBlock ? "⚠ Price is moving against the block flow direction" : null;
+
+    if (focusCount === 0) {
+      return {
+        headline: "Monitoring",
+        clause: <>No institutional-size {P("prints")} above the {floorLabel} floor yet</>,
+        subLine: null,
+        color: "var(--ink-3)",
+        bg: "transparent",
+      };
+    }
+
+    if (focusCount === 1) {
+      const clause = Math.abs(pressure) >= 0.6
+        ? <>{`1 ${dirLabel}block `}{P("print")}{` · ${pressurePct}% ${buySell}-directed — needs a second `}{P("print")}{` to confirm`}</>
+        : <>{`1 block `}{P("print")}{` above floor · direction unclear (flow split too even)`}</>;
+      return { headline: "Early Signal", clause, subLine, color: "var(--warn)", bg: "var(--warn-bg)" };
+    }
+
+    if (focusCount === 2) {
+      const pressureNote = Math.abs(pressure) >= 0.6 ? `${pressurePct}% signed pressure` : "direction split too even";
+      return {
+        headline: "Building",
+        clause: <>{`${focusCount} ${dirLabel}block `}{P("prints")}{` · ${pressureNote} — pattern emerging`}</>,
+        subLine,
+        color: "var(--warn)",
+        bg: "var(--warn-bg)",
+      };
+    }
+
+    // 3+ prints
+    const strong = Math.abs(pressure) >= 0.6;
+    return {
+      headline: strong ? "Confirmed" : "Active",
+      clause: strong
+        ? <>{`${focusCount} institutional `}{P("prints")}{` · ${pressurePct}% ${dirLabel}directed block signal`}</>
+        : <>{`${focusCount} block `}{P("prints")}{` · direction unclear — flow too balanced`}</>,
+      subLine,
+      color: strong ? "var(--buy)" : "var(--warn)",
+      bg: strong ? "var(--buy-soft)" : "var(--warn-bg)",
+    };
+  }
+
   function buildWatchPoints(): string[] {
     const points: string[] = [];
     if (focusCount === 0) {
@@ -590,6 +641,17 @@ function BlockOffExchangeBody({ data }: { data: UtaTickerResult }) {
 
   return (
     <div className="ev-body-inner">
+      {/* Verdict banner — top-line "so what?" before any metrics */}
+      {(() => {
+        const { headline, clause, subLine, color, bg } = buildVerdict();
+        return (
+          <div className="block-verdict" style={{ borderLeftColor: color, background: bg }}>
+            <span className="block-verdict-headline" style={{ color }}>{headline}</span>
+            <span className="block-verdict-clause">{clause}</span>
+            {subLine && <span className="block-verdict-sub">{subLine}</span>}
+          </div>
+        );
+      })()}
       {/* Hero metrics with inline sub-labels */}
       <div className="ev-block-hero">
         <div>
