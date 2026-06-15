@@ -1372,6 +1372,7 @@ async function fetchMassiveLiveInputs(config = {}, ticker = "AVGO") {
   const bars = [...(barsPayload?.results || [])]
     .map((bar) => ({
       date: normalizeMassiveTimestamp(bar.t)?.slice(0, 10),
+      open: Number(bar.o || 0),   // session open — used for intraday_change_pct
       volume: Number(bar.v || 0),
       close: Number(bar.c),
       notional: Number(bar.v || 0) * Number(bar.vw || bar.c || 0),
@@ -1700,6 +1701,17 @@ function buildTradeAnalysis({ ticker, classifier, indicators, signing, blocks, b
         const prev = Number(prevBar?.close || 0);
         if (!Number.isFinite(prev) || prev <= 0 || !Number.isFinite(latestClose) || latestClose <= 0) return null;
         return roundNumber(((latestClose - prev) / prev) * 100, 2);
+      })(),
+      // open_price and intraday_change_pct use today's session open so divergence detection
+      // is not distorted by the overnight gap (price_change_pct is vs prior close).
+      open_price: (() => {
+        const o = Number(latestBar?.open || 0);
+        return Number.isFinite(o) && o > 0 ? roundNumber(o, 2) : null;
+      })(),
+      intraday_change_pct: (() => {
+        const o = Number(latestBar?.open || 0);
+        if (!Number.isFinite(o) || o <= 0 || !Number.isFinite(latestClose) || latestClose <= 0) return null;
+        return roundNumber(((latestClose - o) / o) * 100, 2);
       })(),
       volume_ratio: roundNumber(volumeRatio, 3),
       notional_ratio: roundNumber(notionalRatio, 3),

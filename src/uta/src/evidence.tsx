@@ -28,7 +28,9 @@ function BlufFindings({ data }: { data: UtaTickerResult }) {
 
   // Detect flow/price divergence for the "Signed flow pressure" finding
   const signedPressure = Number(ta?.pressure?.net_signed_pressure ?? pressure);
-  const priceChg = ta?.activity?.price_change_pct;
+  // Prefer intraday change (current vs today's open) — removes overnight gap noise from divergence detection.
+  const priceChg = ta?.activity?.intraday_change_pct ?? ta?.activity?.price_change_pct;
+  const priceChgContext = ta?.activity?.intraday_change_pct != null ? "intraday" : "vs prior close";
   const priceSide = priceChg != null ? (priceChg < -1 ? "bearish" : priceChg > 1 ? "bullish" : "flat") : null;
   const diverging = priceSide != null && priceSide !== "flat" && priceSide !== dir && dir !== "undetermined";
 
@@ -84,19 +86,20 @@ function BlufFindings({ data }: { data: UtaTickerResult }) {
         // net_signed_pressure = (buy$ - sell$) / (buy$ + sell$) — signed-only, no unknown dilution
         const signedPressure = Number(bp?.net_signed_pressure ?? pressure);
         const netPct = Math.round(Math.abs(signedPressure) * 100);
-        const priceChg = ta?.activity?.price_change_pct;
+        const noteChg = ta?.activity?.intraday_change_pct ?? ta?.activity?.price_change_pct;
+        const noteChgCtx = ta?.activity?.intraday_change_pct != null ? "intraday" : "vs prior close";
         const flowSide = signedPressure >= 0 ? "buy" : "sell";
         if (Math.abs(signedPressure) >= 0.6) {
           const confirmedNote = `Strong ${flowSide}-side pressure: ${netPct}% net of labeled trades go to ${flowSide}ers. ${dir.toUpperCase()} directional edge confirmed (threshold: ≥60% of labeled-only flow).`;
           if (diverging && priceSide != null && priceSide !== "flat") {
-            const priceStr = priceChg != null ? ` (${priceChg > 0 ? "+" : ""}${fmtNumber(priceChg, 2)}% vs prior close)` : "";
+            const priceStr = noteChg != null ? ` (${noteChg > 0 ? "+" : ""}${fmtNumber(noteChg, 2)}% ${noteChgCtx})` : "";
             return `${confirmedNote} ⚠ Price${priceStr} is moving against the confirmed ${dir} flow — possible distribution or false signal. Monitor for price reversal.`;
           }
           return confirmedNote;
         }
         const baseNote = `Of every $1 traded: ~${buyC}¢ labeled buyer-driven, ~${sellC}¢ labeled seller-driven, ~${unsC}¢ unknown direction. "Labeled" means the algorithm could determine who drove the trade (buyer lifting the ask vs. seller hitting the bid) using price-tick rules. The ${unsC}¢ unknown trades executed in dark pools or at mid-market prices where neither side can be identified. Net buyer excess among labeled trades: ${netPct}% — below the 60% threshold needed to call a direction.`;
         if (priceSide && priceSide !== "flat" && priceSide !== (signedPressure >= 0 ? "bullish" : "bearish")) {
-          const priceStr = priceChg != null ? ` (${priceChg > 0 ? "+" : ""}${fmtNumber(priceChg, 2)}% vs prior close)` : "";
+          const priceStr = noteChg != null ? ` (${noteChg > 0 ? "+" : ""}${fmtNumber(noteChg, 2)}% ${noteChgCtx})` : "";
           return `${baseNote} ⚠ Price${priceStr} is moving against the labeled tilt — the ${unsC}¢ unknown trades are likely what's driving the price. If those dark-pool and mid-market prints are sell-heavy, the real net pressure is bearish. Direction cannot be confirmed.`;
         }
         return baseNote;
@@ -147,7 +150,7 @@ function BlufFindings({ data }: { data: UtaTickerResult }) {
       // B-score triggered Tier C, but signed pressure < 60% — volume anomaly without directional confirmation
       const peakB = Math.max(volB, notB);
       const lastClose = ta?.activity?.latest_close;
-      const priceChgPct = ta?.activity?.price_change_pct;
+      const priceChgPct = ta?.activity?.intraday_change_pct ?? ta?.activity?.price_change_pct;
       const priceNote = (() => {
         if (lastClose == null) return "";
         const priceStr = `$${fmtNumber(lastClose, 2)}`;
@@ -234,14 +237,18 @@ export function BlufCard({ data, portfolioMode = false }: { data: UtaTickerResul
             <BandTag band={analysis?.anomaly_band} />
             <Pill tone="neutral">Direction confidence {fmtPct(data.signing_confidence)}</Pill>
             {analysis?.activity?.latest_close != null && (() => {
-              const chg = analysis.activity.price_change_pct;
+              // Prefer intraday change (vs today's open) — overnight gap distorts the vs-prior-close number.
+              const intradayChg = analysis.activity.intraday_change_pct;
+              const chg = intradayChg ?? analysis.activity.price_change_pct;
+              const chgCtx = intradayChg != null ? "intraday" : "vs prior close";
+              const priceLabel = intradayChg != null ? "Current" : "Last close";
               const pSide = chg != null ? (chg > 1 ? "bullish" : chg < -1 ? "bearish" : "flat") : null;
               const pillDiverging = pSide != null && pSide !== "flat" && pSide !== data.direction && data.direction !== "undetermined";
               const tone = pillDiverging ? "warn" : chg == null ? "neutral" : chg > 0 ? "good" : chg < 0 ? "bad" : "neutral";
-              const chgStr = chg != null ? ` (${chg > 0 ? "+" : ""}${fmtNumber(chg, 2)}%)` : "";
+              const chgStr = chg != null ? ` (${chg > 0 ? "+" : ""}${fmtNumber(chg, 2)}% ${chgCtx})` : "";
               const arrow = chg != null ? (chg > 0 ? " ↑" : " ↓") : "";
               const suffix = pillDiverging ? `${arrow} — diverges from flow ⚠` : "";
-              return <Pill tone={tone}>Last close ${fmtNumber(analysis.activity.latest_close, 2)}{chgStr}{suffix}</Pill>;
+              return <Pill tone={tone}>{priceLabel} ${fmtNumber(analysis.activity.latest_close, 2)}{chgStr}{suffix}</Pill>;
             })()}
           </div>
         </div>
@@ -298,7 +305,8 @@ export function CorroborationPanel({ data }: { data: UtaTickerResult }) {
 
   // Rows: [label, value, weight, hint-when-unconfirmed, source]
   // source: "auto" = backend computes from bar/print data | "manual" = requires external check
-  const priceChg = data.trade_analysis?.activity?.price_change_pct;
+  // Prefer intraday change (vs today's open) to avoid overnight gap distorting corroboration logic.
+  const priceChg = data.trade_analysis?.activity?.intraday_change_pct ?? data.trade_analysis?.activity?.price_change_pct;
 
   function getCorrDataLine(id: string, passed: boolean | undefined): { dataLine: string; interpText: string } {
     const today = new Date().toLocaleDateString("en-US", { month: "short", day: "numeric" });
@@ -546,7 +554,7 @@ function BlockOffExchangeBody({ data }: { data: UtaTickerResult }) {
   const bFocusZ = B.focus_notional_share_zscore != null ? Number(B.focus_notional_share_zscore) : null;
 
   // Divergence: price moving against block flow direction
-  const priceChgBlock = ta?.activity?.price_change_pct;
+  const priceChgBlock = ta?.activity?.intraday_change_pct ?? ta?.activity?.price_change_pct;
   const priceSideBlock = priceChgBlock != null
     ? (priceChgBlock > 1 ? "bullish" : priceChgBlock < -1 ? "bearish" : "flat")
     : null;
