@@ -75,9 +75,12 @@ function BlufFindings({ data }: { data: UtaTickerResult }) {
         // Fall back to approximation via conf + total pressure for older backend versions.
         const bp = ta?.pressure;
         const totalN = bp?.buy_notional != null ? (bp.buy_notional + bp.sell_notional + (bp.unsigned_notional ?? 0)) : null;
-        const buyC  = totalN && totalN > 0 ? Math.round((bp.buy_notional      / totalN) * 100) : Math.round(((conf + pressure) / 2) * 100);
-        const sellC = totalN && totalN > 0 ? Math.round((bp.sell_notional     / totalN) * 100) : Math.round(((conf - pressure) / 2) * 100);
-        const unsC  = totalN && totalN > 0 ? Math.round(((bp.unsigned_notional ?? 0) / totalN) * 100) : Math.round((1 - conf) * 100);
+        // Clamp fallback values to 0 so old-backend negatives don't produce nonsensical "~−10¢" text.
+        const buyFallback  = Math.max(0, Math.round(((conf + pressure) / 2) * 100));
+        const sellFallback = Math.max(0, Math.round(((conf - pressure) / 2) * 100));
+        const buyC  = totalN && totalN > 0 ? Math.round((bp.buy_notional      / totalN) * 100) : buyFallback;
+        const sellC = totalN && totalN > 0 ? Math.round((bp.sell_notional     / totalN) * 100) : sellFallback;
+        const unsC  = totalN && totalN > 0 ? Math.round(((bp.unsigned_notional ?? 0) / totalN) * 100) : 100 - buyFallback - sellFallback;
         // net_signed_pressure = (buy$ - sell$) / (buy$ + sell$) — signed-only, no unknown dilution
         const signedPressure = Number(bp?.net_signed_pressure ?? pressure);
         const netPct = Math.round(Math.abs(signedPressure) * 100);
@@ -98,7 +101,8 @@ function BlufFindings({ data }: { data: UtaTickerResult }) {
         }
         return baseNote;
       })(),
-      status: Math.abs(pressure) >= 0.6 ? "pass" : Math.abs(pressure) >= 0.3 ? "warn" : "fail",
+      // Drive status from the same signedPressure field as the note text (avoids badge/note contradiction).
+      status: Math.abs(signedPressure) >= 0.6 ? "pass" : Math.abs(signedPressure) >= 0.3 ? "warn" : "fail",
       diverge: diverging,
     },
     {
@@ -214,7 +218,8 @@ export function BlufCard({ data, portfolioMode = false }: { data: UtaTickerResul
   const pressureColor = Math.abs(signedPressure) < 0.1
     ? "var(--ink-3)"
     : signedPressure > 0 ? "var(--buy)" : "var(--sell)";
-  const volColor = bestB >= 1.5 ? "var(--buy)" : bestB >= 0.5 ? "var(--warn)" : "var(--ink-3)";
+  // Negative B-scores are anomalously quiet — mirror the positive thresholds on the sell side.
+  const volColor = bestB >= 1.5 ? "var(--buy)" : bestB >= 0.5 ? "var(--warn)" : bestB <= -1.5 ? "var(--sell)" : bestB <= -0.5 ? "var(--warn)" : "var(--ink-3)";
   const focusColor = focusCount >= 3 ? "var(--buy)" : focusCount >= 1 ? "var(--warn)" : "var(--ink-3)";
 
   return (
@@ -503,8 +508,9 @@ function BlockOffExchangeBody({ data }: { data: UtaTickerResult }) {
 
   // Infer the institutional floor from largest_print_notional / largest_print_multiple.
   // The backend computes largest_print_multiple = notional / floor; we reverse it here.
+  // Guard against near-zero multiples (< 0.1) which would produce absurd floor values from data bugs.
   const inferredFloor: number | null =
-    bf?.largest_print_notional && bf?.largest_print_multiple
+    bf?.largest_print_notional && bf?.largest_print_multiple && bf.largest_print_multiple > 0.1
       ? bf.largest_print_notional / bf.largest_print_multiple
       : null;
   const floorLabel = inferredFloor != null ? fmtMoney(inferredFloor) : "$500K";
@@ -529,17 +535,15 @@ function BlockOffExchangeBody({ data }: { data: UtaTickerResult }) {
     const dirDesc = pressurePct >= 60
       ? `The print${focusCount !== 1 ? "s were" : " was"} ${fmtNumber(pressurePct, 1)}% net ${pressure > 0 ? "buy" : "sell"}-directed`
       : `Buy/sell split is too even to confirm direction (${pressure >= 0 ? "+" : ""}${fmtNumber(pressure * 100, 1)}%)`;
-    const watchLine = focusCount === 1
-      ? "With only 1 focus trade, the directional read is preliminary — watch for a second block print to confirm."
-      : focusCount === 2
-      ? "Two block prints detected — directional signal is building."
-      : `Block activity confirmed across ${focusCount} prints.`;
-    return `${focusCount} institutional-size print${focusCount !== 1 ? "s" : ""} (${focusStr}${multipleStr}) executed ${venueDesc}. ${dirDesc}. ${watchLine}`;
+    // "What to watch" guidance lives in buildWatchPoints() — don't duplicate it in the narrative.
+    return `${focusCount} institutional-size print${focusCount !== 1 ? "s" : ""} (${focusStr}${multipleStr}) executed ${venueDesc}. ${dirDesc}.`;
   }
 
   const pressureStr = `${pressure > 0 ? "+" : ""}${fmtNumber(pressure * 100, 1)}%`;
-  const pressureColor = pressure > 0 ? "var(--buy)" : "var(--sell)";
-  const bFocusZ = Number(B.focus_notional_share_zscore ?? 0);
+  // Neutral branch prevents zero/null pressure from rendering as a false red "sell".
+  const pressureColor = pressure > 0 ? "var(--buy)" : pressure < 0 ? "var(--sell)" : "var(--ink-3)";
+  // Keep null distinct from 0 so we can render "N/A" instead of "0.00σ — normal" when data is absent.
+  const bFocusZ = B.focus_notional_share_zscore != null ? Number(B.focus_notional_share_zscore) : null;
 
   // Divergence: price moving against block flow direction
   const priceChgBlock = ta?.activity?.price_change_pct;
@@ -689,14 +693,16 @@ function BlockOffExchangeBody({ data }: { data: UtaTickerResult }) {
         <div className="kv">
           <span className="k">Block directional pressure</span>
           <span className="v" style={{ color: pressureColor }}>
-            {pressureStr} ({focusCount} focus print{focusCount !== 1 ? "s" : ""}, signed {pressure > 0 ? "buy" : "sell"})
+            {pressureStr} ({focusCount} focus print{focusCount !== 1 ? "s" : ""}, signed {pressure > 0 ? "buy" : pressure < 0 ? "sell" : "neutral"})
           </span>
         </div>
         <div className="kv">
           <span className="k">B-score (focus share)</span>
           <span className="v">
-            {fmtNumber(B.focus_notional_share_zscore, 2)}σ — focus share is{" "}
-            {Math.abs(bFocusZ) >= 1.5 ? "elevated" : "normal"} vs 20-session history
+            {bFocusZ != null
+              ? <>{fmtNumber(bFocusZ, 2)}σ — focus share is {Math.abs(bFocusZ) >= 1.5 ? "elevated" : "normal"} vs 20-session history</>
+              : "N/A — focus share data unavailable"
+            }
           </span>
         </div>
       </div>
@@ -794,6 +800,10 @@ function MarketFlowTrendBody({ data }: { data: UtaTickerResult }) {
   const B = data.indicators.B;
   const C = data.indicators.C;
   const netPressure = Number(C.net_notional_pressure ?? 0);
+  // Use net_signed_pressure (labeled trades only) for the "N of 10 dollars" sentence — it's the
+  // correct field for "what fraction of *labeled* flow went buy-side", not the net-excess fraction.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const signedPressure = Number((data.trade_analysis as any)?.pressure?.net_signed_pressure ?? C.net_notional_pressure ?? 0);
   const bScore = Number(B.notional_zscore ?? 0);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const analyzedPrints = (data.trade_analysis as any)?.activity?.analyzed_prints ?? "N/A";
@@ -809,8 +819,8 @@ function MarketFlowTrendBody({ data }: { data: UtaTickerResult }) {
 
   // Plain-English interpretation sentence
   const absPressure = Math.abs(netPressure);
-  const n = Math.round(absPressure * 10);
-  const side = netPressure > 0 ? "buyers" : "sellers";
+  // n uses signedPressure so "7 of 10 dollars" correctly reflects labeled buy-side share.
+  const n = Math.round(Math.abs(signedPressure) * 10);
   const interpText = absPressure >= 0.6
     ? `Strong ${netPressure > 0 ? "buy" : "sell"}-side edge — ${n} of every 10 total dollars was net ${netPressure > 0 ? "buy" : "sell"}-side this session.`
     : absPressure >= 0.1

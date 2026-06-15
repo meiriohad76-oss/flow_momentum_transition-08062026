@@ -3318,7 +3318,8 @@ body {
   color: var(--warn);
   margin-top: 2px;
 }
-abbr[title] {
+/* Scoped to ev-body-inner so global <abbr> elements elsewhere aren't affected. */
+.ev-body-inner abbr[title] {
   text-decoration: underline dotted;
   cursor: help;
 }
