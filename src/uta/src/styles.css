@@ -1409,6 +1409,16 @@ body {
 .bluf-aside {
   margin-left: auto;
   white-space: nowrap;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 3px;
+}
+.bluf-stale {
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
 }
 
 .bluf-grid {

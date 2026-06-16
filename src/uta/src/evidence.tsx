@@ -252,7 +252,19 @@ export function BlufCard({ data, portfolioMode = false }: { data: UtaTickerResul
             })()}
           </div>
         </div>
-        <div className="bluf-aside uplabel">BLUF · as of {fmtDate(data.generated_at)}</div>
+        <div className="bluf-aside uplabel">
+          <span>BLUF · as of {fmtDate(data.generated_at)}</span>
+          {(() => {
+            if (!data.generated_at) return null;
+            const ageMin = Math.floor((Date.now() - new Date(data.generated_at).getTime()) / 60000);
+            if (ageMin < 30) return null;
+            const label = ageMin >= 60
+              ? `${Math.floor(ageMin / 60)}h ${ageMin % 60}m ago`
+              : `${ageMin}m ago`;
+            const color = ageMin >= 60 ? "var(--sell)" : "var(--warn)";
+            return <span className="bluf-stale" style={{ color }}>⚠ stale — {label}</span>;
+          })()}
+        </div>
       </div>
 
       {/* Key stats row: verdict numbers before any text */}
