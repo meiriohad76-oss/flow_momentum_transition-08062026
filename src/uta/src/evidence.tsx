@@ -243,7 +243,9 @@ export function BlufCard({ data, portfolioMode = false }: { data: UtaTickerResul
               const chgCtx = intradayChg != null ? "intraday" : "vs prior close";
               const priceLabel = intradayChg != null ? "Current" : "Last close";
               const pSide = chg != null ? (chg > 1 ? "bullish" : chg < -1 ? "bearish" : "flat") : null;
-              const pillDiverging = pSide != null && pSide !== "flat" && pSide !== data.direction && data.direction !== "undetermined";
+              // Normalize API direction ("neutral" → "undetermined") before divergence check.
+              const dirNorm = data.direction === "bullish" ? "bullish" : data.direction === "bearish" ? "bearish" : "undetermined";
+              const pillDiverging = pSide != null && pSide !== "flat" && pSide !== dirNorm && dirNorm !== "undetermined";
               const tone = pillDiverging ? "warn" : chg == null ? "neutral" : chg > 0 ? "good" : chg < 0 ? "bad" : "neutral";
               const chgStr = chg != null ? ` (${chg > 0 ? "+" : ""}${fmtNumber(chg, 2)}% ${chgCtx})` : "";
               const arrow = chg != null ? (chg > 0 ? " ↑" : " ↓") : "";
@@ -570,10 +572,12 @@ function BlockOffExchangeBody({ data }: { data: UtaTickerResult }) {
   const priceSideBlock = priceChgBlock != null
     ? (priceChgBlock > 1 ? "bullish" : priceChgBlock < -1 ? "bearish" : "flat")
     : null;
+  // Normalize API direction ("neutral" → "undetermined") before divergence check — same as BlufFindings.
+  const dirNormBlock = data.direction === "bullish" ? "bullish" : data.direction === "bearish" ? "bearish" : "undetermined";
   const divergingBlock = priceSideBlock != null
     && priceSideBlock !== "flat"
-    && priceSideBlock !== data.direction
-    && data.direction !== "undetermined";
+    && priceSideBlock !== dirNormBlock
+    && dirNormBlock !== "undetermined";
 
   const PRINT_TIP = "A print is a single trade execution recorded to the tape. A focus print is a trade whose notional value exceeds the institutional floor.";
   const P = (s: string) => <abbr title={PRINT_TIP}>{s}</abbr>;
