@@ -175,6 +175,43 @@ export function TickerDetail({
   );
 }
 
+function SingleSkeleton() {
+  return (
+    <section className="mode-stack">
+      {/* BLUF card skeleton */}
+      <div className="sk-card">
+        <div className="sk-row" style={{ alignItems: "center", gap: 16 }}>
+          <div className="sk-block" style={{ width: 48, height: 48, borderRadius: 8, flexShrink: 0 }} />
+          <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: 8 }}>
+            <div className="sk-block sk-line-lg" />
+            <div className="sk-block sk-line-md" />
+          </div>
+        </div>
+        {/* Stat tiles */}
+        <div className="sk-row">
+          <div className="sk-block sk-tile" />
+          <div className="sk-block sk-tile" />
+          <div className="sk-block sk-tile" />
+        </div>
+        {/* Indicator grid placeholder */}
+        <div className="sk-block" style={{ height: 80, borderRadius: 8 }} />
+      </div>
+      {/* Evidence card skeletons */}
+      {[0, 1, 2].map((i) => (
+        <div key={i} className="sk-card">
+          <div className="sk-row" style={{ alignItems: "center" }}>
+            <div className="sk-block" style={{ width: 20, height: 20, borderRadius: 4, flexShrink: 0 }} />
+            <div className="sk-block sk-line-md" style={{ flex: 1 }} />
+            <div className="sk-block sk-line-sm" />
+          </div>
+          <div className="sk-block sk-line-full" />
+          <div className="sk-block sk-line-md" />
+        </div>
+      ))}
+    </section>
+  );
+}
+
 export function SingleMode({
   data,
   history,
@@ -193,6 +230,23 @@ export function SingleMode({
   onToggleWatchlist: () => void;
 }) {
   const [ticker, setTicker] = useState("AVGO");
+
+  if (data.status === "loading") {
+    return (
+      <>
+        <form className="command-bar" onSubmit={(event: FormEvent<HTMLFormElement>) => {
+          event.preventDefault();
+          onAnalyze(ticker.trim().toUpperCase() || "AVGO");
+        }}>
+          <label htmlFor="single-ticker">Ticker</label>
+          <input id="single-ticker" value={ticker} onChange={(event) => setTicker(event.target.value)} autoComplete="off" />
+          <button type="submit">Analyze</button>
+        </form>
+        <SingleSkeleton />
+      </>
+    );
+  }
+
   return (
     <section className="mode-stack">
       <form className="command-bar" onSubmit={(event: FormEvent<HTMLFormElement>) => {
@@ -203,7 +257,6 @@ export function SingleMode({
         <input id="single-ticker" value={ticker} onChange={(event) => setTicker(event.target.value)} autoComplete="off" />
         <button type="submit">Analyze</button>
       </form>
-      {data.status === "loading" ? <section className="panel muted-panel">{data.message}</section> : null}
       {data.status === "error" ? <section className="panel error-panel">{data.message}</section> : null}
       {data.data ? (
         <TickerDetail
