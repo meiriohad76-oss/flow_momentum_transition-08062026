@@ -238,9 +238,19 @@ export function App() {
   const [showDensityPop, setShowDensityPop] = React.useState(false);
   const [showWatchlist, setShowWatchlist] = React.useState(false);
   const [showRuntime, setShowRuntime] = React.useState(false);
+  const [autoRefreshInterval, setAutoRefreshInterval] = React.useState<0 | 3 | 5 | 10>(() => {
+    const stored = Number(localStorage.getItem("uta_autorefresh_v1"));
+    return ([0, 3, 5, 10] as const).includes(stored as 0 | 3 | 5 | 10) ? (stored as 0 | 3 | 5 | 10) : 5;
+  });
+  const [showSettingsPop, setShowSettingsPop] = React.useState(false);
 
   React.useEffect(() => {
-    const handler = (e: KeyboardEvent) => { if (e.key === "Escape") setShowRuntime(false); };
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        setShowRuntime(false);
+        setShowSettingsPop(false);
+      }
+    };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
   }, []);
@@ -254,6 +264,10 @@ export function App() {
     document.documentElement.setAttribute("data-density", density);
     localStorage.setItem("uta_density_v1", density);
   }, [density]);
+
+  React.useEffect(() => {
+    localStorage.setItem("uta_autorefresh_v1", String(autoRefreshInterval));
+  }, [autoRefreshInterval]);
 
   function toggleTheme() { setTheme((t) => t === "dark" ? "light" : "dark"); }
 
@@ -284,6 +298,18 @@ export function App() {
     const nextHistory = await apiGet<HistoryResult>(`/api/uta/history?ticker=${encodeURIComponent(normalized)}&limit=20`);
     setHistory(nextHistory);
   }
+
+  React.useEffect(() => {
+    if (autoRefreshInterval === 0 || mode !== "single") return;
+    const ms = autoRefreshInterval * 60 * 1000;
+    const id = setInterval(() => {
+      loadSingle(activeTicker).catch((err) =>
+        setSingle((prev) => ({ status: "error", data: prev.data, message: err.message }))
+      );
+    }, ms);
+    return () => clearInterval(id);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoRefreshInterval, activeTicker, mode]);
 
   async function loadRuntime() {
     setRuntime((current) => ({ status: "loading", data: current.data, message: "Refreshing runtime..." }));
