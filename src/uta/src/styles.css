@@ -367,10 +367,34 @@ td {
   height: 56px;
   border-radius: 8px;
 }
-.sk-line-lg { height: 22px; border-radius: 4px; width: 60%; }
-.sk-line-md { height: 14px; border-radius: 4px; width: 40%; }
-.sk-line-sm { height: 12px; border-radius: 4px; width: 25%; }
-.sk-line-full { height: 14px; border-radius: 4px; width: 100%; }
+.sk-line-lg {
+  height: 22px;
+  border-radius: 4px;
+  width: 60%;
+  background: var(--ink-3);
+  animation: skeleton-pulse 1.4s ease-in-out infinite;
+}
+.sk-line-md {
+  height: 14px;
+  border-radius: 4px;
+  width: 40%;
+  background: var(--ink-3);
+  animation: skeleton-pulse 1.4s ease-in-out infinite;
+}
+.sk-line-sm {
+  height: 12px;
+  border-radius: 4px;
+  width: 25%;
+  background: var(--ink-3);
+  animation: skeleton-pulse 1.4s ease-in-out infinite;
+}
+.sk-line-full {
+  height: 14px;
+  border-radius: 4px;
+  width: 100%;
+  background: var(--ink-3);
+  animation: skeleton-pulse 1.4s ease-in-out infinite;
+}
 
 .density-pop {
   position: absolute;
@@ -419,7 +443,7 @@ td {
   background: var(--bg);
   border: 1px solid var(--line-strong);
   border-radius: 6px;
-  color: var(--ink-1);
+  color: var(--ink);
   font-size: 0.8rem;
   padding: 2px 6px;
   cursor: pointer;
