@@ -1281,6 +1281,76 @@ async function loadLiveIndexFromWikipedia(config = {}, { url, universeId, label,
   }
 }
 
+// iShares (BlackRock) publishes daily ETF holdings as CSV — free, no auth required.
+// CSV layout: several metadata rows, then a header row containing "Ticker", then data rows.
+// Non-equity rows (Cash, Futures, etc.) have blank or "-" ticker — filtered out.
+function parseISharesHoldingsCsv(csv = "") {
+  const lines = String(csv).split(/\r?\n/);
+  // Find the header row — it's the first line that contains "Ticker" as a field
+  let headerIdx = -1;
+  let tickerCol = -1;
+  let nameCol = -1;
+  let assetCol = -1;
+  for (let i = 0; i < lines.length; i++) {
+    const fields = lines[i].split(",").map((f) => f.replace(/^"|"$/g, "").trim());
+    const ti = fields.findIndex((f) => /^ticker$/i.test(f));
+    if (ti >= 0) { headerIdx = i; tickerCol = ti; nameCol = fields.findIndex((f) => /^name$/i.test(f)); assetCol = fields.findIndex((f) => /asset.class/i.test(f)); break; }
+  }
+  if (headerIdx < 0 || tickerCol < 0) return [];
+  const results = [];
+  for (let i = headerIdx + 1; i < lines.length; i++) {
+    const fields = lines[i].split(",").map((f) => f.replace(/^"|"$/g, "").trim());
+    if (fields.length <= tickerCol) continue;
+    // Skip non-equity rows: cash, futures, index lines (dash or empty ticker)
+    const assetClass = assetCol >= 0 ? fields[assetCol] : "";
+    if (/cash|future|derivative|money.market/i.test(assetClass)) continue;
+    const symbol = normalizeTickerSymbol(fields[tickerCol]);
+    if (!symbol || symbol === "-" || !/^[A-Z][A-Z0-9.-]{0,9}$/.test(symbol)) continue;
+    const name = nameCol >= 0 ? fields[nameCol] : symbol;
+    results.push({ symbol, name, sector: null, exchange: null });
+  }
+  return [...new Map(results.map((r) => [r.symbol, r])).values()];
+}
+
+// Fetch holdings for an iShares ETF by ticker symbol.
+// iShares URL pattern is stable across all BlackRock ETFs.
+const ISHARES_ETF_IDS = {
+  IWM: "239710/ishares-russell-2000-etf/1467271812596",
+  IWB: "239707/ishares-russell-1000-etf/1467271812596",
+  IJH: "239637/ishares-sp-midcap-400-etf/1467271812596",
+  IJR: "239716/ishares-core-sp-small-cap-etf/1467271812596",
+  IVV: "239726/ishares-core-sp-500-etf/1467271812596",
+  IWF: "239706/ishares-russell-1000-growth-etf/1467271812596",
+};
+
+async function loadISharesEtfHoldings(config = {}, { etfTicker, universeId, label, category = "index", minTickers, performance_tier = "standard", estimated_time_seconds = 120 }) {
+  const etfId = ISHARES_ETF_IDS[etfTicker];
+  if (!etfId) throw new Error(`No iShares ID registered for ETF ${etfTicker}.`);
+  const url = `https://www.ishares.com/us/products/${etfId}/1467271812596.ajax?fileType=csv&fileName=${etfTicker}_holdings&dataType=fund`;
+  try {
+    const csv = await fetchText(url, {
+      timeoutMs: Math.min(20000, Math.max(5000, Number(config.providerRequestTimeoutMs || 15000))),
+      provider: `uta_${universeId}_etf_holdings`
+    });
+    const tickers = parseISharesHoldingsCsv(csv);
+    if (tickers.length < minTickers) throw new Error(`iShares ${etfTicker} holdings returned only ${tickers.length} equity rows (expected ≥ ${minTickers}).`);
+    return normalizeLiveUniversePayload({ universe_id: universeId, name: universeId, label, category, source: `ishares_${etfTicker.toLowerCase()}_holdings`, last_updated: nowIso(), performance_tier, estimated_time_seconds, tickers });
+  } catch (error) {
+    return normalizeLiveUniversePayload({ universe_id: universeId, name: universeId, label, category, source: "error", last_updated: nowIso(), performance_tier, estimated_time_seconds, tickers: [], universe_warning: `${label} (iShares ${etfTicker}) load failed: ${String(error?.message || error).slice(0, 200)}` });
+  }
+}
+
+// Try iShares first; fall back to Wikipedia if iShares fails (empty tickers / warning set).
+async function loadUniverseWithFallback(primary, fallbackFn) {
+  const result = await primary;
+  if (result.tickers.length > 0) return result;
+  // Primary returned no tickers — try fallback
+  const fb = await fallbackFn();
+  if (fb.tickers.length > 0) return fb;
+  // Both failed — return primary result which carries the warning
+  return result;
+}
+
 // Polygon reference/tickers — fetches common stocks for a given exchange MIC code.
 // Returns up to `pageLimit` tickers (Polygon max 1000/page; one page is enough for the
 // scan since getLiveScan caps results anyway via utaLiveScanMaxResults).
@@ -1334,61 +1404,74 @@ async function loadLiveUniverseById(universeId = "sp500", config = {}, fallbackU
   }
 
   if (universeId === "sp500") {
-    return loadLiveSp500Universe(config, fallbackUniverse);
+    // iShares IVV → Wikipedia fallback (sp500 already has its own caching loader)
+    return loadUniverseWithFallback(
+      loadISharesEtfHoldings(config, { etfTicker: "IVV", universeId: "sp500", label: "S&P 500 live constituents", minTickers: 480, performance_tier: "standard", estimated_time_seconds: 180 }),
+      () => loadLiveSp500Universe(config, fallbackUniverse)
+    );
   }
 
   if (universeId === "dow30") {
-    return loadLiveIndexFromWikipedia(config, {
-      url: "https://en.wikipedia.org/wiki/Dow_Jones_Industrial_Average",
-      universeId: "dow30", label: "DOW 30 live constituents",
-      minTickers: 25, performance_tier: "fast", estimated_time_seconds: 20
-    });
+    return loadUniverseWithFallback(
+      // No iShares ETF for DOW 30 in our map — go straight to Wikipedia (DIA is SSGA, different format)
+      loadLiveIndexFromWikipedia(config, { url: "https://en.wikipedia.org/wiki/Dow_Jones_Industrial_Average", universeId: "dow30", label: "DOW 30 live constituents", minTickers: 25, performance_tier: "fast", estimated_time_seconds: 20 }),
+      () => Promise.resolve(normalizeLiveUniversePayload({ ...fallbackUniverse, universe_id: "dow30" }))
+    );
   }
 
   if (universeId === "nasdaq100") {
-    return loadLiveIndexFromWikipedia(config, {
-      url: "https://en.wikipedia.org/wiki/Nasdaq-100",
-      universeId: "nasdaq100", label: "NASDAQ-100 live constituents",
-      minTickers: 80, performance_tier: "fast", estimated_time_seconds: 60
-    });
+    return loadUniverseWithFallback(
+      loadLiveIndexFromWikipedia(config, { url: "https://en.wikipedia.org/wiki/Nasdaq-100", universeId: "nasdaq100", label: "NASDAQ-100 live constituents", minTickers: 80, performance_tier: "fast", estimated_time_seconds: 60 }),
+      () => Promise.resolve(normalizeLiveUniversePayload({ ...fallbackUniverse, universe_id: "nasdaq100" }))
+    );
   }
 
   if (universeId === "sp400") {
-    return loadLiveIndexFromWikipedia(config, {
-      url: "https://en.wikipedia.org/wiki/List_of_S%26P_400_companies",
-      universeId: "sp400", label: "S&P 400 Mid live constituents",
-      minTickers: 380, performance_tier: "standard", estimated_time_seconds: 180
-    });
+    return loadUniverseWithFallback(
+      loadISharesEtfHoldings(config, { etfTicker: "IJH", universeId: "sp400", label: "S&P 400 Mid live constituents", minTickers: 380, performance_tier: "standard", estimated_time_seconds: 180 }),
+      () => loadLiveIndexFromWikipedia(config, { url: "https://en.wikipedia.org/wiki/List_of_S%26P_400_companies", universeId: "sp400", label: "S&P 400 Mid live constituents", minTickers: 380, performance_tier: "standard", estimated_time_seconds: 180 })
+    );
   }
 
   if (universeId === "sp600") {
-    return loadLiveIndexFromWikipedia(config, {
-      url: "https://en.wikipedia.org/wiki/List_of_S%26P_600_companies",
-      universeId: "sp600", label: "S&P 600 Small live constituents",
-      minTickers: 580, performance_tier: "extended", estimated_time_seconds: 360
-    });
+    return loadUniverseWithFallback(
+      loadISharesEtfHoldings(config, { etfTicker: "IJR", universeId: "sp600", label: "S&P 600 Small live constituents", minTickers: 580, performance_tier: "extended", estimated_time_seconds: 360 }),
+      () => loadLiveIndexFromWikipedia(config, { url: "https://en.wikipedia.org/wiki/List_of_S%26P_600_companies", universeId: "sp600", label: "S&P 600 Small live constituents", minTickers: 580, performance_tier: "extended", estimated_time_seconds: 360 })
+    );
   }
 
   if (universeId === "russell1000") {
-    // Russell 1000 ≈ S&P 500 + S&P 400 (top 1000 US stocks by market cap)
-    const [sp500, sp400] = await Promise.all([
-      loadLiveSp500Universe(config, fallbackUniverse),
-      loadLiveIndexFromWikipedia(config, { url: "https://en.wikipedia.org/wiki/List_of_S%26P_400_companies", universeId: "sp400", label: "S&P 400", minTickers: 200, performance_tier: "extended", estimated_time_seconds: 600 })
-    ]);
-    const seen = new Set();
-    const combined = [...sp500.tickers, ...sp400.tickers].filter((t) => { if (seen.has(t.symbol)) return false; seen.add(t.symbol); return true; });
-    return normalizeLiveUniversePayload({ universe_id: "russell1000", name: "russell1000", label: "Russell 1000 (approx via S&P 500 + S&P 400)", category: "index", source: "wikipedia_combined", last_updated: nowIso(), performance_tier: "extended", estimated_time_seconds: 600, tickers: combined });
+    // iShares IWB is the authoritative source for Russell 1000
+    return loadUniverseWithFallback(
+      loadISharesEtfHoldings(config, { etfTicker: "IWB", universeId: "russell1000", label: "Russell 1000 live constituents", minTickers: 900, performance_tier: "extended", estimated_time_seconds: 600 }),
+      async () => {
+        // Fallback: sp500 + sp400 combined
+        const [sp500, sp400] = await Promise.all([
+          loadLiveSp500Universe(config, fallbackUniverse),
+          loadLiveIndexFromWikipedia(config, { url: "https://en.wikipedia.org/wiki/List_of_S%26P_400_companies", universeId: "sp400", label: "S&P 400", minTickers: 200, performance_tier: "extended", estimated_time_seconds: 300 })
+        ]);
+        const seen = new Set();
+        const combined = [...sp500.tickers, ...sp400.tickers].filter((t) => { if (seen.has(t.symbol)) return false; seen.add(t.symbol); return true; });
+        return normalizeLiveUniversePayload({ universe_id: "russell1000", name: "russell1000", label: "Russell 1000 (approx via S&P 500 + S&P 400)", category: "index", source: "wikipedia_combined", last_updated: nowIso(), performance_tier: "extended", estimated_time_seconds: 600, tickers: combined });
+      }
+    );
   }
 
   if (universeId === "russell2000") {
-    // Russell 2000 ≈ S&P 400 + S&P 600 (mid + small cap)
-    const [sp400, sp600] = await Promise.all([
-      loadLiveIndexFromWikipedia(config, { url: "https://en.wikipedia.org/wiki/List_of_S%26P_400_companies", universeId: "sp400", label: "S&P 400", minTickers: 200, performance_tier: "extended", estimated_time_seconds: 600 }),
-      loadLiveIndexFromWikipedia(config, { url: "https://en.wikipedia.org/wiki/List_of_S%26P_600_companies", universeId: "sp600", label: "S&P 600", minTickers: 200, performance_tier: "extended", estimated_time_seconds: 600 })
-    ]);
-    const seen = new Set();
-    const combined = [...sp400.tickers, ...sp600.tickers].filter((t) => { if (seen.has(t.symbol)) return false; seen.add(t.symbol); return true; });
-    return normalizeLiveUniversePayload({ universe_id: "russell2000", name: "russell2000", label: "Russell 2000 (approx via S&P Mid + Small Cap)", category: "index", source: "wikipedia_combined", last_updated: nowIso(), performance_tier: "extended", estimated_time_seconds: 900, tickers: combined });
+    // iShares IWM is the authoritative source for Russell 2000
+    return loadUniverseWithFallback(
+      loadISharesEtfHoldings(config, { etfTicker: "IWM", universeId: "russell2000", label: "Russell 2000 live constituents", minTickers: 1800, performance_tier: "extended", estimated_time_seconds: 900 }),
+      async () => {
+        // Fallback: sp400 + sp600 combined
+        const [sp400, sp600] = await Promise.all([
+          loadLiveIndexFromWikipedia(config, { url: "https://en.wikipedia.org/wiki/List_of_S%26P_400_companies", universeId: "sp400", label: "S&P 400", minTickers: 200, performance_tier: "extended", estimated_time_seconds: 300 }),
+          loadLiveIndexFromWikipedia(config, { url: "https://en.wikipedia.org/wiki/List_of_S%26P_600_companies", universeId: "sp600", label: "S&P 600", minTickers: 200, performance_tier: "extended", estimated_time_seconds: 300 })
+        ]);
+        const seen = new Set();
+        const combined = [...sp400.tickers, ...sp600.tickers].filter((t) => { if (seen.has(t.symbol)) return false; seen.add(t.symbol); return true; });
+        return normalizeLiveUniversePayload({ universe_id: "russell2000", name: "russell2000", label: "Russell 2000 (approx via S&P Mid + Small Cap)", category: "index", source: "wikipedia_combined", last_updated: nowIso(), performance_tier: "extended", estimated_time_seconds: 900, tickers: combined });
+      }
+    );
   }
 
   if (universeId === "nyse_arca") {
