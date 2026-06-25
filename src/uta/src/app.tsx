@@ -11,7 +11,7 @@ import type {
 } from "./types.js";
 
 function TopBar({
-  mode, onMode, onHome, onSearch, onOpenWatchlist, onOpenRuntime,
+  mode, onMode, onHome, onSearch, onOpenWatchlist, onOpenRuntime, onOpenSettings,
   watchlistCount, alertCount, syncState, syncTime, themeToggle, densityControl
 }: {
   mode: Mode;
@@ -20,6 +20,7 @@ function TopBar({
   onSearch: (sym: string) => void;
   onOpenWatchlist: () => void;
   onOpenRuntime: () => void;
+  onOpenSettings: () => void;
   watchlistCount: number;
   alertCount: number;
   syncState: "live" | "revalidating" | "error";
@@ -74,10 +75,11 @@ function TopBar({
         </button>
         <button className="secondary icon-button" type="button" onClick={themeToggle} title="Toggle theme">◑</button>
         <button className="secondary icon-button" type="button" onClick={densityControl} title="Density">≡</button>
+        <button className="secondary icon-button" type="button" onClick={onOpenSettings} title="Settings">⚙</button>
         <span className={`sync-indicator ${syncState}`}>
           {syncState === "revalidating" ? "Revalidating…" : `Live · ${syncTime || "--:--"} ET`}
         </span>
-        <button className="secondary icon-button" type="button" onClick={onOpenRuntime} title="Operator">⚙</button>
+        <button className="secondary icon-button" type="button" onClick={onOpenRuntime} title="Operator">⊞</button>
       </div>
     </header>
   );
@@ -521,6 +523,7 @@ export function App() {
         }}
         onOpenWatchlist={() => setShowWatchlist(true)}
         onOpenRuntime={() => setShowRuntime(true)}
+        onOpenSettings={() => setShowSettingsPop((v) => !v)}
         watchlistCount={watchlistCount}
         alertCount={0}
         syncState="live"
@@ -536,6 +539,39 @@ export function App() {
               {d.charAt(0).toUpperCase() + d.slice(1)}
             </button>
           ))}
+        </div>
+      )}
+      {showSettingsPop && (
+        <div className="settings-pop" onClick={(e) => e.stopPropagation()}>
+          <div className="settings-pop-row">
+            <label htmlFor="ar-select">Auto-refresh</label>
+            <select
+              id="ar-select"
+              value={autoRefreshInterval}
+              onChange={(e) => {
+                const v = Number(e.target.value) as 0 | 3 | 5 | 10;
+                setAutoRefreshInterval(v);
+                setShowSettingsPop(false);
+              }}
+            >
+              <option value={0}>Off</option>
+              <option value={3}>3 min</option>
+              <option value={5}>5 min</option>
+              <option value={10}>10 min</option>
+            </select>
+          </div>
+          <hr className="settings-pop-divider" />
+          <div className="settings-pop-row">
+            <label>Density</label>
+            <select
+              value={density}
+              onChange={(e) => { setDensity(e.target.value as "compact" | "regular" | "comfy"); setShowSettingsPop(false); }}
+            >
+              {(["compact", "regular", "comfy"] as const).map((d) => (
+                <option key={d} value={d}>{d.charAt(0).toUpperCase() + d.slice(1)}</option>
+              ))}
+            </select>
+          </div>
         </div>
       )}
       <RevalidationBar active={single.status === "loading" || portfolio.status === "loading"} />
