@@ -1265,6 +1265,54 @@ function parseDow30Html(html = "") {
   return [...new Map(tickers.map((r) => [r.symbol, r])).values()];
 }
 
+// Generic Wikipedia constituents scraper — works for any index whose Wikipedia page
+// has an HTML table with id="constituents" where col[0]=symbol, col[1]=name, col[2]=sector
+async function loadLiveIndexFromWikipedia(config = {}, { url, universeId, label, category = "index", minTickers, performance_tier = "standard", estimated_time_seconds = 120 }) {
+  try {
+    const html = await fetchText(url, {
+      timeoutMs: Math.min(15000, Math.max(2000, Number(config.providerRequestTimeoutMs || 12000))),
+      provider: `uta_${universeId}_universe`
+    });
+    const tickers = parseDow30Html(html); // reuses the generic wikitable parser
+    if (tickers.length < minTickers) throw new Error(`${universeId} parse returned only ${tickers.length} tickers (expected ≥ ${minTickers}).`);
+    return normalizeLiveUniversePayload({ universe_id: universeId, name: universeId, label, category, source: "wikipedia_constituents_table", last_updated: nowIso(), performance_tier, estimated_time_seconds, tickers });
+  } catch (error) {
+    return normalizeLiveUniversePayload({ universe_id: universeId, name: universeId, label, category, source: "error", last_updated: nowIso(), performance_tier, estimated_time_seconds, tickers: [], universe_warning: `${label} load failed: ${String(error?.message || error).slice(0, 200)}` });
+  }
+}
+
+// Polygon reference/tickers — fetches common stocks for a given exchange MIC code.
+// Returns up to `pageLimit` tickers (Polygon max 1000/page; one page is enough for the
+// scan since getLiveScan caps results anyway via utaLiveScanMaxResults).
+async function loadPolygonUniverseByExchange(config = {}, { exchange, universeId, label, performance_tier = "extended", estimated_time_seconds = 300 }) {
+  const apiKey = massiveApiKey(config);
+  if (!apiKey) {
+    return normalizeLiveUniversePayload({ universe_id: universeId, name: universeId, label, tickers: [], universe_warning: `${label}: API key required (MASSIVE_API_KEY or POLYGON_API_KEY).` });
+  }
+  const base = massiveBaseUrl(config, "polygon");
+  try {
+    const results = [];
+    let cursor = null;
+    // Fetch up to 2 pages (2 000 tickers max) — enough for any exchange universe
+    for (let page = 0; page < 2; page++) {
+      const params = new URLSearchParams({ market: "stocks", type: "CS", active: "true", exchange, limit: "1000", apiKey });
+      if (cursor) params.set("cursor", cursor);
+      const payload = await fetchPreflightJson(`${base}/v3/reference/tickers?${params.toString()}`, { timeoutMs: 15000, provider: `uta_${universeId}_universe` });
+      const batch = Array.isArray(payload?.results) ? payload.results : [];
+      for (const r of batch) {
+        const symbol = normalizeTickerSymbol(r.ticker);
+        if (symbol) results.push({ symbol, name: r.name || symbol, sector: null, exchange: r.primary_exchange || exchange });
+      }
+      cursor = payload?.next_url ? new URL(payload.next_url).searchParams.get("cursor") : null;
+      if (!cursor) break;
+    }
+    if (results.length === 0) throw new Error(`No tickers returned for exchange ${exchange}.`);
+    return normalizeLiveUniversePayload({ universe_id: universeId, name: universeId, label, category: "exchange", source: "polygon_reference_tickers", last_updated: nowIso(), performance_tier, estimated_time_seconds, tickers: results });
+  } catch (error) {
+    return normalizeLiveUniversePayload({ universe_id: universeId, name: universeId, label, category: "exchange", source: "error", last_updated: nowIso(), performance_tier, estimated_time_seconds, tickers: [], universe_warning: `${label} load failed: ${String(error?.message || error).slice(0, 200)}` });
+  }
+}
+
 async function loadLiveUniverseById(universeId = "sp500", config = {}, fallbackUniverse = {}) {
   // Sector universes: load sp500 then filter by GICS sector
   if (SECTOR_UNIVERSE_MAP[universeId]) {
@@ -1290,58 +1338,72 @@ async function loadLiveUniverseById(universeId = "sp500", config = {}, fallbackU
   }
 
   if (universeId === "dow30") {
-    try {
-      const html = await fetchText("https://en.wikipedia.org/wiki/Dow_Jones_Industrial_Average", {
-        timeoutMs: Math.min(15000, Math.max(2000, Number(config.providerRequestTimeoutMs || 12000))),
-        provider: "uta_dow30_universe"
-      });
-      const tickers = parseDow30Html(html);
-      if (tickers.length < 25) throw new Error(`DOW 30 parse returned only ${tickers.length} tickers.`);
-      return normalizeLiveUniversePayload({
-        universe_id: "dow30",
-        name: "dow30",
-        label: "DOW 30 live constituents",
-        category: "index",
-        source: "wikipedia_constituents_table",
-        last_updated: nowIso(),
-        performance_tier: "fast",
-        estimated_time_seconds: 20,
-        tickers
-      });
-    } catch (error) {
-      const fallback = normalizeLiveUniversePayload(fallbackUniverse);
-      return { ...fallback, universe_id: "dow30", name: "dow30", cache_state: "fixture_fallback",
-        universe_warning: `DOW 30 load failed: ${String(error?.message || error).slice(0, 200)}` };
-    }
+    return loadLiveIndexFromWikipedia(config, {
+      url: "https://en.wikipedia.org/wiki/Dow_Jones_Industrial_Average",
+      universeId: "dow30", label: "DOW 30 live constituents",
+      minTickers: 25, performance_tier: "fast", estimated_time_seconds: 20
+    });
   }
 
   if (universeId === "nasdaq100") {
-    try {
-      const html = await fetchText("https://en.wikipedia.org/wiki/Nasdaq-100", {
-        timeoutMs: Math.min(15000, Math.max(2000, Number(config.providerRequestTimeoutMs || 12000))),
-        provider: "uta_nasdaq100_universe"
-      });
-      const tickers = parseDow30Html(html); // same HTML table structure
-      if (tickers.length < 80) throw new Error(`NASDAQ-100 parse returned only ${tickers.length} tickers.`);
-      return normalizeLiveUniversePayload({
-        universe_id: "nasdaq100",
-        name: "nasdaq100",
-        label: "NASDAQ-100 live constituents",
-        category: "index",
-        source: "wikipedia_constituents_table",
-        last_updated: nowIso(),
-        performance_tier: "fast",
-        estimated_time_seconds: 60,
-        tickers
-      });
-    } catch (error) {
-      const fallback = normalizeLiveUniversePayload(fallbackUniverse);
-      return { ...fallback, universe_id: "nasdaq100", name: "nasdaq100", cache_state: "fixture_fallback",
-        universe_warning: `NASDAQ-100 load failed: ${String(error?.message || error).slice(0, 200)}` };
-    }
+    return loadLiveIndexFromWikipedia(config, {
+      url: "https://en.wikipedia.org/wiki/Nasdaq-100",
+      universeId: "nasdaq100", label: "NASDAQ-100 live constituents",
+      minTickers: 80, performance_tier: "fast", estimated_time_seconds: 60
+    });
   }
 
-  // Unsupported universe — return a stub so the caller can show a clear error
+  if (universeId === "sp400") {
+    return loadLiveIndexFromWikipedia(config, {
+      url: "https://en.wikipedia.org/wiki/List_of_S%26P_400_companies",
+      universeId: "sp400", label: "S&P 400 Mid live constituents",
+      minTickers: 380, performance_tier: "standard", estimated_time_seconds: 180
+    });
+  }
+
+  if (universeId === "sp600") {
+    return loadLiveIndexFromWikipedia(config, {
+      url: "https://en.wikipedia.org/wiki/List_of_S%26P_600_companies",
+      universeId: "sp600", label: "S&P 600 Small live constituents",
+      minTickers: 580, performance_tier: "extended", estimated_time_seconds: 360
+    });
+  }
+
+  if (universeId === "russell1000") {
+    // Russell 1000 ≈ S&P 500 + S&P 400 (top 1000 US stocks by market cap)
+    const [sp500, sp400] = await Promise.all([
+      loadLiveSp500Universe(config, fallbackUniverse),
+      loadLiveIndexFromWikipedia(config, { url: "https://en.wikipedia.org/wiki/List_of_S%26P_400_companies", universeId: "sp400", label: "S&P 400", minTickers: 200, performance_tier: "extended", estimated_time_seconds: 600 })
+    ]);
+    const seen = new Set();
+    const combined = [...sp500.tickers, ...sp400.tickers].filter((t) => { if (seen.has(t.symbol)) return false; seen.add(t.symbol); return true; });
+    return normalizeLiveUniversePayload({ universe_id: "russell1000", name: "russell1000", label: "Russell 1000 (approx via S&P 500 + S&P 400)", category: "index", source: "wikipedia_combined", last_updated: nowIso(), performance_tier: "extended", estimated_time_seconds: 600, tickers: combined });
+  }
+
+  if (universeId === "russell2000") {
+    // Russell 2000 ≈ S&P 400 + S&P 600 (mid + small cap)
+    const [sp400, sp600] = await Promise.all([
+      loadLiveIndexFromWikipedia(config, { url: "https://en.wikipedia.org/wiki/List_of_S%26P_400_companies", universeId: "sp400", label: "S&P 400", minTickers: 200, performance_tier: "extended", estimated_time_seconds: 600 }),
+      loadLiveIndexFromWikipedia(config, { url: "https://en.wikipedia.org/wiki/List_of_S%26P_600_companies", universeId: "sp600", label: "S&P 600", minTickers: 200, performance_tier: "extended", estimated_time_seconds: 600 })
+    ]);
+    const seen = new Set();
+    const combined = [...sp400.tickers, ...sp600.tickers].filter((t) => { if (seen.has(t.symbol)) return false; seen.add(t.symbol); return true; });
+    return normalizeLiveUniversePayload({ universe_id: "russell2000", name: "russell2000", label: "Russell 2000 (approx via S&P Mid + Small Cap)", category: "index", source: "wikipedia_combined", last_updated: nowIso(), performance_tier: "extended", estimated_time_seconds: 900, tickers: combined });
+  }
+
+  if (universeId === "nyse_arca") {
+    return loadPolygonUniverseByExchange(config, { exchange: "ARCX", universeId: "nyse_arca", label: "NYSE Arca live constituents", performance_tier: "standard", estimated_time_seconds: 240 });
+  }
+
+  if (universeId === "nyse_listed") {
+    return loadPolygonUniverseByExchange(config, { exchange: "XNYS", universeId: "nyse_listed", label: "NYSE Listed live constituents", performance_tier: "extended", estimated_time_seconds: 600 });
+  }
+
+  if (universeId === "nasdaq_cm") {
+    return loadPolygonUniverseByExchange(config, { exchange: "XNAS", universeId: "nasdaq_cm", label: "NASDAQ Listed live constituents", performance_tier: "extended", estimated_time_seconds: 900 });
+  }
+
+  // Truly unsupported universe — return a stub so the caller can show a clear error
   const fallback = normalizeLiveUniversePayload(fallbackUniverse);
   return {
     ...fallback,
