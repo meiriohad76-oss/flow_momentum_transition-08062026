@@ -302,6 +302,37 @@ function PortfolioStatCards({ data }: { data: PortfolioResult }) {
   );
 }
 
+function PortfolioSkeleton() {
+  return (
+    <section className="mode-stack">
+      {/* Stat cards skeleton */}
+      <div className="port-stat-cards">
+        {[0, 1, 2, 3].map((i) => (
+          <div key={i} className="sk-card" style={{ padding: "12px 16px", gap: 8 }}>
+            <div className="sk-block sk-line-sm" style={{ width: 64 }} />
+            <div className="sk-block" style={{ width: 40, height: 28, borderRadius: 4 }} />
+            <div className="sk-block sk-line-sm" style={{ width: 80 }} />
+          </div>
+        ))}
+      </div>
+      {/* Table skeleton */}
+      <section className="panel">
+        <div className="sk-block sk-line-md" style={{ width: 160, marginBottom: 12 }} />
+        {[0, 1, 2, 3, 4].map((i) => (
+          <div key={i} className="sk-row" style={{ padding: "8px 0", borderTop: "1px solid var(--border)" }}>
+            <div className="sk-block sk-line-sm" style={{ width: 50 }} />
+            <div className="sk-block sk-line-sm" style={{ width: 36 }} />
+            <div className="sk-block sk-line-sm" style={{ width: 60 }} />
+            <div className="sk-block sk-line-sm" style={{ width: 44 }} />
+            <div className="sk-block sk-line-sm" style={{ width: 44 }} />
+            <div className="sk-block sk-line-sm" style={{ width: 44 }} />
+          </div>
+        ))}
+      </section>
+    </section>
+  );
+}
+
 export function PortfolioMode({
   portfolio,
   onRun,
@@ -332,6 +363,19 @@ export function PortfolioMode({
     const cmp = typeof av === "string" ? av.localeCompare(String(bv)) : Number(av) - Number(bv);
     return sortAsc ? cmp : -cmp;
   });
+
+  if (portfolio.status === "loading" && !portfolio.data) {
+    return (
+      <>
+        <form className="command-bar" onSubmit={(event) => { event.preventDefault(); onRun(tickerList(value)); }}>
+          <label htmlFor="portfolio-tickers">Portfolio</label>
+          <input id="portfolio-tickers" className="wide-input" value={value} onChange={(e) => setValue(e.target.value)} />
+          <button type="submit" disabled>Ranking…</button>
+        </form>
+        <PortfolioSkeleton />
+      </>
+    );
+  }
 
   return (
     <section className="mode-stack">
