@@ -1229,6 +1229,131 @@ async function loadLiveSp500Universe(config = {}, fallbackUniverse = {}) {
   }
 }
 
+// GICS sector names as used in the S&P 500 Wikipedia constituent table
+const SECTOR_UNIVERSE_MAP = {
+  sector_tech:   "Information Technology",
+  sector_health: "Health Care",
+  sector_fin:    "Financials",
+  sector_cons:   "Consumer Discretionary",
+  sector_ind:    "Industrials",
+  sector_energy: "Energy"
+};
+
+const SECTOR_UNIVERSE_META = {
+  sector_tech:   { label: "S&P 500 Technology",               count: 68 },
+  sector_health: { label: "S&P 500 Health Care",              count: 64 },
+  sector_fin:    { label: "S&P 500 Financials",               count: 72 },
+  sector_cons:   { label: "S&P 500 Consumer Discretionary",   count: 54 },
+  sector_ind:    { label: "S&P 500 Industrials",              count: 78 },
+  sector_energy: { label: "S&P 500 Energy",                   count: 23 }
+};
+
+function parseDow30Html(html = "") {
+  // Wikipedia DOW table uses id="constituents" — same as S&P 500
+  const tableMatch = String(html).match(/<table[^>]+id=["']constituents["'][\s\S]*?<\/table>/i)
+    || String(html).match(/<table[^>]+class=["'][^"']*wikitable[^"']*["'][\s\S]*?<\/table>/i);
+  const table = tableMatch ? tableMatch[0] : String(html);
+  const rows = [...table.matchAll(/<tr[^>]*>([\s\S]*?)<\/tr>/gi)];
+  const tickers = [];
+  for (const rowMatch of rows) {
+    const cells = [...rowMatch[1].matchAll(/<t[dh][^>]*>([\s\S]*?)<\/t[dh]>/gi)].map((c) => stripHtml(c[1]));
+    if (cells.length < 2 || /^symbol$/i.test(cells[0])) continue;
+    const symbol = normalizeTickerSymbol(cells[0].replace(".", "-"));
+    if (!symbol || !/^[A-Z][A-Z0-9.-]{0,9}$/.test(symbol)) continue;
+    tickers.push({ symbol, name: cells[1] || symbol, sector: cells[2] || null, exchange: null });
+  }
+  return [...new Map(tickers.map((r) => [r.symbol, r])).values()];
+}
+
+async function loadLiveUniverseById(universeId = "sp500", config = {}, fallbackUniverse = {}) {
+  // Sector universes: load sp500 then filter by GICS sector
+  if (SECTOR_UNIVERSE_MAP[universeId]) {
+    const sectorName = SECTOR_UNIVERSE_MAP[universeId];
+    const meta = SECTOR_UNIVERSE_META[universeId];
+    const sp500 = await loadLiveSp500Universe(config, fallbackUniverse);
+    const sectorTickers = sp500.tickers.filter((t) => t.sector === sectorName);
+    return normalizeLiveUniversePayload({
+      universe_id: universeId,
+      name: universeId,
+      label: `${meta.label} (via S&P 500 sector filter)`,
+      category: "sector",
+      source: sp500.source,
+      last_updated: sp500.last_updated,
+      performance_tier: "fast",
+      estimated_time_seconds: 30,
+      tickers: sectorTickers
+    });
+  }
+
+  if (universeId === "sp500") {
+    return loadLiveSp500Universe(config, fallbackUniverse);
+  }
+
+  if (universeId === "dow30") {
+    try {
+      const html = await fetchText("https://en.wikipedia.org/wiki/Dow_Jones_Industrial_Average", {
+        timeoutMs: Math.min(15000, Math.max(2000, Number(config.providerRequestTimeoutMs || 12000))),
+        provider: "uta_dow30_universe"
+      });
+      const tickers = parseDow30Html(html);
+      if (tickers.length < 25) throw new Error(`DOW 30 parse returned only ${tickers.length} tickers.`);
+      return normalizeLiveUniversePayload({
+        universe_id: "dow30",
+        name: "dow30",
+        label: "DOW 30 live constituents",
+        category: "index",
+        source: "wikipedia_constituents_table",
+        last_updated: nowIso(),
+        performance_tier: "fast",
+        estimated_time_seconds: 20,
+        tickers
+      });
+    } catch (error) {
+      const fallback = normalizeLiveUniversePayload(fallbackUniverse);
+      return { ...fallback, universe_id: "dow30", name: "dow30", cache_state: "fixture_fallback",
+        universe_warning: `DOW 30 load failed: ${String(error?.message || error).slice(0, 200)}` };
+    }
+  }
+
+  if (universeId === "nasdaq100") {
+    try {
+      const html = await fetchText("https://en.wikipedia.org/wiki/Nasdaq-100", {
+        timeoutMs: Math.min(15000, Math.max(2000, Number(config.providerRequestTimeoutMs || 12000))),
+        provider: "uta_nasdaq100_universe"
+      });
+      const tickers = parseDow30Html(html); // same HTML table structure
+      if (tickers.length < 80) throw new Error(`NASDAQ-100 parse returned only ${tickers.length} tickers.`);
+      return normalizeLiveUniversePayload({
+        universe_id: "nasdaq100",
+        name: "nasdaq100",
+        label: "NASDAQ-100 live constituents",
+        category: "index",
+        source: "wikipedia_constituents_table",
+        last_updated: nowIso(),
+        performance_tier: "fast",
+        estimated_time_seconds: 60,
+        tickers
+      });
+    } catch (error) {
+      const fallback = normalizeLiveUniversePayload(fallbackUniverse);
+      return { ...fallback, universe_id: "nasdaq100", name: "nasdaq100", cache_state: "fixture_fallback",
+        universe_warning: `NASDAQ-100 load failed: ${String(error?.message || error).slice(0, 200)}` };
+    }
+  }
+
+  // Unsupported universe — return a stub so the caller can show a clear error
+  const fallback = normalizeLiveUniversePayload(fallbackUniverse);
+  return {
+    ...fallback,
+    universe_id: universeId,
+    name: universeId,
+    label: universeId,
+    tickers: [],
+    cache_state: "unsupported",
+    universe_warning: `Universe "${universeId}" is not yet supported for live scan. Use sp500, dow30, nasdaq100, sector_*, portfolio, or custom.`
+  };
+}
+
 function createLiveClock(at = new Date()) {
   const date = new Date(at);
   const ms = date.getTime();
@@ -2842,6 +2967,7 @@ export function createUtaService({ config, store } = {}) {
 
   async function getLiveScan(query = {}) {
     const fallbackUniverse = getUniverseFixture();
+    const universeId = String(query.universe || "sp500");
     const hasExplicitTickers = Array.isArray(query.tickers)
       ? query.tickers.length > 0
       : String(query.tickers || "").trim().length > 0;
@@ -2849,8 +2975,8 @@ export function createUtaService({ config, store } = {}) {
       return {
         schema_version: "uta.scan_result.v1",
         mode: "scan",
-        universe: fallbackUniverse.universe_id,
-        universe_label: "S&P 500 live constituents",
+        universe: universeId,
+        universe_label: `${universeId} live constituents`,
         universe_ticker_count: null,
         requested_ticker_count: null,
         direction_filter: String(query.direction || "bullish").toLowerCase(),
@@ -2860,7 +2986,7 @@ export function createUtaService({ config, store } = {}) {
         performance_tier: "pi_bounded_full",
         shortlist_count: 0,
         results: [{
-          ticker: "SP500",
+          ticker: universeId.toUpperCase(),
           preliminary_tier: "D",
           B_estimate: {},
           C_screen: null,
@@ -2870,15 +2996,45 @@ export function createUtaService({ config, store } = {}) {
         }],
         scanned_count: 0,
         blocked_count: null,
-        scan_policy: "Automatic S&P 500 pass 1 requires Massive grouped daily bars; no replay fallback is used in live mode.",
-        scan_scope: "sp500_auto_full",
+        scan_policy: "Automatic live scan requires Massive grouped daily bars; no replay fallback is used in live mode.",
+        scan_scope: `${universeId}_auto_full`,
         universe_source: "not_loaded_missing_credentials",
         universe_cache_state: "not_loaded"
       };
     }
     const universe = hasExplicitTickers
       ? fallbackUniverse
-      : await loadLiveSp500Universe(config, fallbackUniverse);
+      : await loadLiveUniverseById(universeId, config, fallbackUniverse);
+
+    // Surface unsupported-universe errors before running any scan logic
+    if (!hasExplicitTickers && universe.tickers.length === 0 && universe.universe_warning) {
+      return {
+        schema_version: "uta.scan_result.v1",
+        mode: "scan",
+        universe: universeId,
+        universe_label: universe.label,
+        universe_ticker_count: 0,
+        requested_ticker_count: 0,
+        direction_filter: String(query.direction || "bullish").toLowerCase(),
+        pass: 1,
+        generated_at: new Date().toISOString(),
+        data_state: "live_unavailable",
+        performance_tier: "fast",
+        shortlist_count: 0,
+        results: [{
+          ticker: universeId.toUpperCase(),
+          preliminary_tier: "D",
+          B_estimate: {},
+          C_screen: null,
+          pass2_status: "blocked",
+          label: universe.universe_warning,
+          data_state: "live_unavailable"
+        }],
+        scanned_count: 0,
+        blocked_count: null,
+        universe_warning: universe.universe_warning
+      };
+    }
     const direction = String(query.direction || "bullish").toLowerCase();
     const requested = parseTickerList(query.tickers, universe.tickers.map((row) => row.symbol));
     const defaultLimit = hasExplicitTickers

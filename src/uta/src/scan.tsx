@@ -508,7 +508,7 @@ export function ScanMode({
 }: {
   scan: LoadState<ScanResult>;
   pass2: LoadState<ScanResult>;
-  onPass1: (direction: string, tickers: string[]) => void;
+  onPass1: (direction: string, tickers: string[], universe: string) => void;
   onPass2: () => void;
   onInspect: (result: UtaTickerResult) => void;
   savedScans?: Array<Record<string, unknown>>;
@@ -558,7 +558,7 @@ export function ScanMode({
           <button
             type="button"
             disabled={!universe || scan.status === "loading"}
-            onClick={() => onPass1(direction, resolveTickerList())}
+            onClick={() => onPass1(direction, resolveTickerList(), universe)}
           >
             Run scan
           </button>

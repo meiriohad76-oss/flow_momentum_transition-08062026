@@ -335,10 +335,10 @@ export function App() {
     await loadRuntime();
   }
 
-  async function runScan(direction = "bullish", tickers = DEFAULT_PORTFOLIO) {
+  async function runScan(direction = "bullish", tickers: string[] = DEFAULT_PORTFOLIO, universe = "sp500") {
     setScan((current) => ({ status: "loading", data: current.data, message: "Running live pass 1..." }));
     const params = new URLSearchParams({
-      universe: "sp500",
+      universe,
       direction,
       pass: "1",
       source: LIVE_SOURCE_MODE,
@@ -447,7 +447,7 @@ export function App() {
         <ScanMode
           scan={scan}
           pass2={pass2}
-          onPass1={(direction, tickers) => runScan(direction, tickers).catch((error) => setScan({ status: "error", data: scan.data, message: error.message }))}
+          onPass1={(direction, tickers, universe) => runScan(direction, tickers, universe).catch((error) => setScan({ status: "error", data: scan.data, message: error.message }))}
           onPass2={() => runPass2().catch((error) => setPass2({ status: "error", message: error.message }))}
           onInspect={(result) => {
             setSingle({ status: "ready", data: result });
