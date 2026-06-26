@@ -122,7 +122,8 @@ export type UtaTickerResult = {
       premarket_regular_elevated?: boolean;
       news_catalyst_present?: boolean;
       macro_regime_supports?: boolean;
-      independent_strong_count?: number;
+      independent_confirmation_count?: number;  // backend field name; was incorrectly typed as independent_strong_count
+      independent_strong_count?: number;         // kept for backward compat with any cached responses
       note?: string;
     };
     trade_boundaries?: string[];

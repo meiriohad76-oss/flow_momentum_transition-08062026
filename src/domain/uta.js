@@ -1414,22 +1414,28 @@ async function loadPolygonUniverseByExchange(config = {}, { exchange, universeId
 }
 
 async function loadLiveUniverseById(universeId = "sp500", config = {}, fallbackUniverse = {}) {
-  // Sector universes: load sp500 then filter by GICS sector
+  // Sector universes: load sp500 then filter by GICS sector.
+  // Both the sp500 base AND the per-sector result are wrapped in cachedUniverseLoad so:
+  // 1. The sp500 Wikipedia fetch only happens once across all sector loads in a session.
+  // 2. The sector filter result is cached separately so repeated sector scans are instant.
   if (SECTOR_UNIVERSE_MAP[universeId]) {
     const sectorName = SECTOR_UNIVERSE_MAP[universeId];
     const meta = SECTOR_UNIVERSE_META[universeId];
-    const sp500 = await loadLiveSp500Universe(config, fallbackUniverse);
-    const sectorTickers = sp500.tickers.filter((t) => t.sector === sectorName);
-    return normalizeLiveUniversePayload({
-      universe_id: universeId,
-      name: universeId,
-      label: `${meta.label} (via S&P 500 sector filter)`,
-      category: "sector",
-      source: sp500.source,
-      last_updated: sp500.last_updated,
-      performance_tier: "fast",
-      estimated_time_seconds: 30,
-      tickers: sectorTickers
+    return cachedUniverseLoad(universeId, async () => {
+      // cachedUniverseLoad("sp500", ...) is the in-memory cache — the disk cache is inside loadLiveSp500Universe.
+      const sp500 = await cachedUniverseLoad("sp500", () => loadLiveSp500Universe(config, fallbackUniverse));
+      const sectorTickers = sp500.tickers.filter((t) => t.sector === sectorName);
+      return normalizeLiveUniversePayload({
+        universe_id: universeId,
+        name: universeId,
+        label: `${meta.label} (via S&P 500 sector filter)`,
+        category: "sector",
+        source: sp500.source,
+        last_updated: sp500.last_updated,
+        performance_tier: "fast",
+        estimated_time_seconds: 30,
+        tickers: sectorTickers
+      });
     });
   }
 

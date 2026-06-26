@@ -44,6 +44,8 @@ function BlufFindings({ data }: { data: UtaTickerResult }) {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const blockFlow = (ta as any)?.block_flow;
   const trfShare: number | null = blockFlow?.trf_share != null ? Number(blockFlow.trf_share) : null;
+  // totalN is used for the per-dollar breakdown in the signed pressure note (separate from trfShare).
+  const totalN = bp?.total_notional ?? 0;
 
   const findings: Array<{ label: string; value: string; conviction: Conviction; note: string; status: Status; diverge?: boolean }> = [
     {
