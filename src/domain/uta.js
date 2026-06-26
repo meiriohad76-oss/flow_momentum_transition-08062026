@@ -965,7 +965,9 @@ function buildProviderReadiness(config = {}, registry = []) {
       operator_copy_missing: "Universe constituents are stale; scan can run with last known universe and a warning."
     },
     {
-      lane_id: "activity_alerts",
+      // "social_sentiment" — distinct lane_id from "activity_alerts" (manual/import) above.
+      // Sharing lane_id: "activity_alerts" causes Map collisions in provider lane state lookups.
+      lane_id: "social_sentiment",
       provider_family: "social_sentiment",
       provider: "stocktwits",
       enabled: Boolean(config.stocktwitsEnabled),
@@ -1432,8 +1434,10 @@ async function loadLiveUniverseById(universeId = "sp500", config = {}, fallbackU
   }
 
   if (universeId === "sp500") {
-    // sp500 has its own disk-cached Wikipedia loader — use it directly (fast, no iShares needed)
-    return loadLiveSp500Universe(config, fallbackUniverse);
+    // Wrap in cachedUniverseLoad so repeated calls within the same server process are instant.
+    // loadLiveSp500Universe has its own disk cache as a second layer, but without cachedUniverseLoad
+    // every scan call hits the disk (or Wikipedia if disk cache TTL is 0, which is the default).
+    return cachedUniverseLoad("sp500", () => loadLiveSp500Universe(config, fallbackUniverse));
   }
 
   if (universeId === "dow30") {
@@ -1872,7 +1876,11 @@ function buildTradeAnalysis({ ticker, classifier, indicators, signing, blocks, b
   const absPressure = Math.abs(pressure);
   const confidence = Number(signing.signing_confidence || 0);
   const ready = baseline?.state === "ready" && inputs.trades.length > 0;
-  const directional = ["bullish", "bearish"].includes(direction) && absPressure >= 0.6 && confidence >= 0.5;
+  // Mirror the tiered threshold from signTradePrints / classifyTier — do NOT use a hardcoded flat gate.
+  // A flat conf >= 0.5 && pressure >= 0.6 gate produces contradictions where classifyTier gives Tier B
+  // ("bullish") but buildTradeAnalysis says "no_directional_setup".
+  const directionalPressureThreshold = confidence >= 0.5 ? 0.60 : confidence >= 0.35 ? 0.72 : 2.0;
+  const directional = ["bullish", "bearish"].includes(direction) && absPressure >= directionalPressureThreshold && confidence >= 0.35;
   const tierRankValue = tierRank(classifier.tier);
   const maxB = Math.max(
     Number(b.volume_zscore || 0),
@@ -1901,7 +1909,7 @@ function buildTradeAnalysis({ ticker, classifier, indicators, signing, blocks, b
   const criteria = [
     {
       id: "signed_pressure_60",
-      label: "Signed pressure on one side >= 60%",
+      label: `Signed pressure on one side >= ${Math.round(directionalPressureThreshold * 100)}% (conf-adjusted threshold)`,
       passed: directional,
       actual: `${roundNumber(pressure * 100, 1)}% ${directionPhrase(direction)}`
     },
@@ -1967,7 +1975,12 @@ function buildTradeAnalysis({ ticker, classifier, indicators, signing, blocks, b
       primary_trigger: directional ? `${direction} signed-flow pressure >= 60%` : "No signed-flow trigger",
       next_trigger_needed: directional
         ? bReviewCount >= 1 ? "Confirm with price/risk/catalyst before trade review." : "Needs B >= 1.5 sigma to become reviewable."
-        : "Needs signed pressure >= 60% and signing confidence >= 50%.",
+        // Dynamic message: mirrors the tiered threshold so operators see the actual requirement.
+        : confidence >= 0.5
+          ? "Needs signed pressure >= 60% with signing confidence >= 50%."
+          : confidence >= 0.35
+          ? `Needs signed pressure >= 72% (stricter because signing confidence is only ${Math.round(confidence * 100)}%, below the 50% standard threshold).`
+          : `Signing confidence is only ${Math.round(confidence * 100)}% — too low to assign direction regardless of pressure. More labeled prints needed.`,
       trade_action: setupStatus === "review_candidate" ? "human_review_candidate" : setupStatus === "watch_only" ? "watch_only" : "no_trade"
     },
     criteria,
@@ -2069,7 +2082,7 @@ function buildTradeAnalysis({ ticker, classifier, indicators, signing, blocks, b
   };
 }
 
-function buildLiveBluf({ ticker, classifier, indicators, signing, blocks, baseline, inputs }) {
+function buildLiveBluf({ ticker, classifier, indicators, signing, blocks, baseline, inputs, corroboration = {} }) {
   const trade = buildTradeAnalysis({
     ticker,
     classifier,
@@ -2079,7 +2092,8 @@ function buildLiveBluf({ ticker, classifier, indicators, signing, blocks, baseli
     baseline,
     inputs,
     latestBar: inputs.bars.at(-1),
-    prevBar: inputs.bars.at(-2)
+    prevBar: inputs.bars.at(-2),
+    corroboration
   });
   const c = indicators.C || {};
   const b = indicators.B || {};
@@ -2190,12 +2204,19 @@ async function buildLiveManualPayload(ticker, context = {}) {
   };
   const latestBar = inputs.bars.at(-1);
   const prevBar = inputs.bars.at(-2);
+  // Note: focus_notional_share and net_notional_pressure are set to 0 for historical sessions
+  // because daily bars don't include print-level signing analysis. This means the B-score
+  // z-scores for those two metrics always return null (MAD=0 → robustZScore returns null),
+  // and bCoreValues effectively only has 2 elements: volume_zscore and notional_zscore.
+  // Tier B therefore requires volume OR notional ≥1.5σ; Tier A requires BOTH ≥2.5σ.
+  // This is a known limitation of bar-only baselines. Full signing baseline would require
+  // running signTradePrints on all 20 historical sessions (expensive).
   const historicalSessions = inputs.bars.slice(0, -1).map((bar) => ({
     date: bar.date,
     volume: bar.volume,
     notional: bar.notional,
-    focus_notional_share: 0,
-    net_notional_pressure: 0
+    focus_notional_share: 0,    // unavailable from bar data — z-score will be null
+    net_notional_pressure: 0    // unavailable from bar data — z-score will be null
   }));
   const baseline = buildBaseline({ ticker, historicalSessions, clock, windowSessions: 20 });
   const normalized = normalizeTradePrints(inputs.trades, policy);
@@ -2219,14 +2240,36 @@ async function buildLiveManualPayload(ticker, context = {}) {
     reference: inputs.reference,
     clock
   });
+  // Auto-compute corroboration before classifyTier — previously hardcoded to 0
+  // which made Tier A mathematically impossible regardless of signal quality.
+  // Only compute signals that can be determined from available bar/print data.
+  // Manual signals (provider_alert, options_flow) remain false — user confirms via UI.
+  const latestClose  = Number(latestBar?.close || latestBar?.vw || 0);
+  const prevClose    = Number(prevBar?.close || 0);
+  const priceVsClose = prevClose > 0 && latestClose > 0
+    ? ((latestClose - prevClose) / prevClose) * 100
+    : null;
+  // price_action_aligned: price moved ≥1% in the same direction as confirmed flow direction.
+  // This is the primary auto-computable Strong corroboration signal.
+  const flowDir = signing.direction; // "bullish" | "bearish" | "neutral"
+  const priceActionAligned =
+    priceVsClose != null && Math.abs(priceVsClose) >= 1 &&
+    ((flowDir === "bullish" && priceVsClose > 0) || (flowDir === "bearish" && priceVsClose < 0));
+  const autoCorroboration = {
+    price_action_aligned: priceActionAligned,
+    premarket_regular_elevated: false, // requires pre-market bar slice not yet available
+    independent_confirmation_count: priceActionAligned ? 1 : 0,
+    provider_alert_confirmed: false    // manual — user confirms via UI
+  };
+
   const classifier = classifyTier({
     mode: "single_ticker",
     indicators,
     laneStates,
-    corroboration: { independent_confirmation_count: 0, provider_alert_confirmed: false },
+    corroboration: autoCorroboration,
     signing
   });
-  const interpretation = buildLiveBluf({ ticker, classifier, indicators, signing, blocks, baseline, inputs });
+  const interpretation = buildLiveBluf({ ticker, classifier, indicators, signing, blocks, baseline, inputs, corroboration: autoCorroboration });
   const generatedAt = clock.iso();
   const payload = {
     schema_version: "uta.ticker_result.v1",
@@ -2794,7 +2837,11 @@ export function createUtaService({ config, store } = {}) {
         started_at: startedAt,
         completed_at: completedAt,
         source_mode: result.payload?.data_state || sourceMode,
-        replay_clock: getReplayPayload("single_ticker").calculation_metadata?.replay_clock || null,
+        // Only call getReplayPayload in replay mode — in live mode the fixture may not exist and
+        // a throw here would crash a successfully completed live cycle during logging.
+        replay_clock: sourceMode === "replay"
+          ? (getReplayPayload("single_ticker").calculation_metadata?.replay_clock || null)
+          : null,
         tickers,
         result_summary: {
           status: result.status,
@@ -3374,7 +3421,8 @@ export function createUtaService({ config, store } = {}) {
         next_trigger_needed: trigger.next_trigger_needed || (analysis.status === 200 ? "Review evidence detail." : "Restore live provider data."),
         anomaly_band: trade.anomaly_band || null,
         evidence_grade: trade.evidence_grade || analysis.payload?.tier || null,
-        signed_pressure: pressure.net_notional_pressure ?? analysis.payload?.indicators?.C?.net_notional_pressure ?? null,
+        // Use net_signed_pressure (labeled-only basis) — matches what classifyTier uses for direction.
+        signed_pressure: pressure.net_signed_pressure ?? analysis.payload?.indicators?.C?.net_signed_pressure ?? pressure.net_notional_pressure ?? null,
         signing_confidence: pressure.signing_confidence ?? analysis.payload?.signing_confidence ?? null,
         volume_ratio: activity.volume_ratio ?? analysis.payload?.indicators?.C?.volume_ratio ?? null,
         notional_ratio: activity.notional_ratio ?? analysis.payload?.indicators?.C?.notional_ratio ?? null,

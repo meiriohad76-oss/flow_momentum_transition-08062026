@@ -338,6 +338,8 @@ export function App() {
   }
 
   async function runScan(direction = "bullish", tickers: string[] = DEFAULT_PORTFOLIO, universe = "sp500") {
+    // Clear pass2 immediately — stale results from a prior run must not stay visible while the new scan loads.
+    setPass2({ status: "idle" });
     setScan((current) => ({ status: "loading", data: current.data, message: "Running live pass 1..." }));
     const params = new URLSearchParams({
       universe,
@@ -354,9 +356,14 @@ export function App() {
 
   async function runPass2() {
     const shortlist = (scan.data?.results || []).map((row) => row.ticker);
+    if (!shortlist.length) {
+      // No tickers from pass1 — surface a proper error rather than silently running on a fallback ticker.
+      setPass2({ status: "error", message: "No tickers from pass 1 — cannot run pass 2. Run a new scan." });
+      return;
+    }
     setPass2((current) => ({ status: "loading", data: current.data, message: "Resolving live pass 2..." }));
     const data = await apiPost<ScanResult>("/api/uta/scan/pass2", {
-      shortlist: shortlist.length ? shortlist : ["AVGO"],
+      shortlist,
       source: LIVE_SOURCE_MODE,
       direction: scan.data?.direction_filter || "bullish"
     });

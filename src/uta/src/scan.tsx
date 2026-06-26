@@ -234,7 +234,8 @@ function ResolvingTable({
   pass2Status
 }: {
   rows: ScanRow[];
-  pass2Status: "idle" | "loading" | "ready";
+  // "error" must be included — otherwise pass2 failures freeze the table with all rows as "Queued".
+  pass2Status: "idle" | "loading" | "ready" | "error";
 }) {
   return (
     <div className="resolving-table">
@@ -253,6 +254,8 @@ function ResolvingTable({
               </>
             ) : isActive ? (
               <span className="rt-resolving">Resolving…</span>
+            ) : pass2Status === "error" ? (
+              <span className="rt-queued-label" style={{ color: "var(--sell)" }}>Pass 2 failed</span>
             ) : (
               <span className="rt-queued-label">
                 {row.preliminary_tier ? `~ ${row.preliminary_tier} est` : "Queued"}
@@ -559,14 +562,21 @@ export function ScanMode({
           <DirectionFilter value={direction} onChange={setDirection} />
           <button
             type="button"
-            disabled={!universe || scan.status === "loading"}
-            onClick={() => onPass1(direction, resolveTickerList(), universe)}
+            // Guard: disable while loading AND while ready (pass1 done, waiting for user) to prevent
+            // double-click race conditions that launch two concurrent API requests.
+            disabled={!universe || scan.status === "loading" || scan.status === "ready"}
+            onClick={() => {
+              if (!universe || scan.status !== "idle") return; // belt-and-suspenders guard
+              onPass1(direction, resolveTickerList(), universe);
+            }}
           >
             Run scan
           </button>
           <SavedScans
             scans={savedScans || []}
             onLoad={(s) => {
+              // Reset scan state first — otherwise old results stay visible while form shows new universe.
+              onReset();
               setUniverse(String(s.universe || ""));
               setDirection((s.direction as "bullish" | "bearish" | "both") || "bullish");
             }}
@@ -574,7 +584,7 @@ export function ScanMode({
         </div>
       )}
 
-      {/* Running / Pass-1 done */}
+      {/* Running / Pass-1 done — show when loading OR when pass1 ready but pass2 not yet started/done */}
       {(scan.status === "loading" || (scan.status === "ready" && pass2.status !== "ready")) && (
         <div className="scan-running">
           <ScanFunnel
@@ -586,7 +596,15 @@ export function ScanMode({
             isRunning={scan.status === "loading" || isPass2Running}
           />
           {allRows.length > 0 && (
-            <ResolvingTable rows={allRows} pass2Status={pass2.status} />
+            <ResolvingTable rows={allRows} pass2Status={pass2.status as "idle" | "loading" | "ready" | "error"} />
+          )}
+          {/* Cancel button while pass1 is still loading — prevents user being trapped during slow scans */}
+          {scan.status === "loading" && (
+            <div className="pass1-actions">
+              <button type="button" className="new-scan-btn" onClick={onReset}>
+                ✕ Cancel scan
+              </button>
+            </div>
           )}
           {scan.status === "ready" && pass2.status === "idle" && (
             <div className="pass1-actions">
@@ -598,11 +616,27 @@ export function ScanMode({
               </button>
             </div>
           )}
+          {/* pass2 error — show inline under the resolving table with a retry path */}
+          {scan.status === "ready" && pass2.status === "error" && (
+            <div className="scan-error">
+              <p className="scan-error-msg">
+                ⚠️ Pass 2 failed: {(pass2 as { status: string; message?: string }).message || "Unknown error"}
+              </p>
+              <button type="button" className="scan-retry-btn" onClick={() => onPass2()}>
+                Retry Pass 2
+              </button>
+              <button type="button" className="new-scan-btn" onClick={onReset}>
+                ↩ New scan
+              </button>
+            </div>
+          )}
         </div>
       )}
 
-      {/* Results — show when pass-1 or pass-2 data available */}
-      {(pass2.status === "ready" || scan.status === "ready") && (
+      {/* Results — only show when pass2 is actually ready (not when pass1 is ready but pass2 hasn't run).
+          Previously used (pass2.status === "ready" || scan.status === "ready") which caused both
+          the pass1-done view and the results view to render simultaneously. */}
+      {pass2.status === "ready" && (
         <div className="scan-results">
           <div className="scan-results-topbar">
             <RefinementBar

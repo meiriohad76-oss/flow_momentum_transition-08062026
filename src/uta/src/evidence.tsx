@@ -27,19 +27,23 @@ function BlufFindings({ data }: { data: UtaTickerResult }) {
   const dirCap = dir === "bullish" ? "Buyer" : dir === "bearish" ? "Seller" : "Undetermined";
   const dirFlow = dir === "bullish" ? "buy" : dir === "bearish" ? "sell" : "undetermined";
 
-  // Detect flow/price divergence for the "Signed flow pressure" finding
-  const signedPressure = Number(ta?.pressure?.net_signed_pressure ?? pressure);
+  // Detect flow/price divergence for the "Signed flow pressure" finding.
+  // Fallback chain mirrors BlufCard: net_signed_pressure → C.net_notional_pressure.
+  // Do NOT fall back to ta?.pressure?.net_notional_pressure (adds a divergent 3rd level).
+  const signedPressure = Number(ta?.pressure?.net_signed_pressure ?? C.net_notional_pressure ?? 0);
   // Prefer intraday change (current vs today's open) — removes overnight gap noise from divergence detection.
   const priceChg = ta?.activity?.intraday_change_pct ?? ta?.activity?.price_change_pct;
   const priceChgContext = ta?.activity?.intraday_change_pct != null ? "intraday" : "vs prior close";
   const priceSide = priceChg != null ? (priceChg < -1 ? "bearish" : priceChg > 1 ? "bullish" : "flat") : null;
   const diverging = priceSide != null && priceSide !== "flat" && priceSide !== dir && dir !== "undetermined";
 
-  // Dark pool / TRF share — surfaced as its own signal, not diluting directed pressure
+  // Dark pool / TRF share — read from block_flow.trf_share (off-exchange routing %).
+  // Do NOT compute from pressure.unsigned_notional / pressure.total_notional — that is
+  // (1 − signing_confidence), a completely different metric (unidentifiable prints, not venue routing).
   const bp = ta?.pressure as Record<string, number> | undefined;
-  const totalN = bp?.total_notional ?? 0;
-  const unsignedN = bp?.unsigned_notional ?? 0;
-  const trfShare = totalN > 0 ? unsignedN / totalN : null;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const blockFlow = (ta as any)?.block_flow;
+  const trfShare: number | null = blockFlow?.trf_share != null ? Number(blockFlow.trf_share) : null;
 
   const findings: Array<{ label: string; value: string; conviction: Conviction; note: string; status: Status; diverge?: boolean }> = [
     {
@@ -71,7 +75,9 @@ function BlufFindings({ data }: { data: UtaTickerResult }) {
     {
       label: "Block / focus prints",
       value: `${focusCnt} print${focusCnt !== 1 ? "s" : ""}`,
-      conviction: focusCnt >= 3 ? "strong" : focusCnt >= 1 ? "moderate" : "none",
+      // Align with backend cExtreme definition: focus_trade_count >= 2 = extreme (classifyTier line ~643).
+      // Using >= 5 as our display "Extreme" to represent clearly above the cExtreme floor.
+      conviction: focusCnt >= 5 ? "extreme" : focusCnt >= 2 ? "strong" : focusCnt >= 1 ? "moderate" : "none",
       note: focusCnt >= 3
         ? `${focusCnt} institutional-size trades confirmed — block buyers or sellers are active`
         : focusCnt > 0
@@ -94,7 +100,8 @@ function BlufFindings({ data }: { data: UtaTickerResult }) {
         : trfShare >= 0.15
         ? `${Math.round(trfShare * 100)}% off-exchange — moderate, within normal range for this market. Most activity is visible on lit exchanges.`
         : `${Math.round(trfShare * 100)}% off-exchange — low. The vast majority of activity traded on lit exchanges, so the signing confidence and directional read are reliable.`,
-      status: trfShare == null ? "fail" : trfShare >= 0.3 ? "warn" : "pass",
+      // Escalate to "fail" (red ✗) at Extreme — conviction and status must agree.
+      status: trfShare == null ? "fail" : trfShare >= 0.5 ? "fail" : trfShare >= 0.3 ? "warn" : "pass",
     },
     {
       label: "Signed flow pressure",
@@ -149,14 +156,17 @@ function BlufFindings({ data }: { data: UtaTickerResult }) {
     {
       label: "Signing confidence",
       value: fmtPct(conf),
-      conviction: conf >= 0.7 ? "strong" : conf >= 0.5 ? "moderate" : conf >= 0.35 ? "weak" : "none",
-      note: conf >= 0.7
-        ? `${fmtPct(conf)} of dollar flow could be labeled (buyer vs. seller identified). High confidence — the direction signal is trustworthy.`
+      // ≥85% labeled = almost all activity is on lit exchanges, direction very reliable
+      conviction: conf >= 0.85 ? "extreme" : conf >= 0.7 ? "strong" : conf >= 0.5 ? "moderate" : conf >= 0.35 ? "weak" : "none",
+      note: conf >= 0.85
+        ? `${fmtPct(conf)} of dollar flow labeled — almost all trading is on lit exchanges. The direction read is as reliable as it gets.`
+        : conf >= 0.7
+        ? `${fmtPct(conf)} of dollar flow labeled (buyer vs. seller identified). High confidence — the direction signal is trustworthy. The remaining ${fmtPct(1 - conf)} traded off-exchange or at mid-price.`
         : conf >= 0.5
         ? `${fmtPct(conf)} of dollar flow labeled. The remaining ${fmtPct(1 - conf)} traded off-exchange or at mid-price where direction can't be determined. Direction is meaningful but not ideal.`
         : conf >= 0.35
-        ? `${fmtPct(conf)} labeled — below the 50% standard threshold. Direction requires ≥72% signed pressure to confirm at this confidence level (stricter than the normal 60%). If labeled flow is overwhelmingly one-sided, direction can still be assigned.`
-        : `Only ${fmtPct(conf)} of dollar flow could be labeled — too few to trust the direction signal. The ${fmtPct(1 - conf)} dark-pool and mid-market volume dominates this session.`,
+        ? `${fmtPct(conf)} labeled — below the 50% standard threshold. To compensate, direction requires ≥72% signed pressure (instead of the normal 60%) before it can be confirmed. If labeled flow is overwhelmingly one-sided, direction can still be assigned.`
+        : `Only ${fmtPct(conf)} of dollar flow could be labeled — too few to trust the direction signal. Direction will not be assigned below 35% confidence regardless of signed pressure.`,
       status: conf >= 0.5 ? "pass" : conf >= 0.35 ? "warn" : "fail",
     },
   ];
@@ -362,13 +372,16 @@ export function CorroborationPanel({ data }: { data: UtaTickerResult }) {
   // Tier D has no computed corroboration — show nothing
   if (String(data.tier || "D").toUpperCase() === "D") return null;
   const corr = data.trade_analysis?.corroboration || {};
-  const strongCount = corr.independent_strong_count || 0;
+  // Backend emits independent_confirmation_count (not independent_strong_count — types.ts was wrong).
+  const strongCount = corr.independent_confirmation_count || corr.independent_strong_count || 0;
   const isUndetermined = data.direction !== "bullish" && data.direction !== "bearish";
 
   // Rows: [label, value, weight, hint-when-unconfirmed, source]
   // source: "auto" = backend computes from bar/print data | "manual" = requires external check
   // Prefer intraday change (vs today's open) to avoid overnight gap distorting corroboration logic.
   const priceChg = data.trade_analysis?.activity?.intraday_change_pct ?? data.trade_analysis?.activity?.price_change_pct;
+  // Label matches actual comparison: "intraday" when using open-relative change, "vs prior close" otherwise.
+  const priceChgCtx = data.trade_analysis?.activity?.intraday_change_pct != null ? "intraday" : "vs prior close";
 
   function getCorrDataLine(id: string, passed: boolean | undefined): { dataLine: string; interpText: string } {
     const today = new Date().toLocaleDateString("en-US", { month: "short", day: "numeric" });
@@ -381,11 +394,11 @@ export function CorroborationPanel({ data }: { data: UtaTickerResult }) {
         const flowDir = sp >= 0 ? "bullish" : "bearish";
         const diverges = (priceChg > 1 && flowDir === "bearish") || (priceChg < -1 && flowDir === "bullish");
         if (!isUndetermined && diverges) return {
-          dataLine: `Price ${chgStr} vs prior close — moving AGAINST ${dirWord} flow ⚠`,
+          dataLine: `Price ${chgStr} ${priceChgCtx} — moving AGAINST ${dirWord} flow ⚠`,
           interpText: `A price move against the flow direction may indicate distribution (selling into strength) or a false signal. Watch for price to stall or reverse before treating this as a confirmed ${dirWord} setup.`
         };
         return {
-          dataLine: `Price ${chgStr} vs prior close — moves WITH ${dirWord} flow ✓`,
+          dataLine: `Price ${chgStr} ${priceChgCtx} — moves WITH ${dirWord} flow ✓`,
           interpText: "Price and flow direction agree — a corroborating signal. Strongest when the price move preceded the volume spike."
         };
       }
@@ -449,12 +462,14 @@ export function CorroborationPanel({ data }: { data: UtaTickerResult }) {
       {isUndetermined && (() => {
         const rawPressure = Number(data.trade_analysis?.pressure?.net_signed_pressure ?? data.indicators?.C?.net_notional_pressure ?? 0);
         const rawPct = fmtNumber(Math.abs(rawPressure) * 100, 1);
-        // The "signed pressure" in the header tile is net_notional_pressure expressed vs own history (a Z-score-like percentile).
-        // The "6.x%" here is the RAW buyer/seller split — these are different metrics.
-        const bp = data.trade_analysis?.pressure as Record<string, number> | undefined;
-        const totalN = bp?.buy_notional != null && bp?.sell_notional != null ? bp.buy_notional + bp.sell_notional + (bp.unsigned_notional ?? 0) : null;
-        const buyPct = totalN && totalN > 0 ? Math.round((bp!.buy_notional / totalN) * 100) : null;
-        const sellPct = totalN && totalN > 0 ? Math.round((bp!.sell_notional / totalN) * 100) : null;
+        const bpUnd = data.trade_analysis?.pressure as Record<string, number> | undefined;
+        // Use pressure.total_notional directly — do NOT reconstruct from buy+sell+unsigned parts,
+        // which silently drops the dollar breakdown if any component is null.
+        const totalNUnd = bpUnd?.total_notional ?? null;
+        const buyPct = totalNUnd && totalNUnd > 0 && bpUnd?.buy_notional != null
+          ? Math.round((bpUnd.buy_notional / totalNUnd) * 100) : null;
+        const sellPct = totalNUnd && totalNUnd > 0 && bpUnd?.sell_notional != null
+          ? Math.round((bpUnd.sell_notional / totalNUnd) * 100) : null;
         const splitStr = buyPct != null && sellPct != null
           ? ` — of every $100 traded, ~$${buyPct} was buyer-initiated, ~$${sellPct} seller-initiated`
           : "";
@@ -465,7 +480,7 @@ export function CorroborationPanel({ data }: { data: UtaTickerResult }) {
               <b>Why there is no direction:</b> "Signed pressure" is the net imbalance between buy-initiated and sell-initiated dollar flow — trades where the algorithm can tell who drove the print (buyer lifting the ask vs. seller hitting the bid). Here it is only <b>{rawPct}%{splitStr}</b>. That is nearly 50/50 — buyers and sellers are both active at scale. The system requires ≥60% on one side to call a direction.
             </p>
             <p className="corr-und-body">
-              <b>What the big number in the header means:</b> The <em>Signed pressure</em> tile shows how today's flow compares to this ticker's own 20-session history — not the raw buy/sell split. A reading of −93% means today's balance is more sell-tilted than 93% of its own sessions, even though the actual net imbalance is only {rawPct}%.
+              <b>What the "Signed pressure" tile in the header shows:</b> The <em>Signed pressure</em> stat shows the raw net imbalance among labeled trades — it is a ratio, not a percentile. If it shows −72%, that means 72% net of labeled dollar flow was sell-initiated. It is the signed-only basis (dark pool / unsigned volume is excluded from the denominator). A large number means labeled flow is heavily one-sided; it does NOT mean "more sell-tilted than X% of its own sessions" — that interpretation belongs to the B-score / anomaly band.
             </p>
             <p className="corr-und-body">
               <b>What this likely means:</b> Extreme volume with a balanced two-sided flow is a classic <em>distribution-or-accumulation</em> pattern — institutional money on both sides, or a large position being rotated. The volume is real. The edge is not confirmed yet.
@@ -622,8 +637,10 @@ function BlockOffExchangeBody({ data }: { data: UtaTickerResult }) {
   const C = data.indicators.C;
   const B = data.indicators.B;
 
-  const trfShare = Number(bf?.trf_share ?? C.focus_notional_share ?? 0);
-  const litShare = 1 - trfShare;
+  // trf_share = off-exchange routing fraction from block_flow (the actual dark pool / TRF share).
+  // Do NOT fall back to C.focus_notional_share — that is institutional-print share, a different metric.
+  const trfShare = bf?.trf_share != null ? Number(bf.trf_share) : null;
+  const litShare = trfShare != null ? 1 - trfShare : null;
   const focusCount = Number(bf?.focus_trade_count ?? C.focus_trade_count ?? 0);
   const pressure = Number(C.net_notional_pressure ?? 0);
 
@@ -636,18 +653,20 @@ function BlockOffExchangeBody({ data }: { data: UtaTickerResult }) {
       : null;
   const floorLabel = inferredFloor != null ? fmtMoney(inferredFloor) : "$500K";
 
-  // Venue split bar
-  const venueMix: MixSegment[] = [
+  // Venue split bar — only render when trf_share is available; show N/A otherwise.
+  const venueMix: MixSegment[] = trfShare != null ? [
     { label: "Off-exchange / TRF / dark pool", value: trfShare, colour: "var(--accent)" },
-    { label: "Lit exchange", value: litShare, colour: "var(--border-strong)" }
-  ];
+    { label: "Lit exchange", value: litShare ?? 0, colour: "var(--border-strong)" }
+  ] : [];
 
   // Narrative sentence
   function buildNarrative(): string {
     if (focusCount === 0) return "No institutional-size prints detected this session — monitor for block activity.";
     const focusStr = bf?.focus_notional ? fmtMoney(bf.focus_notional) : `${focusCount} print${focusCount !== 1 ? "s" : ""}`;
     const multipleStr = bf?.largest_print_multiple ? ` · ${fmtNumber(bf.largest_print_multiple, 1)}× the ${floorLabel} floor` : "";
-    const venueDesc = trfShare < 0.05
+    const venueDesc = trfShare == null
+      ? "venue data unavailable"
+      : trfShare < 0.05
       ? "entirely on lit exchanges"
       : trfShare > 0.95
       ? "entirely off-exchange (dark pool / TRF)"
@@ -788,8 +807,10 @@ function BlockOffExchangeBody({ data }: { data: UtaTickerResult }) {
         </div>
         <div>
           <div className="uplabel">TRF / dark pool share</div>
-          <div className="mono ev-hero-val">{fmtNumber(trfShare * 100, 0)}%</div>
-          <div className="ev-hero-sub">{trfShare < 0.05 ? "All lit exchange" : `${fmtNumber(trfShare * 100, 0)}% off-exchange`}</div>
+          <div className="mono ev-hero-val">{trfShare != null ? `${fmtNumber(trfShare * 100, 0)}%` : "N/A"}</div>
+          <div className="ev-hero-sub">
+            {trfShare == null ? "not available" : trfShare < 0.05 ? "All lit exchange" : `${fmtNumber(trfShare * 100, 0)}% off-exchange`}
+          </div>
         </div>
         <div>
           <div className="uplabel">Largest print</div>
