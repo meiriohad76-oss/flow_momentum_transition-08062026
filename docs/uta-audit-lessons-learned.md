@@ -187,6 +187,35 @@ The frontend conviction label for a signal ("Extreme / Strong / Moderate / Weak"
 
 ---
 
+---
+
+## 11. Cross-Component Label Consistency: Same Metric, Same Name, Same Threshold Everywhere
+
+### The rule
+When the same metric is shown in multiple places (RECOMMENDATION text, evidence row, pill badge, BLUF section, backend narrative), every occurrence must:
+1. Use the **same variable** (not different variables that have the same name but different denominators)
+2. Show the **same threshold** (not the old flat gate in one place and the conf-adjusted gate in another)
+3. Use a **label that matches what the number actually measures** — not a generic term that fits the closest concept
+
+### Bugs caused by cross-component inconsistency (Audit 3 findings)
+- **RECOMMENDATION "NO directional edge: signed pressure is only 46.3%"** while the evidence row directly below said **"Bullish directional edge confirmed (98.5%)"** — both were on the same screen. The RECOMMENDATION used `net_notional_pressure` (46.3%) but the evidence row used `net_signed_pressure` (98.5%). Same screen, same signal, two different metrics with different names used interchangeably.
+- **"Direction confidence 44%"** pill — 44% is the **signing coverage** (fraction of dollar flow that got directional labels), not the confidence that the direction call is correct. With 86% signed pressure, the direction call is highly confident. The label was wrong.
+- **"+86.1% labeled"** in the evidence row — "labeled" was opaque. "Signed" is the correct term (matches "signed flow pressure", the name of the metric).
+- **RECOMMENDATION "≥60% threshold met"** when the actual conf-adjusted threshold was 72% (signing coverage < 50%). The recommendation was showing the old threshold, not the one actually applied.
+- **Backend `why_it_matters`: "net notional pressure is 86.1%"** — but the variable used was `net_signed_pressure`. The label described the wrong metric.
+
+### Why audits miss this class of bug
+Audits that check calculations in isolation miss **cross-component semantic consistency**. A calculation audit verifies that `net_signed_pressure` is computed correctly. It does not verify that the RECOMMENDATION text, which runs in a completely separate code path, uses `net_signed_pressure` rather than `net_notional_pressure` — especially if both happen to have values that make the same directional conclusion in most test cases.
+
+### How to prevent it
+- For every metric that appears in more than one place, list all occurrences and verify each uses the identical variable and the same threshold.
+- **Read the screen as a user would.** If the RECOMMENDATION says "X" and the row directly below says "not X", the audit failed.
+- Pill badges that show percentages must be cross-checked: what does the number measure? What would a user assume it means? If those differ, the label is wrong.
+- Threshold values in display text must be derived from the same constant as the actual gate — never typed as a literal.
+- **Audit cross-component paths independently:** the backend narrative (`bluf.why_it_matters`) and the frontend RECOMMENDATION are two independent code paths that can silently disagree on metric names.
+
+---
+
 ## Summary Checklist — Before Merging Any UTA Change
 
 ```
@@ -202,4 +231,8 @@ The frontend conviction label for a signal ("Extreme / Strong / Moderate / Weak"
 [ ] Display descriptions accurately describe the metric shown (test with example values)
 [ ] Conviction thresholds align with backend cExtreme/bExtreme definitions
 [ ] New universe loaders are wrapped in cachedUniverseLoad
+[ ] CROSS-COMPONENT: for every metric shown in multiple places, verify same variable + same threshold in all occurrences
+[ ] CROSS-COMPONENT: read the assembled screen as a user — RECOMMENDATION and evidence rows must not contradict each other
+[ ] CROSS-COMPONENT: pill/badge labels describe what the number actually measures (not the closest-sounding concept)
+[ ] CROSS-COMPONENT: backend narrative text (bluf, why_it_matters) uses the same variable name as the frontend display
 ```
