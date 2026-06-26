@@ -456,6 +456,7 @@ export function App() {
             setActiveTicker(result.ticker);
             setMode("single");
           }}
+          onReset={() => { setScan({ status: "idle" }); setPass2({ status: "idle" }); }}
           savedScans={userState?.state.saved_scans || []}
         />
       );

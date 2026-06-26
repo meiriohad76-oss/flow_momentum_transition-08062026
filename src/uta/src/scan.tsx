@@ -504,6 +504,7 @@ export function ScanMode({
   onPass1,
   onPass2,
   onInspect,
+  onReset,
   savedScans
 }: {
   scan: LoadState<ScanResult>;
@@ -511,6 +512,7 @@ export function ScanMode({
   onPass1: (direction: string, tickers: string[], universe: string) => void;
   onPass2: () => void;
   onInspect: (result: UtaTickerResult) => void;
+  onReset: () => void;
   savedScans?: Array<Record<string, unknown>>;
 }) {
   const [universe, setUniverse] = useState("");
@@ -622,6 +624,18 @@ export function ScanMode({
           {resultRows.length === 0 && (
             <p className="empty">No results match the current filter.</p>
           )}
+        </div>
+      )}
+
+      {/* Error state — show message and allow retrying */}
+      {scan.status === "error" && (
+        <div className="scan-error">
+          <p className="scan-error-msg">
+            ⚠️ Scan failed: {scan.message || "Unknown error"}
+          </p>
+          <button type="button" className="scan-retry-btn" onClick={onReset}>
+            Try again
+          </button>
         </div>
       )}
     </section>

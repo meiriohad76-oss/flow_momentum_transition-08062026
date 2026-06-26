@@ -1313,15 +1313,21 @@ function parseISharesHoldingsCsv(csv = "") {
 }
 
 // Fetch holdings for an iShares ETF by ticker symbol.
-// iShares URL pattern is stable across all BlackRock ETFs.
+// iShares URL pattern: /us/products/{productId}/{pageId}.ajax
+// The pageId (1467271812596) is appended by the URL template — do NOT include it here.
 const ISHARES_ETF_IDS = {
-  IWM: "239710/ishares-russell-2000-etf/1467271812596",
-  IWB: "239707/ishares-russell-1000-etf/1467271812596",
-  IJH: "239637/ishares-sp-midcap-400-etf/1467271812596",
-  IJR: "239716/ishares-core-sp-small-cap-etf/1467271812596",
-  IVV: "239726/ishares-core-sp-500-etf/1467271812596",
-  IWF: "239706/ishares-russell-1000-growth-etf/1467271812596",
+  IWM: "239710/ishares-russell-2000-etf",
+  IWB: "239707/ishares-russell-1000-etf",
+  IJH: "239637/ishares-sp-midcap-400-etf",
+  IJR: "239716/ishares-core-sp-small-cap-etf",
+  IVV: "239726/ishares-core-sp-500-etf",
+  IWF: "239706/ishares-russell-1000-growth-etf",
 };
+
+// In-memory cache for universe constituent lists (non-sp500).
+// Prevents re-fetching Wikipedia/iShares on every scan during the same process lifetime.
+// Key: universeId, Value: { data, fetchedAt }
+const _universeFetchCache = new Map();
 
 async function loadISharesEtfHoldings(config = {}, { etfTicker, universeId, label, category = "index", minTickers, performance_tier = "standard", estimated_time_seconds = 120 }) {
   const etfId = ISHARES_ETF_IDS[etfTicker];
@@ -1349,6 +1355,20 @@ async function loadUniverseWithFallback(primary, fallbackFn) {
   if (fb.tickers.length > 0) return fb;
   // Both failed — return primary result which carries the warning
   return result;
+}
+
+// In-memory cache wrapper: fetch the universe once per process lifetime (or until TTL expires).
+// TTL defaults to 12 hours — long enough to survive a full trading day.
+async function cachedUniverseLoad(universeId, loaderFn, ttlMs = 12 * 60 * 60 * 1000) {
+  const entry = _universeFetchCache.get(universeId);
+  if (entry && (Date.now() - entry.fetchedAt) < ttlMs && entry.data.tickers.length > 0) {
+    return { ...entry.data, cache_state: "memory_cache" };
+  }
+  const data = await loaderFn();
+  if (data.tickers.length > 0) {
+    _universeFetchCache.set(universeId, { data, fetchedAt: Date.now() });
+  }
+  return data;
 }
 
 // Polygon reference/tickers — fetches common stocks for a given exchange MIC code.
@@ -1404,48 +1424,44 @@ async function loadLiveUniverseById(universeId = "sp500", config = {}, fallbackU
   }
 
   if (universeId === "sp500") {
-    // iShares IVV → Wikipedia fallback (sp500 already has its own caching loader)
-    return loadUniverseWithFallback(
-      loadISharesEtfHoldings(config, { etfTicker: "IVV", universeId: "sp500", label: "S&P 500 live constituents", minTickers: 480, performance_tier: "standard", estimated_time_seconds: 180 }),
-      () => loadLiveSp500Universe(config, fallbackUniverse)
-    );
+    // sp500 has its own disk-cached Wikipedia loader — use it directly (fast, no iShares needed)
+    return loadLiveSp500Universe(config, fallbackUniverse);
   }
 
   if (universeId === "dow30") {
-    return loadUniverseWithFallback(
+    return cachedUniverseLoad("dow30", () => loadUniverseWithFallback(
       // No iShares ETF for DOW 30 in our map — go straight to Wikipedia (DIA is SSGA, different format)
       loadLiveIndexFromWikipedia(config, { url: "https://en.wikipedia.org/wiki/Dow_Jones_Industrial_Average", universeId: "dow30", label: "DOW 30 live constituents", minTickers: 25, performance_tier: "fast", estimated_time_seconds: 20 }),
       () => Promise.resolve(normalizeLiveUniversePayload({ ...fallbackUniverse, universe_id: "dow30" }))
-    );
+    ));
   }
 
   if (universeId === "nasdaq100") {
-    return loadUniverseWithFallback(
+    return cachedUniverseLoad("nasdaq100", () => loadUniverseWithFallback(
       loadLiveIndexFromWikipedia(config, { url: "https://en.wikipedia.org/wiki/Nasdaq-100", universeId: "nasdaq100", label: "NASDAQ-100 live constituents", minTickers: 80, performance_tier: "fast", estimated_time_seconds: 60 }),
       () => Promise.resolve(normalizeLiveUniversePayload({ ...fallbackUniverse, universe_id: "nasdaq100" }))
-    );
+    ));
   }
 
   if (universeId === "sp400") {
-    return loadUniverseWithFallback(
+    return cachedUniverseLoad("sp400", () => loadUniverseWithFallback(
       loadISharesEtfHoldings(config, { etfTicker: "IJH", universeId: "sp400", label: "S&P 400 Mid live constituents", minTickers: 380, performance_tier: "standard", estimated_time_seconds: 180 }),
       () => loadLiveIndexFromWikipedia(config, { url: "https://en.wikipedia.org/wiki/List_of_S%26P_400_companies", universeId: "sp400", label: "S&P 400 Mid live constituents", minTickers: 380, performance_tier: "standard", estimated_time_seconds: 180 })
-    );
+    ));
   }
 
   if (universeId === "sp600") {
-    return loadUniverseWithFallback(
+    return cachedUniverseLoad("sp600", () => loadUniverseWithFallback(
       loadISharesEtfHoldings(config, { etfTicker: "IJR", universeId: "sp600", label: "S&P 600 Small live constituents", minTickers: 580, performance_tier: "extended", estimated_time_seconds: 360 }),
       () => loadLiveIndexFromWikipedia(config, { url: "https://en.wikipedia.org/wiki/List_of_S%26P_600_companies", universeId: "sp600", label: "S&P 600 Small live constituents", minTickers: 580, performance_tier: "extended", estimated_time_seconds: 360 })
-    );
+    ));
   }
 
   if (universeId === "russell1000") {
-    // iShares IWB is the authoritative source for Russell 1000
-    return loadUniverseWithFallback(
+    // iShares IWB is the authoritative source for Russell 1000; fallback: sp500 + sp400 combined
+    return cachedUniverseLoad("russell1000", () => loadUniverseWithFallback(
       loadISharesEtfHoldings(config, { etfTicker: "IWB", universeId: "russell1000", label: "Russell 1000 live constituents", minTickers: 900, performance_tier: "extended", estimated_time_seconds: 600 }),
       async () => {
-        // Fallback: sp500 + sp400 combined
         const [sp500, sp400] = await Promise.all([
           loadLiveSp500Universe(config, fallbackUniverse),
           loadLiveIndexFromWikipedia(config, { url: "https://en.wikipedia.org/wiki/List_of_S%26P_400_companies", universeId: "sp400", label: "S&P 400", minTickers: 200, performance_tier: "extended", estimated_time_seconds: 300 })
@@ -1454,15 +1470,14 @@ async function loadLiveUniverseById(universeId = "sp500", config = {}, fallbackU
         const combined = [...sp500.tickers, ...sp400.tickers].filter((t) => { if (seen.has(t.symbol)) return false; seen.add(t.symbol); return true; });
         return normalizeLiveUniversePayload({ universe_id: "russell1000", name: "russell1000", label: "Russell 1000 (approx via S&P 500 + S&P 400)", category: "index", source: "wikipedia_combined", last_updated: nowIso(), performance_tier: "extended", estimated_time_seconds: 600, tickers: combined });
       }
-    );
+    ));
   }
 
   if (universeId === "russell2000") {
-    // iShares IWM is the authoritative source for Russell 2000
-    return loadUniverseWithFallback(
+    // iShares IWM is the authoritative source for Russell 2000; fallback: sp400 + sp600 combined
+    return cachedUniverseLoad("russell2000", () => loadUniverseWithFallback(
       loadISharesEtfHoldings(config, { etfTicker: "IWM", universeId: "russell2000", label: "Russell 2000 live constituents", minTickers: 1800, performance_tier: "extended", estimated_time_seconds: 900 }),
       async () => {
-        // Fallback: sp400 + sp600 combined
         const [sp400, sp600] = await Promise.all([
           loadLiveIndexFromWikipedia(config, { url: "https://en.wikipedia.org/wiki/List_of_S%26P_400_companies", universeId: "sp400", label: "S&P 400", minTickers: 200, performance_tier: "extended", estimated_time_seconds: 300 }),
           loadLiveIndexFromWikipedia(config, { url: "https://en.wikipedia.org/wiki/List_of_S%26P_600_companies", universeId: "sp600", label: "S&P 600", minTickers: 200, performance_tier: "extended", estimated_time_seconds: 300 })
@@ -1471,19 +1486,19 @@ async function loadLiveUniverseById(universeId = "sp500", config = {}, fallbackU
         const combined = [...sp400.tickers, ...sp600.tickers].filter((t) => { if (seen.has(t.symbol)) return false; seen.add(t.symbol); return true; });
         return normalizeLiveUniversePayload({ universe_id: "russell2000", name: "russell2000", label: "Russell 2000 (approx via S&P Mid + Small Cap)", category: "index", source: "wikipedia_combined", last_updated: nowIso(), performance_tier: "extended", estimated_time_seconds: 900, tickers: combined });
       }
-    );
+    ));
   }
 
   if (universeId === "nyse_arca") {
-    return loadPolygonUniverseByExchange(config, { exchange: "ARCX", universeId: "nyse_arca", label: "NYSE Arca live constituents", performance_tier: "standard", estimated_time_seconds: 240 });
+    return cachedUniverseLoad("nyse_arca", () => loadPolygonUniverseByExchange(config, { exchange: "ARCX", universeId: "nyse_arca", label: "NYSE Arca live constituents", performance_tier: "standard", estimated_time_seconds: 240 }));
   }
 
   if (universeId === "nyse_listed") {
-    return loadPolygonUniverseByExchange(config, { exchange: "XNYS", universeId: "nyse_listed", label: "NYSE Listed live constituents", performance_tier: "extended", estimated_time_seconds: 600 });
+    return cachedUniverseLoad("nyse_listed", () => loadPolygonUniverseByExchange(config, { exchange: "XNYS", universeId: "nyse_listed", label: "NYSE Listed live constituents", performance_tier: "extended", estimated_time_seconds: 600 }));
   }
 
   if (universeId === "nasdaq_cm") {
-    return loadPolygonUniverseByExchange(config, { exchange: "XNAS", universeId: "nasdaq_cm", label: "NASDAQ Listed live constituents", performance_tier: "extended", estimated_time_seconds: 900 });
+    return cachedUniverseLoad("nasdaq_cm", () => loadPolygonUniverseByExchange(config, { exchange: "XNAS", universeId: "nasdaq_cm", label: "NASDAQ Listed live constituents", performance_tier: "extended", estimated_time_seconds: 900 }));
   }
 
   // Truly unsupported universe — return a stub so the caller can show a clear error
