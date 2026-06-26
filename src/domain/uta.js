@@ -429,11 +429,17 @@ export function signTradePrints(normalizedResult = {}, priceContext = {}) {
   const signedOnlyNotional = buyNotional + sellNotional;
   const netSignedPressure = signedOnlyNotional > 0 ? signedNotional / signedOnlyNotional : null;
 
-  // Direction: use signed-only pressure with a confidence floor.
-  // "Of the prints we COULD label, are ≥60% net one-sided?" + "did we label enough to trust it?"
+  // Direction: signed-only pressure with a TIERED confidence floor.
+  // Modern US equities have 35-55% dark pool / TRF volume — requiring ≥50% signing
+  // confidence as a binary gate makes Tier B/A mathematically unreachable for most stocks.
+  // Instead use a sliding scale: lower confidence → higher pressure required.
+  //   signingConf ≥ 0.50 → need ≥60% signed pressure  (high confidence, normal threshold)
+  //   signingConf ≥ 0.35 → need ≥72% signed pressure  (moderate confidence, stricter threshold)
+  //   signingConf < 0.35 → direction = "neutral"        (too few labeled prints to trust)
+  const dirPressureThreshold = signingConf >= 0.5 ? 0.60 : signingConf >= 0.35 ? 0.72 : 2.0;
   const direction =
-    signingConf >= 0.5 && Number(netSignedPressure) >= 0.6 ? "bullish"
-    : signingConf >= 0.5 && Number(netSignedPressure) <= -0.6 ? "bearish"
+    Number(netSignedPressure) >= dirPressureThreshold ? "bullish"
+    : Number(netSignedPressure) <= -dirPressureThreshold ? "bearish"
     : "neutral";
 
   const totalMethodBreakdown = Object.fromEntries(
@@ -608,7 +614,9 @@ export function classifyTier({ mode = "single_ticker", indicators = {}, laneStat
   // is capped at signing_confidence and can never reach 0.60 when conf < 0.60.
   const signedPressure = Number(c.net_signed_pressure ?? signing.net_signed_pressure ?? c.net_notional_pressure ?? signing.net_notional_pressure ?? 0);
   const signingConfidence = Number(signing.signing_confidence || 0);
-  const directionPresent = ["bullish", "bearish"].includes(direction) && Math.abs(signedPressure) >= 0.6 && signingConfidence >= 0.5;
+  // Mirror the tiered threshold from signPrintsForSession: higher pressure required when conf is lower.
+  const classifyPressureThreshold = signingConfidence >= 0.5 ? 0.60 : signingConfidence >= 0.35 ? 0.72 : 2.0;
+  const directionPresent = ["bullish", "bearish"].includes(direction) && Math.abs(signedPressure) >= classifyPressureThreshold && signingConfidence >= 0.35;
   const blockPressureSameSide =
     !Number.isFinite(Number(c.net_volume_pressure)) ||
     Number(c.net_volume_pressure || 0) === 0 ||

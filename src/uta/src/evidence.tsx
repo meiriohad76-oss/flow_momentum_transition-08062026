@@ -21,6 +21,7 @@ function BlufFindings({ data }: { data: UtaTickerResult }) {
   const pressure  = Number(C.net_notional_pressure ?? ta?.pressure?.net_notional_pressure ?? 0);
 
   type Status = "pass" | "warn" | "fail";
+  type Conviction = "extreme" | "strong" | "moderate" | "weak" | "none";
 
   const dir = data.direction === "bullish" ? "bullish" : data.direction === "bearish" ? "bearish" : "undetermined";
   const dirCap = dir === "bullish" ? "Buyer" : dir === "bearish" ? "Seller" : "Undetermined";
@@ -34,10 +35,17 @@ function BlufFindings({ data }: { data: UtaTickerResult }) {
   const priceSide = priceChg != null ? (priceChg < -1 ? "bearish" : priceChg > 1 ? "bullish" : "flat") : null;
   const diverging = priceSide != null && priceSide !== "flat" && priceSide !== dir && dir !== "undetermined";
 
-  const findings: Array<{ label: string; value: string; note: string; status: Status; diverge?: boolean }> = [
+  // Dark pool / TRF share — surfaced as its own signal, not diluting directed pressure
+  const bp = ta?.pressure as Record<string, number> | undefined;
+  const totalN = bp?.total_notional ?? 0;
+  const unsignedN = bp?.unsigned_notional ?? 0;
+  const trfShare = totalN > 0 ? unsignedN / totalN : null;
+
+  const findings: Array<{ label: string; value: string; conviction: Conviction; note: string; status: Status; diverge?: boolean }> = [
     {
       label: "Trade volume",
       value: `${fmtNumber(volRatio, 2)}× (${volB >= 0 ? "+" : ""}${fmtNumber(volB, 2)}σ)`,
+      conviction: volB >= 2.5 ? "extreme" : volB >= 1.5 ? "strong" : volB >= 0.5 ? "moderate" : "weak",
       note: volB >= 2.5
         ? "Significantly more trades than usual — market is unusually active in this name"
         : volB >= 1.5
@@ -50,6 +58,7 @@ function BlufFindings({ data }: { data: UtaTickerResult }) {
     {
       label: "Dollar flow (shares × price)",
       value: `${fmtNumber(notR, 2)}× normal (${notB >= 0 ? "+" : ""}${fmtNumber(notB, 2)}σ)`,
+      conviction: notB >= 2.5 ? "extreme" : notB >= 1.5 ? "strong" : notB >= 0.5 ? "moderate" : "weak",
       note: notB >= 2.5
         ? `${fmtNumber(notR, 2)}× the typical session's dollar volume — that's ${fmtNumber(notB, 1)} standard deviations above own history. Institutional-scale money is moving through this name.`
         : notB >= 1.5
@@ -62,6 +71,7 @@ function BlufFindings({ data }: { data: UtaTickerResult }) {
     {
       label: "Block / focus prints",
       value: `${focusCnt} print${focusCnt !== 1 ? "s" : ""}`,
+      conviction: focusCnt >= 3 ? "strong" : focusCnt >= 1 ? "moderate" : "none",
       note: focusCnt >= 3
         ? `${focusCnt} institutional-size trades confirmed — block buyers or sellers are active`
         : focusCnt > 0
@@ -70,78 +80,84 @@ function BlufFindings({ data }: { data: UtaTickerResult }) {
       status: focusCnt >= 3 ? "pass" : focusCnt > 0 ? "warn" : "fail",
     },
     {
+      // Dark pool / TRF share — separate signal from directional pressure, not a dilution factor.
+      // High off-exchange routing = institutions hiding their activity = scale confirmation regardless of direction.
+      label: "Dark pool / TRF share",
+      value: trfShare != null ? `${Math.round(trfShare * 100)}% off-exchange` : "N/A",
+      conviction: trfShare == null ? "none" : trfShare >= 0.5 ? "extreme" : trfShare >= 0.3 ? "strong" : trfShare >= 0.15 ? "moderate" : "weak",
+      note: trfShare == null
+        ? "Off-exchange share not available for this session."
+        : trfShare >= 0.5
+        ? `${Math.round(trfShare * 100)}% of dollar flow executed off-exchange (dark pools, TRF, internalization) — unusually high. Institutions are deliberately hiding their activity. This is itself a scale signal: when smart money doesn't want to show its hand on lit exchanges, something significant is happening. The labeled-flow direction only reflects the ${Math.round((1 - trfShare) * 100)}% that traded openly.`
+        : trfShare >= 0.3
+        ? `${Math.round(trfShare * 100)}% off-exchange — elevated dark pool routing. Institutional money is splitting between lit and hidden venues, which is common during accumulation or distribution. Directional signals from labeled flow are still meaningful but incomplete.`
+        : trfShare >= 0.15
+        ? `${Math.round(trfShare * 100)}% off-exchange — moderate, within normal range for this market. Most activity is visible on lit exchanges.`
+        : `${Math.round(trfShare * 100)}% off-exchange — low. The vast majority of activity traded on lit exchanges, so the signing confidence and directional read are reliable.`,
+      status: trfShare == null ? "fail" : trfShare >= 0.3 ? "warn" : "pass",
+    },
+    {
       label: "Signed flow pressure",
       // Show the LABELED-ONLY metric (net_signed_pressure) as the headline value — this is what
-      // the note, status, and threshold logic all use. The diluted overall net (net_notional_pressure,
-      // which includes dark-pool/unsigned volume) is explained in the note text for context.
+      // the note, status, and threshold logic all use. Dark pool volume is shown separately above.
       value: `${signedPressure >= 0 ? "+" : ""}${fmtNumber(signedPressure * 100, 1)}% labeled`,
+      conviction: Math.abs(signedPressure) >= 0.8 ? "extreme" : Math.abs(signedPressure) >= 0.6 ? "strong" : Math.abs(signedPressure) >= 0.35 ? "moderate" : "weak",
       note: (() => {
-        // Use actual buy/sell/unsigned breakdown from backend when available.
-        const bp = ta?.pressure;
-        const totalN = bp?.buy_notional != null ? (bp.buy_notional + bp.sell_notional + (bp.unsigned_notional ?? 0)) : null;
-        const buyFallback  = Math.max(0, Math.round(((conf + pressure) / 2) * 100));
-        const sellFallback = Math.max(0, Math.round(((conf - pressure) / 2) * 100));
-        const buyC  = totalN && totalN > 0 ? Math.round((bp.buy_notional      / totalN) * 100) : buyFallback;
-        const sellC = totalN && totalN > 0 ? Math.round((bp.sell_notional     / totalN) * 100) : sellFallback;
-        const unsC  = totalN && totalN > 0 ? Math.round(((bp.unsigned_notional ?? 0) / totalN) * 100) : 100 - buyFallback - sellFallback;
-        // net_signed_pressure = (buy$ - sell$) / (buy$ + sell$) — labeled trades only, no dark-pool dilution.
-        // net_notional_pressure (= pressure) = same but divided by ALL dollar flow including unsigned — lower number.
-        const sp = signedPressure;  // already computed at top of BlufFindings; reuse to stay consistent
+        const sp = signedPressure;
         const netPct = Math.round(Math.abs(sp) * 100);
         const overallPct = Math.round(Math.abs(pressure) * 100);
         const noteChg = ta?.activity?.intraday_change_pct ?? ta?.activity?.price_change_pct;
         const noteChgCtx = ta?.activity?.intraday_change_pct != null ? "intraday" : "vs prior close";
         const flowSide = sp >= 0 ? "buy" : "sell";
         const oppSide  = sp >= 0 ? "sell" : "buy";
+        const trfPct = trfShare != null ? Math.round(trfShare * 100) : null;
 
         if (Math.abs(sp) >= 0.6) {
-          // Labeled flow is strongly directional — but check whether the system actually confirmed direction.
           if (dir === "undetermined") {
-            // Labeled flow is clear, but overall direction was NOT confirmed. This happens when dark-pool
-            // volume is large enough to dilute the overall net below 60%, or signing confidence is too low.
-            return `Of the trades the algorithm could label (buyer lifting the ask vs. seller hitting the bid), `
-              + `${netPct}% went to the ${flowSide} side — a strong lean. However, the overall direction is `
-              + `UNDETERMINED because ${unsC}¢ of every $1 traded was in dark pools or at mid-market prices where `
-              + `direction can't be identified. When those are included, the net drops to ${overallPct}% — below the `
-              + `60% threshold. The labeled signal points ${flowSide}; the full picture is inconclusive. `
-              + `If dark-pool volume is consistently ${flowSide}-side, direction may confirm in later prints.`;
+            return `Of trades the algorithm could label, ${netPct}% went to the ${flowSide} side — a strong lean. `
+              + `Direction is UNDETERMINED because signing confidence is below the threshold `
+              + (trfPct != null ? `(${trfPct}% dark pool / TRF routing reduces the labelable fraction). ` : `. `)
+              + `When dark-pool volume is included, the diluted net is ${overallPct}%. `
+              + `See "Dark pool / TRF share" above — that hidden volume is the gap between the labeled signal and the confirmed direction.`;
           }
-          // Direction is confirmed — state it clearly.
-          const dirCap = dir.charAt(0).toUpperCase() + dir.slice(1);
-          const confirmedNote = `${dirCap} directional edge confirmed. ${netPct}% of labeled trades (those where buyer vs. seller could be identified) went to the ${flowSide} side — above the 60% threshold. `
-            + (unsC > 0 ? `The remaining ${unsC}¢ per $1 traded was in dark pools or at mid-market (direction unknown); when included, the diluted net is ${overallPct}%.` : "");
+          const dirCap2 = dir.charAt(0).toUpperCase() + dir.slice(1);
+          const confirmedNote = `${dirCap2} directional edge confirmed. ${netPct}% of labeled trades went to the ${flowSide} side — above the threshold. `
+            + (trfPct != null && trfPct > 15 ? `Note: ${trfPct}% of dollar flow was off-exchange (see Dark pool row); the direction read is based on the ${100 - trfPct}% that traded on lit venues.` : "");
           if (diverging && priceSide != null && priceSide !== "flat") {
             const priceStr = noteChg != null ? ` (${noteChg > 0 ? "+" : ""}${fmtNumber(noteChg, 2)}% ${noteChgCtx})` : "";
-            return `${confirmedNote} ⚠ Price${priceStr} is moving against the confirmed ${dir} flow — possible ${flowSide === "buy" ? "distribution (selling into strength)" : "short squeeze"}. Monitor for price reversal before acting.`;
+            return `${confirmedNote} ⚠ Price${priceStr} is moving against the confirmed ${dir} flow — possible ${flowSide === "buy" ? "distribution (selling into strength)" : "short squeeze"}. Monitor for price reversal.`;
           }
           return confirmedNote;
         }
 
-        // Below 60% threshold — explain the breakdown.
-        const baseNote = `Of every $1 traded: ~${buyC}¢ labeled buyer-driven, ~${sellC}¢ labeled seller-driven, ~${unsC}¢ unknown direction (dark pools / mid-market — neither side identifiable). `
-          + `Among labeled trades only, the ${flowSide}-side excess is ${netPct}% — below the 60% threshold needed to confirm a direction. `
-          + (unsC > 30 ? `The high dark-pool share (${unsC}¢) means the true net could be higher or lower depending on how those unknown prints resolved.` : "");
+        const buyFallback  = Math.max(0, Math.round(((conf + pressure) / 2) * 100));
+        const sellFallback = Math.max(0, Math.round(((conf - pressure) / 2) * 100));
+        const buyC  = bp?.buy_notional != null && totalN > 0 ? Math.round((bp.buy_notional / totalN) * 100) : buyFallback;
+        const sellC = bp?.sell_notional != null && totalN > 0 ? Math.round((bp.sell_notional / totalN) * 100) : sellFallback;
+        const unsC  = trfShare != null ? Math.round(trfShare * 100) : 100 - buyFallback - sellFallback;
+        const baseNote = `Of every $1 traded: ~${buyC}¢ labeled buyer-driven, ~${sellC}¢ labeled seller-driven, ~${unsC}¢ dark pool / unidentifiable. `
+          + `Among labeled trades only, the ${flowSide}-side excess is ${netPct}% — below the 60% needed to confirm direction.`;
         if (priceSide && priceSide !== "flat" && priceSide !== (sp >= 0 ? "bullish" : "bearish")) {
           const priceStr = noteChg != null ? ` (${noteChg > 0 ? "+" : ""}${fmtNumber(noteChg, 2)}% ${noteChgCtx})` : "";
-          return `${baseNote} ⚠ Price${priceStr} is moving ${oppSide === "sell" ? "down" : "up"} while labeled flow leans ${flowSide} — the ${unsC}¢ unknown prints are likely driving the price. Direction cannot be confirmed.`;
+          return `${baseNote} ⚠ Price${priceStr} is moving ${oppSide === "sell" ? "down" : "up"} while labeled flow leans ${flowSide} — the dark-pool prints are likely driving the price. Direction cannot be confirmed from labeled flow alone.`;
         }
         return baseNote;
       })(),
-      // Status and value both use net_signed_pressure (labeled only) — all three now consistent.
       status: Math.abs(signedPressure) >= 0.6 ? (dir === "undetermined" ? "warn" : "pass") : Math.abs(signedPressure) >= 0.3 ? "warn" : "fail",
       diverge: diverging,
     },
     {
-      label: "Direction confidence",
+      label: "Signing confidence",
       value: fmtPct(conf),
-      note: dir === "undetermined"
-        ? `${fmtPct(conf)} of trades could be labeled buyer-driven or seller-driven — the other ${fmtPct(1 - conf)} traded in dark pools or at mid-market prices where direction can't be determined. Even with ${fmtPct(conf)} labeled, the net buyer/seller split is only ${fmtNumber(Math.abs(pressure) * 100, 1)}% — below the 60% needed to call a direction. Volume anomaly confirmed; direction is NOT.`
-        : conf >= 0.7
-        ? `High — ${fmtPct(conf)} of trades were labeled buyer- or seller-driven. Direction signal is trustworthy.`
+      conviction: conf >= 0.7 ? "strong" : conf >= 0.5 ? "moderate" : conf >= 0.35 ? "weak" : "none",
+      note: conf >= 0.7
+        ? `${fmtPct(conf)} of dollar flow could be labeled (buyer vs. seller identified). High confidence — the direction signal is trustworthy.`
         : conf >= 0.5
-        ? `${fmtPct(conf)} of trades labeled (above the 50% minimum). Direction is meaningful but not ideal — the other ${fmtPct(1 - conf)} traded in dark pools or at mid-market where buyer vs. seller can't be determined.`
-        : `Low — only ${fmtPct(conf)} of trades could be labeled. The remaining ${fmtPct(1 - conf)} have unknown direction (dark pools, mid-market). Direction signal should not be trusted.`,
-      status: dir === "undetermined" ? (conf >= 0.5 ? "warn" : "fail") : (conf >= 0.5 ? "pass" : "fail"),
+        ? `${fmtPct(conf)} of dollar flow labeled. The remaining ${fmtPct(1 - conf)} traded off-exchange or at mid-price where direction can't be determined. Direction is meaningful but not ideal.`
+        : conf >= 0.35
+        ? `${fmtPct(conf)} labeled — below the 50% standard threshold. Direction requires ≥72% signed pressure to confirm at this confidence level (stricter than the normal 60%). If labeled flow is overwhelmingly one-sided, direction can still be assigned.`
+        : `Only ${fmtPct(conf)} of dollar flow could be labeled — too few to trust the direction signal. The ${fmtPct(1 - conf)} dark-pool and mid-market volume dominates this session.`,
+      status: conf >= 0.5 ? "pass" : conf >= 0.35 ? "warn" : "fail",
     },
   ];
 
@@ -191,6 +207,12 @@ function BlufFindings({ data }: { data: UtaTickerResult }) {
   }
 
   const STATUS_ICON: Record<Status, string> = { pass: "✓", warn: "!", fail: "✗" };
+  const CONVICTION_LABEL: Record<Conviction, string> = {
+    extreme: "Extreme", strong: "Strong", moderate: "Moderate", weak: "Weak", none: "—"
+  };
+  const CONVICTION_CLASS: Record<Conviction, string> = {
+    extreme: "conv-extreme", strong: "conv-strong", moderate: "conv-moderate", weak: "conv-weak", none: "conv-none"
+  };
 
   return (
     <div className="bluf-findings">
@@ -207,6 +229,9 @@ function BlufFindings({ data }: { data: UtaTickerResult }) {
             <span className="bf-mk">{f.diverge ? "⚠" : STATUS_ICON[f.status]}</span>
             <span className="bf-label">{f.label}</span>
             <span className="bf-value">{f.value}</span>
+            <span className={`bf-conviction ${CONVICTION_CLASS[f.conviction]}`}>
+              {CONVICTION_LABEL[f.conviction]}
+            </span>
             <span className="bf-note">{f.note}</span>
           </div>
         ))}

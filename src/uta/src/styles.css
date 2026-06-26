@@ -3722,13 +3722,31 @@ body {
 
 .bf-row {
   display: grid;
-  grid-template-columns: 18px minmax(0, 9em) minmax(0, 7em) 1fr;
+  /* icon | label | value | conviction | note */
+  grid-template-columns: 18px minmax(0, 9em) minmax(0, 7em) 6em 1fr;
   align-items: baseline;
   gap: 6px;
   padding: 7px var(--pad);
   font-size: 13px;
   border-left: 2px solid transparent;
 }
+
+/* Conviction level badge — inline pill in the findings grid */
+.bf-conviction {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  padding: 2px 6px;
+  border-radius: 4px;
+  text-align: center;
+  white-space: nowrap;
+}
+.conv-extreme { background: color-mix(in srgb, var(--sell, #e05252) 18%, transparent); color: var(--sell, #e05252); }
+.conv-strong  { background: color-mix(in srgb, var(--buy, #22c55e)  15%, transparent); color: var(--buy, #22c55e); }
+.conv-moderate{ background: color-mix(in srgb, var(--accent) 14%, transparent); color: var(--accent); }
+.conv-weak    { background: var(--panel-3, #1a1a1a); color: var(--ink-3); }
+.conv-none    { background: transparent; color: var(--ink-3); opacity: 0.5; }
 
 .bf-pass { border-color: var(--buy, #22c55e); background: color-mix(in srgb, var(--buy, #22c55e) 6%, transparent); }
 .bf-warn { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 6%, transparent); }
