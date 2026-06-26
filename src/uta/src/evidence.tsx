@@ -398,27 +398,75 @@ export function CorroborationPanel({ data }: { data: UtaTickerResult }) {
         Confirming even one <b>Strong</b> item raises conviction and may qualify for Tier A.
         <b> Auto</b> signals are computed from bar/print data. <b>Manual</b> signals require an external check.
       </p>
-      {isUndetermined && (
-        <p className="corr-gap corr-undetermined-note">
-          <b>⚠ Volume anomaly — direction not established.</b>{" "}
-          Signed pressure ({fmtNumber(Math.abs(Number(data.indicators?.C?.net_notional_pressure ?? 0)) * 100, 1)}%) is below the 60% directional threshold.
-          Focus on confirming <em>scale</em> (provider alerts, options volume, price reaction), not direction.
-        </p>
-      )}
+      {isUndetermined && (() => {
+        const rawPressure = Number(data.trade_analysis?.pressure?.net_signed_pressure ?? data.indicators?.C?.net_notional_pressure ?? 0);
+        const rawPct = fmtNumber(Math.abs(rawPressure) * 100, 1);
+        // The "signed pressure" in the header tile is net_notional_pressure expressed vs own history (a Z-score-like percentile).
+        // The "6.x%" here is the RAW buyer/seller split — these are different metrics.
+        const bp = data.trade_analysis?.pressure as Record<string, number> | undefined;
+        const totalN = bp?.buy_notional != null && bp?.sell_notional != null ? bp.buy_notional + bp.sell_notional + (bp.unsigned_notional ?? 0) : null;
+        const buyPct = totalN && totalN > 0 ? Math.round((bp!.buy_notional / totalN) * 100) : null;
+        const sellPct = totalN && totalN > 0 ? Math.round((bp!.sell_notional / totalN) * 100) : null;
+        const splitStr = buyPct != null && sellPct != null
+          ? ` — of every $100 traded, ~$${buyPct} was buyer-initiated, ~$${sellPct} seller-initiated`
+          : "";
+        return (
+          <div className="corr-gap corr-undetermined-note">
+            <b>⚠ Volume anomaly confirmed — but no directional edge yet.</b>
+            <p className="corr-und-body">
+              <b>Why there is no direction:</b> "Signed pressure" is the net imbalance between buy-initiated and sell-initiated dollar flow — trades where the algorithm can tell who drove the print (buyer lifting the ask vs. seller hitting the bid). Here it is only <b>{rawPct}%{splitStr}</b>. That is nearly 50/50 — buyers and sellers are both active at scale. The system requires ≥60% on one side to call a direction.
+            </p>
+            <p className="corr-und-body">
+              <b>What the big number in the header means:</b> The <em>Signed pressure</em> tile shows how today's flow compares to this ticker's own 20-session history — not the raw buy/sell split. A reading of −93% means today's balance is more sell-tilted than 93% of its own sessions, even though the actual net imbalance is only {rawPct}%.
+            </p>
+            <p className="corr-und-body">
+              <b>What this likely means:</b> Extreme volume with a balanced two-sided flow is a classic <em>distribution-or-accumulation</em> pattern — institutional money on both sides, or a large position being rotated. The volume is real. The edge is not confirmed yet.
+            </p>
+            <p className="corr-und-body">
+              <b>What to do:</b> Focus on confirming <em>scale</em> first (provider alert, options volume, price action) — not direction. If signed pressure breaks above 60% in subsequent prints, the tier will upgrade automatically.
+            </p>
+          </div>
+        );
+      })()}
       <div className="corr-list">
         {rows.map(([id, label, passed, weight, source]) => {
           const isStrong = weight === "Strong";
           const isModerate = weight === "Moderate";
           const isContextual = weight === "Contextual";
-          const icon = isContextual ? "ℹ" : passed === true ? "✓" : passed === false ? "✗" : "○";
+
+          // Distinguish between "auto-computed and not met" (✗ / red) vs
+          // "manual — user hasn't checked yet" (? / amber, pending).
+          // Backend defaults manual signals to false when unchecked, so we
+          // use source === "manual" + passed !== true to mean "pending".
+          const isManualPending = source === "manual" && passed !== true;
+          const isAutoFailed = source === "auto" && passed === false;
+
+          const icon = isContextual
+            ? "ℹ"
+            : passed === true
+            ? "✓"
+            : isManualPending
+            ? "?"        // pending — requires your check
+            : isAutoFailed
+            ? "✗"        // auto-computed and condition not met
+            : "○";       // unknown / undefined
+
           const iconColor = passed === true
             ? "var(--buy)"
-            : passed === false
-            ? isStrong ? "var(--sell)" : "var(--ink-3)"
-            : isStrong ? "var(--warn)" : "var(--ink-3)";
+            : isManualPending
+            ? "var(--accent)"        // amber — action needed
+            : isAutoFailed
+            ? (isStrong ? "var(--sell)" : "var(--ink-3)")
+            : (isStrong ? "var(--warn)" : "var(--ink-3)");
+
           const rowClass = isStrong
-            ? passed === true ? "strong-confirmed" : passed === false ? "strong-false" : "strong-missing"
+            ? passed === true
+              ? "strong-confirmed"
+              : isManualPending
+              ? "strong-pending"   // amber — user action needed
+              : "strong-false"     // auto-checked and not met
             : isModerate ? "corr-moderate" : "corr-contextual";
+
           const { dataLine, interpText } = getCorrDataLine(id, passed);
           return (
             <div className={`corr-row ${rowClass}`} key={id}>
@@ -428,6 +476,9 @@ export function CorroborationPanel({ data }: { data: UtaTickerResult }) {
                   <b>{label}</b>
                   <span className={`corr-weight corr-w-${weight.toLowerCase()}`}>{weight}</span>
                   <span className={`corr-source corr-src-${source}`}>{source}</span>
+                  {isManualPending && (
+                    <span className="corr-pending-tag">check required</span>
+                  )}
                 </div>
                 {dataLine && <div className="corr-data-line">{dataLine}</div>}
                 <p className="corr-interp">{interpText}</p>

@@ -589,9 +589,14 @@ export function ScanMode({
             <ResolvingTable rows={allRows} pass2Status={pass2.status} />
           )}
           {scan.status === "ready" && pass2.status === "idle" && (
-            <button type="button" onClick={onPass2}>
-              Run Pass 2 — Resolve {pass1Data?.shortlist_count ?? 0} flagged tickers
-            </button>
+            <div className="pass1-actions">
+              <button type="button" onClick={onPass2}>
+                Run Pass 2 — Resolve {pass1Data?.shortlist_count ?? 0} flagged tickers
+              </button>
+              <button type="button" className="new-scan-btn" onClick={onReset}>
+                ↩ New scan
+              </button>
+            </div>
           )}
         </div>
       )}
@@ -599,15 +604,20 @@ export function ScanMode({
       {/* Results — show when pass-1 or pass-2 data available */}
       {(pass2.status === "ready" || scan.status === "ready") && (
         <div className="scan-results">
-          <RefinementBar
-            rows={pass2.data?.results ?? scan.data?.results ?? []}
-            tierFilter={tierFilter}
-            onTierFilter={setTierFilter}
-            viewMode={viewMode}
-            onViewMode={handleViewMode}
-            onWatchAll={() => { /* Phase 5: bulk watchlist add */ }}
-            onSaveScan={() => { /* Phase 5: persist saved scan */ }}
-          />
+          <div className="scan-results-topbar">
+            <RefinementBar
+              rows={pass2.data?.results ?? scan.data?.results ?? []}
+              tierFilter={tierFilter}
+              onTierFilter={setTierFilter}
+              viewMode={viewMode}
+              onViewMode={handleViewMode}
+              onWatchAll={() => { /* Phase 5: bulk watchlist add */ }}
+              onSaveScan={() => { /* Phase 5: persist saved scan */ }}
+            />
+            <button type="button" className="new-scan-btn" onClick={onReset} title="Discard results and run a new scan">
+              ↩ New scan
+            </button>
+          </div>
           {viewMode === "cards" && (
             <div className="scan-cards-grid">
               {resultRows.map((row) => (

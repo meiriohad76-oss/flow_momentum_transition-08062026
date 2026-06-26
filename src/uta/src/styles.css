@@ -3079,6 +3079,22 @@ body {
 .sg-count { margin-left: auto; font-family: var(--font-mono); font-size: 13px; font-weight: 600; color: var(--ink-2); }
 
 .scan-results { display: grid; gap: 14px; }
+.scan-results-topbar { display: flex; align-items: flex-start; gap: 8px; }
+.pass1-actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.scan-results-topbar > :first-child { flex: 1; min-width: 0; }
+.new-scan-btn {
+  flex-shrink: 0;
+  padding: 6px 14px;
+  border-radius: 6px;
+  border: 1px solid var(--border, #333);
+  background: var(--surface-2, #1e1e1e);
+  color: var(--ink-2, #aaa);
+  cursor: pointer;
+  font-size: 12px;
+  white-space: nowrap;
+  align-self: center;
+}
+.new-scan-btn:hover { background: var(--surface-3, #2a2a2a); color: var(--ink-1, #e0e0e0); }
 
 .scan-error {
   display: flex;
@@ -3883,11 +3899,35 @@ body {
 .corr-w-contextual { background: var(--panel-3); color: var(--ink-3); }
 
 /* Corroboration row color states */
-.corr-row.strong-confirmed { border-left-color: var(--buy);  background: var(--buy-soft); }
-.corr-row.strong-missing   { border-left-color: var(--warn); background: var(--warn-bg); }
-.corr-row.strong-false     { border-left-color: var(--sell); background: var(--sell-soft); }
+.corr-row.strong-confirmed { border-left-color: var(--buy);    background: var(--buy-soft); }
+.corr-row.strong-missing   { border-left-color: var(--warn);   background: var(--warn-bg); }
+/* strong-pending: manual signal the USER needs to check — amber, not red */
+.corr-row.strong-pending   { border-left-color: var(--accent); background: color-mix(in srgb, var(--accent) 8%, transparent); }
+/* strong-false: auto-computed and condition was NOT met — red */
+.corr-row.strong-false     { border-left-color: var(--sell);   background: var(--sell-soft); }
 .corr-row.corr-moderate    { border-left-color: transparent; }
 .corr-row.corr-contextual  { border-left-color: transparent; opacity: 0.85; }
+
+/* "check required" inline tag for manual-pending corroboration signals */
+.corr-pending-tag {
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent) 30%, transparent);
+  border-radius: 4px;
+  padding: 1px 5px;
+}
+
+/* Expanded undetermined-note: multi-paragraph explanation */
+.corr-undetermined-note .corr-und-body {
+  margin: 6px 0 0;
+  font-size: 0.82rem;
+  line-height: 1.5;
+  color: var(--ink-2);
+}
 
 /* Data line (specific numbers for this ticker) */
 .corr-data-line {
