@@ -28,9 +28,14 @@ function BlufFindings({ data }: { data: UtaTickerResult }) {
   const dirFlow = dir === "bullish" ? "buy" : dir === "bearish" ? "sell" : "undetermined";
 
   // Detect flow/price divergence for the "Signed flow pressure" finding.
-  // Fallback chain mirrors BlufCard: net_signed_pressure → C.net_notional_pressure.
-  // Do NOT fall back to ta?.pressure?.net_notional_pressure (adds a divergent 3rd level).
-  const signedPressure = Number(ta?.pressure?.net_signed_pressure ?? C.net_notional_pressure ?? 0);
+  // Use signed-only metric: (buy$ − sell$) / (buy$ + sell$). Do NOT fall back to
+  // C.net_notional_pressure — it has a different denominator and crossing metrics would
+  // show the wrong number under the "signed" label.
+  const signedPressureRaw = ta?.pressure?.net_signed_pressure ?? null;
+  const signedPressure = Number(signedPressureRaw ?? 0);
+  const hasSignedPressure = signedPressureRaw != null;
+  // Conf-adjusted threshold mirrors backend classifyTier / buildTradeAnalysis logic.
+  const confAdjPressureThreshold = conf >= 0.5 ? 0.6 : conf >= 0.35 ? 0.72 : 2.0;
   // Prefer intraday change (current vs today's open) — removes overnight gap noise from divergence detection.
   const priceChg = ta?.activity?.intraday_change_pct ?? ta?.activity?.price_change_pct;
   const priceChgContext = ta?.activity?.intraday_change_pct != null ? "intraday" : "vs prior close";
@@ -109,9 +114,11 @@ function BlufFindings({ data }: { data: UtaTickerResult }) {
       label: "Signed flow pressure",
       // Show the LABELED-ONLY metric (net_signed_pressure) as the headline value — this is what
       // the note, status, and threshold logic all use. Dark pool volume is shown separately above.
-      value: `${signedPressure >= 0 ? "+" : ""}${fmtNumber(signedPressure * 100, 1)}% signed`,
-      conviction: Math.abs(signedPressure) >= 0.8 ? "extreme" : Math.abs(signedPressure) >= 0.6 ? "strong" : Math.abs(signedPressure) >= 0.35 ? "moderate" : "weak",
+      // When net_signed_pressure is null (no labeled prints), show N/A rather than a misleading 0%.
+      value: hasSignedPressure ? `${signedPressure >= 0 ? "+" : ""}${fmtNumber(signedPressure * 100, 1)}% signed` : "N/A — no labeled prints",
+      conviction: !hasSignedPressure ? "none" : Math.abs(signedPressure) >= 0.8 ? "extreme" : Math.abs(signedPressure) >= 0.6 ? "strong" : Math.abs(signedPressure) >= 0.35 ? "moderate" : "weak",
       note: (() => {
+        if (!hasSignedPressure) return "No labeled trades this session — signed flow pressure cannot be computed. Direction requires buy/sell labeled prints to confirm.";
         const sp = signedPressure;
         const netPct = Math.round(Math.abs(sp) * 100);
         const overallPct = Math.round(Math.abs(pressure) * 100);
@@ -121,16 +128,19 @@ function BlufFindings({ data }: { data: UtaTickerResult }) {
         const oppSide  = sp >= 0 ? "sell" : "buy";
         const trfPct = trfShare != null ? Math.round(trfShare * 100) : null;
 
-        if (Math.abs(sp) >= 0.6) {
+        // Use conf-adjusted gate (mirrors backend): 60% when conf ≥ 50%, 72% when 35–50%, unreachable below 35%.
+        const confAdjGate = confAdjPressureThreshold;
+        const confAdjGatePct = Math.round(confAdjGate * 100);
+        if (Math.abs(sp) >= confAdjGate) {
           if (dir === "undetermined") {
             return `Of trades the algorithm could label, ${netPct}% went to the ${flowSide} side — a strong lean. `
-              + `Direction is UNDETERMINED because signing confidence is below the threshold `
+              + `Direction is UNDETERMINED because signing coverage is below the threshold `
               + (trfPct != null ? `(${trfPct}% dark pool / TRF routing reduces the labelable fraction). ` : `. `)
               + `When dark-pool volume is included, the diluted net is ${overallPct}%. `
               + `See "Dark pool / TRF share" above — that hidden volume is the gap between the labeled signal and the confirmed direction.`;
           }
           const dirCap2 = dir.charAt(0).toUpperCase() + dir.slice(1);
-          const confirmedNote = `${dirCap2} directional edge confirmed. ${netPct}% of labeled trades went to the ${flowSide} side — above the threshold. `
+          const confirmedNote = `${dirCap2} directional edge confirmed. ${netPct}% of labeled trades went to the ${flowSide} side — above the ${confAdjGatePct}% threshold. `
             + (trfPct != null && trfPct > 15 ? `Note: ${trfPct}% of dollar flow was off-exchange (see Dark pool row); the direction read is based on the ${100 - trfPct}% that traded on lit venues.` : "");
           if (diverging && priceSide != null && priceSide !== "flat") {
             const priceStr = noteChg != null ? ` (${noteChg > 0 ? "+" : ""}${fmtNumber(noteChg, 2)}% ${noteChgCtx})` : "";
@@ -145,14 +155,14 @@ function BlufFindings({ data }: { data: UtaTickerResult }) {
         const sellC = bp?.sell_notional != null && totalN > 0 ? Math.round((bp.sell_notional / totalN) * 100) : sellFallback;
         const unsC  = trfShare != null ? Math.round(trfShare * 100) : 100 - buyFallback - sellFallback;
         const baseNote = `Of every $1 traded: ~${buyC}¢ labeled buyer-driven, ~${sellC}¢ labeled seller-driven, ~${unsC}¢ dark pool / unidentifiable. `
-          + `Among labeled trades only, the ${flowSide}-side excess is ${netPct}% — below the 60% needed to confirm direction.`;
+          + `Among labeled trades only, the ${flowSide}-side excess is ${netPct}% — below the ${confAdjGatePct}% needed to confirm direction.`;
         if (priceSide && priceSide !== "flat" && priceSide !== (sp >= 0 ? "bullish" : "bearish")) {
           const priceStr = noteChg != null ? ` (${noteChg > 0 ? "+" : ""}${fmtNumber(noteChg, 2)}% ${noteChgCtx})` : "";
           return `${baseNote} ⚠ Price${priceStr} is moving ${oppSide === "sell" ? "down" : "up"} while labeled flow leans ${flowSide} — the dark-pool prints are likely driving the price. Direction cannot be confirmed from labeled flow alone.`;
         }
         return baseNote;
       })(),
-      status: Math.abs(signedPressure) >= 0.6 ? (dir === "undetermined" ? "warn" : "pass") : Math.abs(signedPressure) >= 0.3 ? "warn" : "fail",
+      status: !hasSignedPressure ? "fail" : Math.abs(signedPressure) >= confAdjPressureThreshold ? (dir === "undetermined" ? "warn" : "pass") : Math.abs(signedPressure) >= 0.3 ? "warn" : "fail",
       diverge: diverging,
     },
     {
@@ -182,12 +192,18 @@ function BlufFindings({ data }: { data: UtaTickerResult }) {
   const histContext = baselineSessions ? `${baselineSessions}-session history` : "own history";
 
   if (tier === "D") {
+    // Use net_signed_pressure (same metric as classifyTier) with conf-adjusted gate.
+    // net_notional_pressure is intentionally excluded — it uses a different denominator.
+    const confAdjThreshD = confAdjPressureThreshold;
+    const confAdjPctD = Math.round(confAdjThreshD * 100);
+    const pressureOKD = hasSignedPressure && Math.abs(signedPressure) >= confAdjThreshD;
+    const spDisplay = hasSignedPressure ? `${fmtNumber(Math.abs(signedPressure) * 100, 1)}%` : "N/A";
     if (volRatio < 1.0 && notR < 1.0) {
-      rec = `${ticker} is quiet. Both trade count (${fmtNumber(volRatio, 2)}×) and dollar flow (${fmtNumber(notR, 2)}×) are below baseline — this is a slow session. The signed flow (${fmtNumber(Math.abs(pressure) * 100, 1)}%) hasn't reached the 60% directional threshold either. Nothing to act on. Re-analyze if volume spikes or a catalyst appears.`;
-    } else if (Math.abs(pressure) >= 0.6 && conf < 0.5) {
-      rec = `${ticker} shows ${dirFlow}-side pressure (${fmtNumber(Math.abs(pressure) * 100, 1)}%) but signing confidence is only ${fmtPct(conf)} — below the 50% reliability floor. The direction signal exists but cannot be trusted with this confidence level. Dollar flow is ${fmtNumber(notB, 1)}σ (needs 1.5σ). Re-analyze after more prints accumulate.`;
+      rec = `${ticker} is quiet. Both trade count (${fmtNumber(volRatio, 2)}×) and dollar flow (${fmtNumber(notR, 2)}×) are below baseline — this is a slow session. Signed flow pressure (${spDisplay}) hasn't reached the ${confAdjPctD}% directional threshold. Nothing to act on. Re-analyze if volume spikes or a catalyst appears.`;
+    } else if (pressureOKD && conf < 0.5) {
+      rec = `${ticker} shows ${dirFlow}-side pressure (${spDisplay}) but signing coverage is only ${fmtPct(conf)} — below the 50% reliability floor. The direction signal exists but cannot be trusted with this coverage level. Dollar flow is ${fmtNumber(notB, 1)}σ (needs 1.5σ). Re-analyze after more prints accumulate.`;
     } else {
-      rec = `${ticker} has some elevated components but hasn't met tier thresholds. Dollar flow B-score is ${fmtNumber(notB, 1)}σ (review trigger: 1.5σ, needs +${fmtNumber(Math.max(0, 1.5 - notB), 1)}σ). Signed pressure is ${fmtNumber(Math.abs(pressure) * 100, 1)}% (trigger: 60%). Both need to confirm together for a tier signal. Monitor and re-analyze.`;
+      rec = `${ticker} has some elevated components but hasn't met tier thresholds. Dollar flow B-score is ${fmtNumber(notB, 1)}σ (review trigger: 1.5σ, needs +${fmtNumber(Math.max(0, 1.5 - notB), 1)}σ). Signed flow pressure is ${spDisplay} (trigger: ${confAdjPctD}%). Both need to confirm together for a tier signal. Monitor and re-analyze.`;
     }
   } else if (tier === "C") {
     // Use the same metric + threshold the backend uses: net_signed_pressure vs conf-adjusted gate.
@@ -285,8 +301,12 @@ export function BlufCard({ data, portfolioMode = false }: { data: UtaTickerResul
   // Key stats for the stat row
   const bV = Number(B.volume_zscore ?? 0);
   const bN = Number(B.notional_zscore ?? 0);
-  const bestB = Math.max(bV, bN);
-  const signedPressure = Number(analysis?.pressure?.net_signed_pressure ?? C.net_notional_pressure ?? 0);
+  // Use all 4 B-score components — matches backend buildTradeAnalysis maxB so both panels agree.
+  const bFocusZ = Number(B.focus_notional_share_zscore ?? 0);
+  const bPressZ = Number(B.net_notional_pressure_zscore ?? 0);
+  const bestB = Math.max(bV, bN, bFocusZ, bPressZ);
+  // Use signed-only pressure; do NOT fall back to net_notional_pressure (different denominator).
+  const signedPressure = Number(analysis?.pressure?.net_signed_pressure ?? 0);
   const focusCount = Number(bf?.focus_trade_count ?? C.focus_trade_count ?? 0);
 
   const pressureColor = Math.abs(signedPressure) < 0.1
@@ -930,12 +950,12 @@ function DirectionalPressureBody({ data }: { data: UtaTickerResult }) {
         </div>
       </div>
       <div className="ev-conf-row">
-        <span className="uplabel">Signing confidence</span>
+        <span className="uplabel">Signing coverage</span>
         <span className="mono" style={{ fontWeight: 600 }}>{Math.round(signingConf * 100)}%</span>
       </div>
       <ConfBar value={signingConf} />
       {signingConf < 0.5 && (
-        <div className="ev-conf-warn">Low signing confidence — treat direction as indicative only.</div>
+        <div className="ev-conf-warn">Low signing coverage — treat direction as indicative only.</div>
       )}
       {pressure?.interpretation && <p className="ev-interp">{pressure.interpretation}</p>}
     </div>
@@ -973,8 +993,9 @@ function MarketFlowTrendBody({ data }: { data: UtaTickerResult }) {
   const netPressure = Number(C.net_notional_pressure ?? 0);
   // Use net_signed_pressure (labeled trades only) for the "N of 10 dollars" sentence — it's the
   // correct field for "what fraction of *labeled* flow went buy-side", not the net-excess fraction.
+  // Do NOT fall back to net_notional_pressure — different denominator, different metric entirely.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const signedPressure = Number((data.trade_analysis as any)?.pressure?.net_signed_pressure ?? C.net_notional_pressure ?? 0);
+  const signedPressure = Number((data.trade_analysis as any)?.pressure?.net_signed_pressure ?? 0);
   const bScore = Number(B.notional_zscore ?? 0);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const analyzedPrints = (data.trade_analysis as any)?.activity?.analyzed_prints ?? "N/A";

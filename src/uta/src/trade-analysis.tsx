@@ -14,7 +14,10 @@ function toneForBias(bias?: string) {
 /** Synthesized, data-specific interpretation — replaces generic API text. */
 function TradeInterpretation({ data }: { data: UtaTickerResult }) {
   const analysis = data.trade_analysis!;
-  const pressure = Number(analysis.pressure.net_notional_pressure);
+  // Use net_signed_pressure — labeled trades only: (buy$ − sell$) / (buy$ + sell$).
+  // net_notional_pressure uses a different denominator (all$) and would show a diluted number
+  // under the "signed flow" label, contradicting the evidence panel which uses net_signed_pressure.
+  const pressure = Number(analysis.pressure.net_signed_pressure ?? 0);
   const conf = analysis.pressure.signing_confidence;
   const dir = analysis.bias;
   const dirWord = dir === "bullish" ? "buyer" : dir === "bearish" ? "seller" : "undetermined";
@@ -27,7 +30,9 @@ function TradeInterpretation({ data }: { data: UtaTickerResult }) {
   const maxB = bScores.length > 0 ? Math.max(...bScores) : 0;
 
   const pressurePct = Math.abs(pressure) * 100;
-  const pressureOK = pressurePct >= 60;
+  // Mirror backend conf-adjusted threshold: 60% when conf ≥ 50%, 72% when 35–50%, 200% (unreachable) below 35%.
+  const confAdjThr = conf >= 0.5 ? 60 : conf >= 0.35 ? 72 : 200;
+  const pressureOK = pressurePct >= confAdjThr;
   const confOK = conf >= 0.5;
   const bOK = maxB >= 1.5;
   const notR = Number(analysis.activity.notional_ratio ?? 1);
@@ -38,10 +43,10 @@ function TradeInterpretation({ data }: { data: UtaTickerResult }) {
 
   // Confirmed signals
   if (pressureOK) {
-    lines.push({ type: "confirmed", text: `Signed flow is ${dir}: ${fmtNumber(pressurePct, 1)}% of tracked dollars are ${dirFlow}-directed — above the 60% directional threshold. ${dirWord.charAt(0).toUpperCase() + dirWord.slice(1)}s are in control of this session.` });
+    lines.push({ type: "confirmed", text: `Signed flow is ${dir}: ${fmtNumber(pressurePct, 1)}% of labeled trades are ${dirFlow}-directed — above the ${confAdjThr}% threshold. ${dirWord.charAt(0).toUpperCase() + dirWord.slice(1)}s are in control of this session.` });
   }
   if (confOK) {
-    lines.push({ type: "confirmed", text: `Signing confidence ${fmtPct(conf)} is above the 50% reliability floor — the directional label can be trusted.` });
+    lines.push({ type: "confirmed", text: `Signing coverage ${fmtPct(conf)} is above the 50% floor — sufficient trades were labeled, making the direction signal trustworthy.` });
   }
   if (bOK) {
     lines.push({ type: "confirmed", text: `B-score ${fmtNumber(maxB, 2)}σ — above the 1.5σ review trigger. Dollar flow is statistically elevated vs own history.` });
@@ -52,10 +57,10 @@ function TradeInterpretation({ data }: { data: UtaTickerResult }) {
 
   // Missing signals
   if (!pressureOK) {
-    lines.push({ type: "missing", text: `Signed pressure ${fmtNumber(pressurePct, 1)}% is below the 60% threshold — no clear directional edge yet. Both sides are fairly balanced.` });
+    lines.push({ type: "missing", text: `Signed pressure ${fmtNumber(pressurePct, 1)}% is below the ${confAdjThr}% threshold — no clear directional edge yet. Both sides are fairly balanced.` });
   }
   if (!confOK) {
-    lines.push({ type: "missing", text: `Signing confidence only ${fmtPct(conf)} — below 50% floor. Too many ambiguous prints to trust the direction label.` });
+    lines.push({ type: "missing", text: `Signing coverage only ${fmtPct(conf)} — below 50% floor. Too few labeled trades to trust the direction signal.` });
   }
   if (!bOK) {
     lines.push({ type: "missing", text: `Best B-score is ${fmtNumber(maxB, 2)}σ — below the 1.5σ review trigger. Dollar flow is not yet statistically unusual vs ${analysis.activity.baseline_sessions || 20}-session history. Need ${fmtNumber(Math.max(0, 1.5 - maxB), 2)}σ more.` });
@@ -187,9 +192,12 @@ export function TradeAnalysisPanel({ data }: { data: UtaTickerResult }) {
   const analysis = data.trade_analysis;
   if (!analysis) return null;
 
-  const pressure = Number(analysis.pressure.net_notional_pressure);
+  // Use net_signed_pressure (labeled trades only) — same metric as the evidence panel displays.
+  const pressure = Number(analysis.pressure.net_signed_pressure ?? 0);
   const pressurePct = Math.abs(pressure) * 100;
   const conf = analysis.pressure.signing_confidence;
+  // Conf-adjusted threshold matches backend: 60% when conf ≥ 50%, 72% when 35–50%.
+  const confAdjThrPanel = conf >= 0.5 ? 60 : conf >= 0.35 ? 72 : 200;
   const focusCount = analysis.block_flow.focus_trade_count ?? 0;
   const notR = Number(analysis.activity.notional_ratio ?? 0);
   const volR = Number(analysis.activity.volume_ratio ?? 0);
@@ -232,18 +240,18 @@ export function TradeAnalysisPanel({ data }: { data: UtaTickerResult }) {
       <div className="ta-tiles">
         <div className="ta-tile">
           <span className="ta-tile-label">
-            <Tooltip text="Signed pressure: of all tracked dollar volume, what % is buyer-directed vs seller-directed. ≥60% means one side strongly dominates. Below 60%: no directional edge.">
+            <Tooltip text={`Signed pressure: of labeled trades only (buy$ + sell$), what % is buyer-directed vs seller-directed. ≥${confAdjThrPanel}% means one side strongly dominates (threshold is conf-adjusted). Different from net notional pressure, which dilutes by all dollar volume including dark pool.`}>
               Signed pressure <span className="crit-help-icon">?</span>
             </Tooltip>
           </span>
-          <strong className="ta-tile-value" style={{ color: pressurePct >= 60 ? "var(--buy)" : pressurePct >= 30 ? "var(--accent)" : undefined }}>{fmtNumber(pressurePct, 1)}%</strong>
-          <small className="ta-tile-detail">{analysis.pressure.direction} · of all tracked dollar flow</small>
-          <ThresholdBar value={pressurePct} threshold={60} max={100} unit="%" />
+          <strong className="ta-tile-value" style={{ color: pressurePct >= confAdjThrPanel ? "var(--buy)" : pressurePct >= 30 ? "var(--accent)" : undefined }}>{fmtNumber(pressurePct, 1)}%</strong>
+          <small className="ta-tile-detail">{analysis.pressure.direction} · of labeled trades</small>
+          <ThresholdBar value={pressurePct} threshold={confAdjThrPanel} max={100} unit="%" />
         </div>
         <div className="ta-tile">
           <span className="ta-tile-label">
-            <Tooltip text="Signing confidence: what % of trades could be reliably assigned a buy or sell direction using quote-side and tick-rule methods. Below 50%: too many ambiguous prints to trust the direction label.">
-              Signing confidence <span className="crit-help-icon">?</span>
+            <Tooltip text="Signing coverage: what % of dollar volume could be reliably labeled as buy or sell direction. Below 50%: too few labeled trades to trust the direction signal.">
+              Signing coverage <span className="crit-help-icon">?</span>
             </Tooltip>
           </span>
           <strong className="ta-tile-value" style={{ color: conf >= 0.5 ? "var(--buy)" : "var(--sell)" }}>{fmtPct(conf)}</strong>

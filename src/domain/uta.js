@@ -612,7 +612,11 @@ export function classifyTier({ mode = "single_ticker", indicators = {}, laneStat
   // Use signed-only pressure (buy$ vs sell$ only) for direction threshold checks.
   // This avoids the "mathematically unreachable" bug where total-basis pressure
   // is capped at signing_confidence and can never reach 0.60 when conf < 0.60.
-  const signedPressure = Number(c.net_signed_pressure ?? signing.net_signed_pressure ?? c.net_notional_pressure ?? signing.net_notional_pressure ?? 0);
+  // Do NOT fall back to net_notional_pressure — it has a different denominator
+  // (all$ vs labeled$ only) and would cross metric boundaries. When net_signed_pressure
+  // is null (no labeled trades), signing_confidence = 0 → threshold = 2.0 → direction
+  // remains "undetermined", so the fallback is unreachable in practice anyway.
+  const signedPressure = Number(c.net_signed_pressure ?? signing.net_signed_pressure ?? 0);
   const signingConfidence = Number(signing.signing_confidence || 0);
   // Mirror the tiered threshold from signPrintsForSession: higher pressure required when conf is lower.
   const classifyPressureThreshold = signingConfidence >= 0.5 ? 0.60 : signingConfidence >= 0.35 ? 0.72 : 2.0;
@@ -1877,7 +1881,10 @@ function buildTradeAnalysis({ ticker, classifier, indicators, signing, blocks, b
   const b = indicators.B || {};
   const direction = classifier.direction || signing.direction || "undetermined";
   // Use signed-only pressure for direction gate (consistent with classifyTier fix)
-  const pressure = Number(signing.net_signed_pressure ?? signing.net_notional_pressure ?? 0);
+  // Use signed-only pressure: (buy$ − sell$) / (buy$ + sell$). Do NOT fall back to
+  // net_notional_pressure — it has a different denominator. When no labeled trades exist,
+  // signing_confidence = 0 → directionalPressureThreshold = 2.0 → directional = false anyway.
+  const pressure = Number(signing.net_signed_pressure ?? 0);
   const pressureTotal = Number(signing.net_notional_pressure ?? 0); // total-basis preserved for display
   const absPressure = Math.abs(pressure);
   const confidence = Number(signing.signing_confidence || 0);
@@ -1966,8 +1973,8 @@ function buildTradeAnalysis({ ticker, classifier, indicators, signing, blocks, b
     review_candidate: "Review candidate. UTA evidence is directional and unusual enough to inspect with price, risk, and catalyst context."
   }[setupStatus];
   const why = directional
-    ? `${ticker} shows ${directionPhrase(direction)} with ${roundNumber(pressure * 100, 1)}% net signed notional pressure and ${roundNumber(confidence * 100, 0)}% signing confidence.`
-    : `${ticker} does not show a directional signed-flow edge: net signed notional pressure is ${roundNumber(pressure * 100, 1)}% with ${roundNumber(confidence * 100, 0)}% signing confidence.`;
+    ? `${ticker} shows ${directionPhrase(direction)} with ${roundNumber(pressure * 100, 1)}% signed flow pressure and ${roundNumber(confidence * 100, 0)}% signing coverage.`
+    : `${ticker} does not show a directional signed-flow edge: signed flow pressure is ${roundNumber(pressure * 100, 1)}% with ${roundNumber(confidence * 100, 0)}% signing coverage.`;
   return {
     schema_version: "uta.trade_analysis.v1",
     bias,

@@ -332,7 +332,9 @@ function ScanCard({ row, onInspect }: { row: ScanRow; onInspect: (r: UtaTickerRe
   const result = row.result;
   const tier = result?.tier || row.preliminary_tier || "D";
   const direction = result?.direction || row.bias || "undetermined";
-  const pressureVal = Number(row.signed_pressure ?? result?.indicators?.C?.net_notional_pressure ?? 0);
+  // row.signed_pressure is net_signed_pressure from scan results. Do NOT fall back to
+  // net_notional_pressure — it has a different denominator and would show a diluted number.
+  const pressureVal = Number(row.signed_pressure ?? 0);
   const setupStatus = row.setup_status || result?.trade_analysis?.setup_status;
   const isClickable = !!result;
   return (

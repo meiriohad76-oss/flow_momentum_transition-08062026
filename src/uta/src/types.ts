@@ -92,12 +92,15 @@ export type UtaTickerResult = {
     activity: {
       latest_bar_date?: string | null;
       latest_close?: number | null;
+      open_price?: number | null;          // today's open (used for intraday change computation)
       prev_close?: number | null;
       price_change_pct?: number | null;
+      intraday_change_pct?: number | null; // current vs today's open; preferred for divergence detection
       volume_ratio?: number | null;
       notional_ratio?: number | null;
       volume_zscore?: number | null;
       notional_zscore?: number | null;
+      max_b_zscore?: number | null;        // max across all B-score components (backend pre-computed)
       total_notional?: number | null;
       analyzed_prints?: number;
       baseline_sessions?: number;
