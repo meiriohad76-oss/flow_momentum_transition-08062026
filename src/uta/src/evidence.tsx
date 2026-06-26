@@ -71,41 +71,64 @@ function BlufFindings({ data }: { data: UtaTickerResult }) {
     },
     {
       label: "Signed flow pressure",
-      value: `${pressure >= 0 ? "+" : ""}${fmtNumber(pressure * 100, 1)}%`,
+      // Show the LABELED-ONLY metric (net_signed_pressure) as the headline value — this is what
+      // the note, status, and threshold logic all use. The diluted overall net (net_notional_pressure,
+      // which includes dark-pool/unsigned volume) is explained in the note text for context.
+      value: `${signedPressure >= 0 ? "+" : ""}${fmtNumber(signedPressure * 100, 1)}% labeled`,
       note: (() => {
-        // Use actual buy/sell/unsigned breakdown from backend when available (post-algorithm-fix).
-        // Fall back to approximation via conf + total pressure for older backend versions.
+        // Use actual buy/sell/unsigned breakdown from backend when available.
         const bp = ta?.pressure;
         const totalN = bp?.buy_notional != null ? (bp.buy_notional + bp.sell_notional + (bp.unsigned_notional ?? 0)) : null;
-        // Clamp fallback values to 0 so old-backend negatives don't produce nonsensical "~−10¢" text.
         const buyFallback  = Math.max(0, Math.round(((conf + pressure) / 2) * 100));
         const sellFallback = Math.max(0, Math.round(((conf - pressure) / 2) * 100));
         const buyC  = totalN && totalN > 0 ? Math.round((bp.buy_notional      / totalN) * 100) : buyFallback;
         const sellC = totalN && totalN > 0 ? Math.round((bp.sell_notional     / totalN) * 100) : sellFallback;
         const unsC  = totalN && totalN > 0 ? Math.round(((bp.unsigned_notional ?? 0) / totalN) * 100) : 100 - buyFallback - sellFallback;
-        // net_signed_pressure = (buy$ - sell$) / (buy$ + sell$) — signed-only, no unknown dilution
-        const signedPressure = Number(bp?.net_signed_pressure ?? pressure);
-        const netPct = Math.round(Math.abs(signedPressure) * 100);
+        // net_signed_pressure = (buy$ - sell$) / (buy$ + sell$) — labeled trades only, no dark-pool dilution.
+        // net_notional_pressure (= pressure) = same but divided by ALL dollar flow including unsigned — lower number.
+        const sp = signedPressure;  // already computed at top of BlufFindings; reuse to stay consistent
+        const netPct = Math.round(Math.abs(sp) * 100);
+        const overallPct = Math.round(Math.abs(pressure) * 100);
         const noteChg = ta?.activity?.intraday_change_pct ?? ta?.activity?.price_change_pct;
         const noteChgCtx = ta?.activity?.intraday_change_pct != null ? "intraday" : "vs prior close";
-        const flowSide = signedPressure >= 0 ? "buy" : "sell";
-        if (Math.abs(signedPressure) >= 0.6) {
-          const confirmedNote = `Strong ${flowSide}-side pressure: ${netPct}% net of labeled trades go to ${flowSide}ers. ${dir.toUpperCase()} directional edge confirmed (threshold: ≥60% of labeled-only flow).`;
+        const flowSide = sp >= 0 ? "buy" : "sell";
+        const oppSide  = sp >= 0 ? "sell" : "buy";
+
+        if (Math.abs(sp) >= 0.6) {
+          // Labeled flow is strongly directional — but check whether the system actually confirmed direction.
+          if (dir === "undetermined") {
+            // Labeled flow is clear, but overall direction was NOT confirmed. This happens when dark-pool
+            // volume is large enough to dilute the overall net below 60%, or signing confidence is too low.
+            return `Of the trades the algorithm could label (buyer lifting the ask vs. seller hitting the bid), `
+              + `${netPct}% went to the ${flowSide} side — a strong lean. However, the overall direction is `
+              + `UNDETERMINED because ${unsC}¢ of every $1 traded was in dark pools or at mid-market prices where `
+              + `direction can't be identified. When those are included, the net drops to ${overallPct}% — below the `
+              + `60% threshold. The labeled signal points ${flowSide}; the full picture is inconclusive. `
+              + `If dark-pool volume is consistently ${flowSide}-side, direction may confirm in later prints.`;
+          }
+          // Direction is confirmed — state it clearly.
+          const dirCap = dir.charAt(0).toUpperCase() + dir.slice(1);
+          const confirmedNote = `${dirCap} directional edge confirmed. ${netPct}% of labeled trades (those where buyer vs. seller could be identified) went to the ${flowSide} side — above the 60% threshold. `
+            + (unsC > 0 ? `The remaining ${unsC}¢ per $1 traded was in dark pools or at mid-market (direction unknown); when included, the diluted net is ${overallPct}%.` : "");
           if (diverging && priceSide != null && priceSide !== "flat") {
             const priceStr = noteChg != null ? ` (${noteChg > 0 ? "+" : ""}${fmtNumber(noteChg, 2)}% ${noteChgCtx})` : "";
-            return `${confirmedNote} ⚠ Price${priceStr} is moving against the confirmed ${dir} flow — possible distribution or false signal. Monitor for price reversal.`;
+            return `${confirmedNote} ⚠ Price${priceStr} is moving against the confirmed ${dir} flow — possible ${flowSide === "buy" ? "distribution (selling into strength)" : "short squeeze"}. Monitor for price reversal before acting.`;
           }
           return confirmedNote;
         }
-        const baseNote = `Of every $1 traded: ~${buyC}¢ labeled buyer-driven, ~${sellC}¢ labeled seller-driven, ~${unsC}¢ unknown direction. "Labeled" means the algorithm could determine who drove the trade (buyer lifting the ask vs. seller hitting the bid) using price-tick rules. The ${unsC}¢ unknown trades executed in dark pools or at mid-market prices where neither side can be identified. Net buyer excess among labeled trades: ${netPct}% — below the 60% threshold needed to call a direction.`;
-        if (priceSide && priceSide !== "flat" && priceSide !== (signedPressure >= 0 ? "bullish" : "bearish")) {
+
+        // Below 60% threshold — explain the breakdown.
+        const baseNote = `Of every $1 traded: ~${buyC}¢ labeled buyer-driven, ~${sellC}¢ labeled seller-driven, ~${unsC}¢ unknown direction (dark pools / mid-market — neither side identifiable). `
+          + `Among labeled trades only, the ${flowSide}-side excess is ${netPct}% — below the 60% threshold needed to confirm a direction. `
+          + (unsC > 30 ? `The high dark-pool share (${unsC}¢) means the true net could be higher or lower depending on how those unknown prints resolved.` : "");
+        if (priceSide && priceSide !== "flat" && priceSide !== (sp >= 0 ? "bullish" : "bearish")) {
           const priceStr = noteChg != null ? ` (${noteChg > 0 ? "+" : ""}${fmtNumber(noteChg, 2)}% ${noteChgCtx})` : "";
-          return `${baseNote} ⚠ Price${priceStr} is moving against the labeled tilt — the ${unsC}¢ unknown trades are likely what's driving the price. If those dark-pool and mid-market prints are sell-heavy, the real net pressure is bearish. Direction cannot be confirmed.`;
+          return `${baseNote} ⚠ Price${priceStr} is moving ${oppSide === "sell" ? "down" : "up"} while labeled flow leans ${flowSide} — the ${unsC}¢ unknown prints are likely driving the price. Direction cannot be confirmed.`;
         }
         return baseNote;
       })(),
-      // Drive status from the same signedPressure field as the note text (avoids badge/note contradiction).
-      status: Math.abs(signedPressure) >= 0.6 ? "pass" : Math.abs(signedPressure) >= 0.3 ? "warn" : "fail",
+      // Status and value both use net_signed_pressure (labeled only) — all three now consistent.
+      status: Math.abs(signedPressure) >= 0.6 ? (dir === "undetermined" ? "warn" : "pass") : Math.abs(signedPressure) >= 0.3 ? "warn" : "fail",
       diverge: diverging,
     },
     {
