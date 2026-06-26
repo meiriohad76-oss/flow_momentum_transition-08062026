@@ -109,7 +109,7 @@ function BlufFindings({ data }: { data: UtaTickerResult }) {
       label: "Signed flow pressure",
       // Show the LABELED-ONLY metric (net_signed_pressure) as the headline value — this is what
       // the note, status, and threshold logic all use. Dark pool volume is shown separately above.
-      value: `${signedPressure >= 0 ? "+" : ""}${fmtNumber(signedPressure * 100, 1)}% labeled`,
+      value: `${signedPressure >= 0 ? "+" : ""}${fmtNumber(signedPressure * 100, 1)}% signed`,
       conviction: Math.abs(signedPressure) >= 0.8 ? "extreme" : Math.abs(signedPressure) >= 0.6 ? "strong" : Math.abs(signedPressure) >= 0.35 ? "moderate" : "weak",
       note: (() => {
         const sp = signedPressure;
@@ -190,15 +190,22 @@ function BlufFindings({ data }: { data: UtaTickerResult }) {
       rec = `${ticker} has some elevated components but hasn't met tier thresholds. Dollar flow B-score is ${fmtNumber(notB, 1)}σ (review trigger: 1.5σ, needs +${fmtNumber(Math.max(0, 1.5 - notB), 1)}σ). Signed pressure is ${fmtNumber(Math.abs(pressure) * 100, 1)}% (trigger: 60%). Both need to confirm together for a tier signal. Monitor and re-analyze.`;
     }
   } else if (tier === "C") {
-    const pressureOK = Math.abs(pressure) >= 0.6;
+    // Use the same metric + threshold the backend uses: net_signed_pressure vs conf-adjusted gate.
+    // net_notional_pressure (the total-diluted metric) is intentionally NOT used here — it causes a
+    // contradiction where pressureOK is false (46% < 60%) while the "Signed flow pressure" row shows
+    // "directional edge confirmed" at 98% (because it uses net_signed_pressure).
+    const confAdjThreshold = conf >= 0.5 ? 0.60 : conf >= 0.35 ? 0.72 : 2.0;
+    const confAdjPct = Math.round(confAdjThreshold * 100);
+    const pressureOK = Math.abs(signedPressure) >= confAdjThreshold;
     const missing: string[] = [];
     if (notB < 1.5) missing.push(`dollar flow (${fmtNumber(notB, 1)}σ, needs 1.5σ)`);
     if (focusCnt === 0) missing.push("block prints (0 above floor)");
     const missingStr = missing.length ? `Not confirmed: ${missing.join(" and ")}. ` : "";
     if (pressureOK) {
-      rec = `${dirCap}-side edge confirmed from ${dataContext}: ${fmtNumber(Math.abs(pressure) * 100, 1)}% of tracked dollars are ${dirFlow}-directed (≥60% threshold met), with ${fmtPct(conf)} signing reliability. ${missingStr}This is a directional bias signal — the flow composition points ${dir}, but total dollar volume is not yet at unusual levels vs ${histContext}. Context-tier only: use as a directional lean, not a trade trigger.`;
+      const confNote = conf < 0.5 ? ` (${confAdjPct}% threshold applies because signing coverage is only ${fmtPct(conf)} — stricter than the normal 60%)` : "";
+      rec = `${dirCap}-side edge confirmed from ${dataContext}: ${fmtNumber(Math.abs(signedPressure) * 100, 1)}% of labeled trades are ${dirFlow}-directed (≥${confAdjPct}% threshold met${confNote}), with ${fmtPct(conf)} of dollar flow labeled. ${missingStr}This is a directional bias signal — the flow composition points ${dir}, but total dollar volume is not yet at unusual levels vs ${histContext}. Context-tier only: use as a directional lean, not a trade trigger.`;
     } else {
-      // B-score triggered Tier C, but signed pressure < 60% — volume anomaly without directional confirmation
+      // B-score triggered Tier C, but signed pressure < conf-adjusted threshold — volume anomaly without direction
       const peakB = Math.max(volB, notB);
       const lastClose = ta?.activity?.latest_close;
       const priceChgPct = ta?.activity?.intraday_change_pct ?? ta?.activity?.price_change_pct;
@@ -210,7 +217,11 @@ function BlufFindings({ data }: { data: UtaTickerResult }) {
         if (priceChgPct > 1) return ` Last close ${priceStr} (+${fmtNumber(priceChgPct, 2)}% vs prior close). Price is rising with extreme volume — possible ACCUMULATION: large money buying, but the signed flow is too balanced to confirm. Watch for pressure to break above 60% (net buy-side) to confirm.`;
         return ` Last close ${priceStr} (${fmtNumber(priceChgPct, 2)}% vs prior close). Price is roughly flat despite extreme volume — indeterminate. Watch for a directional break.`;
       })();
-      rec = `Major volume anomaly — ${fmtNumber(notR, 2)}× normal dollar flow (${fmtNumber(peakB, 1)}σ above ${histContext}) — but NO directional edge: signed pressure is only ${fmtNumber(Math.abs(pressure) * 100, 1)}%, well below the 60% threshold needed to assign a direction. Buyers and sellers are splitting the volume too evenly to confirm a side.${priceNote} Do not trade on direction — there is none yet.`;
+      // Explain which threshold applies (conf-adjusted) and what the actual signed pressure is
+      const threshExplain = conf < 0.5 && conf >= 0.35
+        ? `${fmtNumber(Math.abs(signedPressure) * 100, 1)}% signed pressure on labeled trades — below the ${confAdjPct}% conf-adjusted threshold (stricter than normal 60% because signing coverage is only ${fmtPct(conf)})`
+        : `${fmtNumber(Math.abs(signedPressure) * 100, 1)}% signed pressure — below the 60% threshold needed to assign a direction`;
+      rec = `Major volume anomaly — ${fmtNumber(notR, 2)}× normal dollar flow (${fmtNumber(peakB, 1)}σ above ${histContext}) — but NO directional edge: ${threshExplain}. Buyers and sellers are splitting the volume too evenly to confirm a side.${priceNote} Do not trade on direction — there is none yet.`;
     }
   } else if (tier === "B") {
     rec = `Review-worthy signal. ${dirCap}-side: ${fmtNumber(Math.abs(pressure) * 100, 1)}% signed pressure (confirmed), dollar flow ${fmtNumber(notB, 1)}σ above ${histContext} (above 1.5σ trigger)${focusCnt > 0 ? `, ${focusCnt} focus print${focusCnt !== 1 ? "s" : ""} detected` : ", no block prints yet"}. ${fmtPct(conf)} signing confidence. Validate with options flow, price action, and a provider alert before acting. One strong corroboration would qualify for Tier A.`;
@@ -295,7 +306,7 @@ export function BlufCard({ data, portfolioMode = false }: { data: UtaTickerResul
           <div className="bluf-meta">
             <DirTag direction={data.direction} />
             <BandTag band={analysis?.anomaly_band} />
-            <Pill tone="neutral">Direction confidence {fmtPct(data.signing_confidence)}</Pill>
+            <Pill tone="neutral" title="Fraction of dollar flow that could be directionally labeled (buy vs sell). Higher = more reliable direction read.">Signing coverage {fmtPct(data.signing_confidence)}</Pill>
             {analysis?.activity?.latest_close != null && (() => {
               // Prefer intraday change (vs today's open) — overnight gap distorts the vs-prior-close number.
               const intradayChg = analysis.activity.intraday_change_pct;
@@ -372,11 +383,20 @@ export function BlufCard({ data, portfolioMode = false }: { data: UtaTickerResul
 
 export function CorroborationPanel({ data }: { data: UtaTickerResult }) {
   // Tier D has no computed corroboration — show nothing
-  if (String(data.tier || "D").toUpperCase() === "D") return null;
+  const tierStr = String(data.tier || "D").toUpperCase();
+  if (tierStr === "D") return null;
   const corr = data.trade_analysis?.corroboration || {};
   // Backend emits independent_confirmation_count (not independent_strong_count — types.ts was wrong).
   const strongCount = corr.independent_confirmation_count || corr.independent_strong_count || 0;
   const isUndetermined = data.direction !== "bullish" && data.direction !== "bearish";
+  // Tier-aware upgrade hint shown in the section header meta line.
+  // Tier C → B requires B-score ≥ 1.5σ AND direction — corroboration is NOT the path to Tier B.
+  // Tier B → A DOES require corroboration (≥ 1 strong signal).
+  const corrMeta = tierStr === "A"
+    ? `${strongCount} of 3 strong signals confirmed · Tier A active`
+    : tierStr === "B"
+    ? `${strongCount} of 3 strong signals confirmed · 1 confirmed signal upgrades to Tier A`
+    : `${strongCount} of 3 strong signals confirmed · Tier B requires elevated B-score, not corroboration`;
 
   // Rows: [label, value, weight, hint-when-unconfirmed, source]
   // source: "auto" = backend computes from bar/print data | "manual" = requires external check
@@ -455,11 +475,16 @@ export function CorroborationPanel({ data }: { data: UtaTickerResult }) {
     <section className="panel">
       <SectionHeader
         title="Corroboration"
-        meta={`${strongCount} of 3 strong signals confirmed · Tier A needs ≥ 1`}
+        meta={corrMeta}
       />
       <p className="corr-intro">
-        Confirming even one <b>Strong</b> item raises conviction and may qualify for Tier A.
-        <b> Auto</b> signals are computed from bar/print data. <b>Manual</b> signals require an external check.
+        {tierStr === "B"
+          ? <>Confirming even one <b>Strong</b> item raises conviction and may qualify for <b>Tier A</b>. </>
+          : tierStr === "C"
+          ? <>Corroboration supports conviction but <b>Tier B requires an elevated B-score</b> (≥1.5σ dollar flow), not corroboration alone. These signals add context and help validate the direction. </>
+          : <>Corroboration confirmed — Tier A maintained. </>
+        }
+        <b>Auto</b> signals are computed from bar/print data. <b>Manual</b> signals require an external check.
       </p>
       {isUndetermined && (() => {
         const rawPressure = Number(data.trade_analysis?.pressure?.net_signed_pressure ?? data.indicators?.C?.net_notional_pressure ?? 0);

@@ -2120,8 +2120,8 @@ function buildLiveBluf({ ticker, classifier, indicators, signing, blocks, baseli
       headline,
       what_happened: `${inputs.trades.length} live Massive prints and ${inputs.bars.length} daily bars were analyzed. Volume is ${roundNumber(c.volume_ratio, 2) ?? "N/A"}x baseline, notional is ${roundNumber(c.notional_ratio, 2) ?? "N/A"}x baseline, with ${focusText}.`,
       why_it_matters: direction === "neutral" || direction === "undetermined"
-        ? `The activity does not currently resolve into a trade bias: signed notional pressure is ${pressurePct}% and confidence is ${roundNumber(signing.signing_confidence * 100, 0)}%. This is a monitoring state, not a bullish/bearish setup.`
-        : `Signed order flow is ${direction}: net notional pressure is ${pressurePct}% with ${roundNumber(signing.signing_confidence * 100, 0)}% signing confidence. B-score peak is ${roundNumber(Math.max(Number(b.volume_zscore || 0), Number(b.notional_zscore || 0)), 2)} sigma.`,
+        ? `The activity does not currently resolve into a trade bias: net signed pressure is ${pressurePct}% on labeled trades (signing coverage: ${roundNumber(signing.signing_confidence * 100, 0)}%). This is a monitoring state, not a bullish/bearish setup.`
+        : `Signed order flow is ${direction}: net signed pressure is ${pressurePct}% with ${roundNumber(signing.signing_confidence * 100, 0)}% signing coverage. B-score peak is ${roundNumber(Math.max(Number(b.volume_zscore || 0), Number(b.notional_zscore || 0)), 2)} sigma.`,
       what_to_check: trade.setup_status === "review_candidate"
         ? "Before trade review: confirm price structure/VWAP, catalyst, spread/liquidity, risk box, and whether the move is continuation or exhaustion."
         : "Watch for a new live cycle with stronger signed pressure, larger focus-print share, provider alerts, options confirmation, or a catalyst before treating this as trade evidence.",
